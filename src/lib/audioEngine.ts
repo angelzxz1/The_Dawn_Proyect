@@ -68,13 +68,43 @@ class AudioEngine {
     return this.started;
   }
 
+  // --- Master bus: every track channel routes through this before hitting
+  // the speakers, so the Master track's fader/meter reflects the real mix. ---
+  private masterChannel: Tone.Channel | null = null;
+  private masterMeter: Tone.Meter | null = null;
+
+  private ensureMaster(): { channel: Tone.Channel; meter: Tone.Meter } {
+    if (!this.masterChannel || !this.masterMeter) {
+      this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
+      this.masterChannel = new Tone.Channel({ volume: 0, pan: 0 })
+        .connect(this.masterMeter)
+        .toDestination();
+    }
+    return { channel: this.masterChannel, meter: this.masterMeter };
+  }
+
+  setMasterVolume(db: number): void {
+    this.ensureMaster().channel.volume.value = db;
+  }
+
+  setMasterPan(pan: number): void {
+    this.ensureMaster().channel.pan.value = pan;
+  }
+
+  /** Current master output level, 0-1. */
+  getMasterLevel(): number {
+    const value = this.ensureMaster().meter.getValue();
+    const level = Array.isArray(value) ? value[0] : value;
+    return Number.isFinite(level) ? level : 0;
+  }
+
   addChannel(id: string): void {
     if (this.channels.has(id)) return;
 
     const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
     const channel = new Tone.Channel({ volume: 0, pan: 0 })
       .connect(meter)
-      .toDestination();
+      .connect(this.ensureMaster().channel);
     this.pendingLoads += 1;
     this.setReady(false);
     const onSettled = () => {

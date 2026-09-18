@@ -17,6 +17,10 @@ export interface ChannelConfig {
   colorIndex: number;
 }
 
+/** A clip's content type - only "midi" is implemented today, but clip
+ * context menus already branch on this so audio clips can slot in later. */
+export type ClipType = "midi" | "audio";
+
 export interface TimeSignature {
   numerator: number;
   denominator: number;

@@ -19,3 +19,9 @@ const PALETTE: TrackColor[] = [
 export function trackColorForIndex(index: number): TrackColor {
   return PALETTE[index % PALETTE.length];
 }
+
+/** Neutral color for the Master bus row, distinct from any track's color. */
+export const MASTER_COLOR: TrackColor = {
+  accent: "#c7c9d1",
+  accentSoft: "rgba(199,201,209,0.16)",
+};

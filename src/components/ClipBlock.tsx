@@ -18,6 +18,7 @@ interface ClipBlockProps {
   onEdit: () => void;
   onMove: (offsetSeconds: number) => void;
   onResize: (lengthSeconds: number) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
 const MIN_MIDI = 36;
@@ -47,6 +48,7 @@ export function ClipBlock({
   onEdit,
   onMove,
   onResize,
+  onContextMenu,
 }: ClipBlockProps) {
   const laneHeight = TRACK_ROW_HEIGHT - LANE_PADDING * 2 - 18;
   const lastClickAt = useRef(0);
@@ -120,7 +122,12 @@ export function ClipBlock({
   return (
     <div
       onPointerDown={handleBodyPointerDown}
-      title="Drag to move · drag right edge to resize · click twice to edit"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu(e);
+      }}
+      title="Drag to move · drag right edge to resize · click twice to edit · right-click for options"
       className={`group absolute top-2.5 flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
         selected ? "ring-2 ring-accent" : ""
       }`}

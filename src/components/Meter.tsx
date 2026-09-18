@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { audioEngine } from "@/lib/audioEngine";
 
 interface MeterProps {
-  channelId: string;
+  channelId: string | "master";
 }
 
 const PEAK_DECAY_PER_SEC = 0.6;
@@ -22,7 +22,9 @@ export function Meter({ channelId }: MeterProps) {
       const dt = lastFrame.current ? (now - lastFrame.current) / 1000 : 0;
       lastFrame.current = now;
 
-      const level = Math.min(1, Math.max(0, audioEngine.getLevel(channelId)));
+      const raw =
+        channelId === "master" ? audioEngine.getMasterLevel() : audioEngine.getLevel(channelId);
+      const level = Math.min(1, Math.max(0, raw));
       peakLevel.current = Math.max(
         level,
         peakLevel.current - PEAK_DECAY_PER_SEC * dt

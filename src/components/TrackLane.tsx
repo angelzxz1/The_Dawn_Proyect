@@ -3,7 +3,7 @@
 import { ClipBlock } from "./ClipBlock";
 import type { NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
-import { computeBarMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
 interface TrackLaneProps {
   notes: NoteEvent[];
@@ -19,6 +19,8 @@ interface TrackLaneProps {
   onEdit: () => void;
   onMoveClip: (offsetSeconds: number) => void;
   onResizeClip: (lengthSeconds: number) => void;
+  onClipContextMenu: (e: React.MouseEvent) => void;
+  onLaneContextMenu: (e: React.MouseEvent, atSeconds: number) => void;
 }
 
 export function TrackLane({
@@ -35,12 +37,19 @@ export function TrackLane({
   onEdit,
   onMoveClip,
   onResizeClip,
+  onClipContextMenu,
+  onLaneContextMenu,
 }: TrackLaneProps) {
-  const marks = computeBarMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
+  const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
 
   return (
     <div
       onClick={onSelect}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        onLaneContextMenu(e, Math.max(0, (e.clientX - rect.left) / pxPerSecond));
+      }}
       className={`relative cursor-pointer border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
       }`}
@@ -49,8 +58,17 @@ export function TrackLane({
       {marks.map((mark) => (
         <div
           key={mark.index}
-          className="absolute top-0 h-full border-l border-border/40"
-          style={{ left: mark.left }}
+          className="pointer-events-none absolute top-0 h-full"
+          style={{
+            left: mark.left,
+            borderLeft: `1px solid ${
+              mark.strength === "bar"
+                ? "rgba(230,230,235,0.22)"
+                : mark.strength === "beat"
+                  ? "rgba(230,230,235,0.1)"
+                  : "rgba(230,230,235,0.045)"
+            }`,
+          }}
         />
       ))}
       <ClipBlock
@@ -66,6 +84,7 @@ export function TrackLane({
         onEdit={onEdit}
         onMove={onMoveClip}
         onResize={onResizeClip}
+        onContextMenu={onClipContextMenu}
       />
     </div>
   );

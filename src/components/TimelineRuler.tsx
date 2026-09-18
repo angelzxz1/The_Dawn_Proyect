@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { RULER_HEIGHT } from "@/lib/timeline";
+import { RULER_HEIGHT, computeAdaptiveMarks, snapUnitFor } from "@/lib/timeline";
 
 interface TimelineRulerProps {
   bpm: number;
@@ -18,35 +18,18 @@ export function TimelineRuler({
   beatsPerBar,
   onSeek,
 }: TimelineRulerProps) {
-  const secondsPerBeat = 60 / bpm;
-
-  // Adaptive grid: bars always shown; beat subdivisions and their labels
-  // fade in as you zoom in, the same way the piano roll editor's ruler does.
-  const marks = useMemo(() => {
-    const totalBeats = Math.ceil(totalSeconds / secondsPerBeat);
-    const beatPx = secondsPerBeat * pxPerSecond;
-    const showBeats = beatPx >= 22;
-    const lines: {
-      left: number;
-      strength: "bar" | "beat";
-      label: string | null;
-      index: number;
-    }[] = [];
-    for (let i = 0; i <= totalBeats; i++) {
-      const withinBar = i % beatsPerBar;
-      const barNumber = Math.floor(i / beatsPerBar) + 1;
-      const beatNumber = withinBar + 1;
-      const strength: "bar" | "beat" = withinBar === 0 ? "bar" : "beat";
-      const label =
-        withinBar === 0 ? `${barNumber}` : showBeats ? `${barNumber}.${beatNumber}` : null;
-      lines.push({ left: i * secondsPerBeat * pxPerSecond, strength, label, index: i });
-    }
-    return lines;
-  }, [totalSeconds, secondsPerBeat, pxPerSecond, beatsPerBar]);
+  // Adaptive grid: bars always shown; beat and then 16th-note subdivisions
+  // (with their labels) fade in as you zoom in, the same progression as the
+  // piano roll editor's ruler - "1", then "1.2", then "1.2.3".
+  const marks = useMemo(
+    () => computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar),
+    [bpm, totalSeconds, pxPerSecond, beatsPerBar]
+  );
 
   const seekFromClientX = (clientX: number, rect: DOMRect) => {
-    const seconds = Math.max(0, (clientX - rect.left) / pxPerSecond);
-    onSeek(seconds);
+    const raw = Math.max(0, (clientX - rect.left) / pxPerSecond);
+    const unit = snapUnitFor(bpm, pxPerSecond, beatsPerBar);
+    onSeek(Math.max(0, Math.round(raw / unit) * unit));
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -69,19 +52,34 @@ export function TimelineRuler({
   return (
     <div
       onPointerDown={handlePointerDown}
-      title="Click or drag to move the playhead"
+      title="Click or drag to move the playhead (snaps to the grid)"
       className="relative cursor-pointer bg-surface"
       style={{ height: RULER_HEIGHT, width: totalSeconds * pxPerSecond }}
     >
       {marks.map((mark) => (
         <div
           key={mark.index}
-          className={`pointer-events-none absolute top-0 h-full pl-1.5 pt-1.5 text-[10px] ${
-            mark.strength === "bar" ? "border-l border-border/70 text-muted" : "text-muted/50"
-          }`}
-          style={{ left: mark.left }}
+          className="pointer-events-none absolute top-0 h-full"
+          style={{
+            left: mark.left,
+            borderLeft: `1px solid ${
+              mark.strength === "bar"
+                ? "rgba(230,230,235,0.4)"
+                : mark.strength === "beat"
+                  ? "rgba(230,230,235,0.2)"
+                  : "rgba(230,230,235,0.09)"
+            }`,
+          }}
         >
-          {mark.label}
+          {mark.label && (
+            <span
+              className={`pl-1.5 pt-1.5 text-[10px] ${
+                mark.strength === "bar" ? "text-muted" : "text-muted/50"
+              }`}
+            >
+              {mark.label}
+            </span>
+          )}
         </div>
       ))}
     </div>

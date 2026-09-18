@@ -1,14 +1,26 @@
 import * as Tone from "tone";
-import type { NoteEvent } from "./types";
+import type { NoteEvent, InstrumentType, ClipType } from "./types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
+import { DrumKit, type Instrument } from "./drumKit";
+import { type EffectType, defaultParams } from "./effects";
+
+interface EffectNode {
+  id: string;
+  type: EffectType;
+  node: Tone.ToneAudioNode;
+}
 
 interface ChannelNodes {
   channel: Tone.Channel;
-  sampler: Tone.Sampler;
   meter: Tone.Meter;
+  instrumentType: InstrumentType;
+  instrument: Instrument;
   part: Tone.Part<NoteEvent> | null;
   /** Notes currently held down live (not yet released), keyed by note name. */
   heldNotes: Set<string>;
+  effects: EffectNode[];
+  clipType: ClipType;
+  audioPlayer: Tone.Player | null;
 }
 
 interface RecordingState {
@@ -19,6 +31,94 @@ interface RecordingState {
 }
 
 const MIN_NOTE_DURATION = 0.05;
+let effectIdCounter = 0;
+
+function createInstrument(
+  type: InstrumentType,
+  onSettled: () => void
+): Instrument {
+  if (type === "drums") {
+    // Synth-built, so it's "ready" the instant it's constructed.
+    queueMicrotask(onSettled);
+    return new DrumKit();
+  }
+  return new Tone.Sampler({
+    urls: PIANO_SAMPLE_URLS,
+    baseUrl: PIANO_SAMPLE_BASE_URL,
+    release: 1,
+    attack: 0,
+    onload: onSettled,
+    onerror: onSettled,
+  });
+}
+
+function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
+  switch (type) {
+    case "eq3":
+      return new Tone.EQ3({
+        low: params.low,
+        mid: params.mid,
+        high: params.high,
+        lowFrequency: params.lowFrequency,
+        highFrequency: params.highFrequency,
+      });
+    case "compressor":
+      return new Tone.Compressor({
+        threshold: params.threshold,
+        ratio: params.ratio,
+        attack: params.attack,
+        release: params.release,
+      });
+    case "delay":
+      return new Tone.FeedbackDelay({
+        delayTime: params.delayTime,
+        feedback: params.feedback,
+        wet: params.wet,
+      });
+    case "reverb":
+      return new Tone.Reverb({ decay: params.decay, wet: params.wet });
+  }
+}
+
+function applyEffectParam(
+  node: Tone.ToneAudioNode,
+  type: EffectType,
+  key: string,
+  value: number
+): void {
+  switch (type) {
+    case "eq3": {
+      const eq = node as Tone.EQ3;
+      if (key === "low") eq.low.value = value;
+      else if (key === "mid") eq.mid.value = value;
+      else if (key === "high") eq.high.value = value;
+      else if (key === "lowFrequency") eq.lowFrequency.value = value;
+      else if (key === "highFrequency") eq.highFrequency.value = value;
+      break;
+    }
+    case "compressor": {
+      const comp = node as Tone.Compressor;
+      if (key === "threshold") comp.threshold.value = value;
+      else if (key === "ratio") comp.ratio.value = value;
+      else if (key === "attack") comp.attack.value = value;
+      else if (key === "release") comp.release.value = value;
+      break;
+    }
+    case "delay": {
+      const delay = node as Tone.FeedbackDelay;
+      if (key === "delayTime") delay.delayTime.value = value;
+      else if (key === "feedback") delay.feedback.value = value;
+      else if (key === "wet") delay.wet.value = value;
+      break;
+    }
+    case "reverb": {
+      const reverb = node as Tone.Reverb;
+      if (key === "decay") reverb.decay = value;
+      else if (key === "wet") reverb.wet.value = value;
+      break;
+    }
+  }
+}
 
 class AudioEngine {
   private channels = new Map<string, ChannelNodes>();
@@ -98,7 +198,7 @@ class AudioEngine {
     return Number.isFinite(level) ? level : 0;
   }
 
-  addChannel(id: string): void {
+  addChannel(id: string, instrument: InstrumentType = "piano"): void {
     if (this.channels.has(id)) return;
 
     const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
@@ -111,35 +211,118 @@ class AudioEngine {
       this.pendingLoads = Math.max(0, this.pendingLoads - 1);
       if (this.pendingLoads === 0) this.setReady(true);
     };
-    const sampler = new Tone.Sampler({
-      urls: PIANO_SAMPLE_URLS,
-      baseUrl: PIANO_SAMPLE_BASE_URL,
-      release: 1,
-      attack: 0,
-      onload: onSettled,
-      onerror: onSettled,
-    }).connect(channel);
 
     this.channels.set(id, {
       channel,
-      sampler,
       meter,
+      instrumentType: instrument,
+      instrument: createInstrument(instrument, onSettled),
       part: null,
       heldNotes: new Set(),
+      effects: [],
+      clipType: "midi",
+      audioPlayer: null,
     });
+    this.rewireChannel(id);
   }
 
   removeChannel(id: string): void {
     const nodes = this.channels.get(id);
     if (!nodes) return;
     nodes.part?.dispose();
-    nodes.sampler.dispose();
+    nodes.instrument.dispose();
+    nodes.audioPlayer?.dispose();
+    nodes.effects.forEach((e) => e.node.dispose());
     nodes.channel.dispose();
     nodes.meter.dispose();
     this.channels.delete(id);
     if (this.recording?.channelId === id) {
       this.recording = null;
     }
+  }
+
+  /** Reconnects a channel's active sound source (its instrument for a MIDI
+   * clip, or its player for an audio clip) through the effects chain, in
+   * order, into the channel strip. Called whenever the instrument, the
+   * clip type, or the effects chain itself changes. */
+  private rewireChannel(id: string): void {
+    const nodes = this.channels.get(id);
+    if (!nodes) return;
+
+    // disconnect() with no args drops every outgoing connection, so both
+    // possible sources can be safely detached here regardless of which one
+    // is currently active.
+    nodes.instrument.disconnect();
+    nodes.audioPlayer?.disconnect();
+    nodes.effects.forEach((e) => e.node.disconnect());
+
+    type Connectable = { connect: (n: Tone.InputNode) => unknown };
+    let current: Connectable =
+      nodes.clipType === "audio" && nodes.audioPlayer ? nodes.audioPlayer : nodes.instrument;
+    nodes.effects.forEach((e) => {
+      current.connect(e.node);
+      current = e.node;
+    });
+    current.connect(nodes.channel);
+  }
+
+  /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums),
+   * disposing the old one and reconnecting the signal chain. */
+  setInstrument(id: string, type: InstrumentType): void {
+    const nodes = this.channels.get(id);
+    if (!nodes || nodes.instrumentType === type) return;
+    nodes.instrument.dispose();
+    this.pendingLoads += 1;
+    this.setReady(false);
+    const onSettled = () => {
+      this.pendingLoads = Math.max(0, this.pendingLoads - 1);
+      if (this.pendingLoads === 0) this.setReady(true);
+    };
+    nodes.instrument = createInstrument(type, onSettled);
+    nodes.instrumentType = type;
+    this.rewireChannel(id);
+  }
+
+  // --- Effects chain ---
+
+  addEffect(id: string, type: EffectType): { id: string; type: EffectType; params: Record<string, number> } | null {
+    const nodes = this.channels.get(id);
+    if (!nodes) return null;
+    const params = defaultParams(type);
+    const node = createEffectNode(type, params);
+    const effectId = `fx-${++effectIdCounter}`;
+    nodes.effects.push({ id: effectId, type, node });
+    this.rewireChannel(id);
+    return { id: effectId, type, params };
+  }
+
+  removeEffect(id: string, effectId: string): void {
+    const nodes = this.channels.get(id);
+    if (!nodes) return;
+    const idx = nodes.effects.findIndex((e) => e.id === effectId);
+    if (idx === -1) return;
+    nodes.effects[idx].node.dispose();
+    nodes.effects.splice(idx, 1);
+    this.rewireChannel(id);
+  }
+
+  /** Moves an effect one slot earlier (-1) or later (+1) in the chain. */
+  reorderEffect(id: string, effectId: string, direction: -1 | 1): void {
+    const nodes = this.channels.get(id);
+    if (!nodes) return;
+    const idx = nodes.effects.findIndex((e) => e.id === effectId);
+    const target = idx + direction;
+    if (idx === -1 || target < 0 || target >= nodes.effects.length) return;
+    const [entry] = nodes.effects.splice(idx, 1);
+    nodes.effects.splice(target, 0, entry);
+    this.rewireChannel(id);
+  }
+
+  setEffectParam(id: string, effectId: string, key: string, value: number): void {
+    const nodes = this.channels.get(id);
+    const effect = nodes?.effects.find((e) => e.id === effectId);
+    if (!effect) return;
+    this.safe(() => applyEffectParam(effect.node, effect.type, key, value));
   }
 
   setVolume(id: string, db: number): void {
@@ -166,7 +349,7 @@ class AudioEngine {
     const nodes = this.channels.get(channelId);
     if (!nodes || nodes.heldNotes.has(note)) return;
     nodes.heldNotes.add(note);
-    this.safe(() => nodes.sampler.triggerAttack(note, Tone.now(), velocity));
+    this.safe(() => nodes.instrument.triggerAttack(note, Tone.now(), velocity));
 
     if (this.recording && this.recording.channelId === channelId) {
       this.recording.open.set(note, {
@@ -181,7 +364,7 @@ class AudioEngine {
     const nodes = this.channels.get(channelId);
     if (!nodes || !nodes.heldNotes.has(note)) return;
     nodes.heldNotes.delete(note);
-    this.safe(() => nodes.sampler.triggerRelease(note, Tone.now()));
+    this.safe(() => nodes.instrument.triggerRelease(note, Tone.now()));
 
     const rec = this.recording;
     if (rec && rec.channelId === channelId) {
@@ -218,7 +401,7 @@ class AudioEngine {
     const scheduled = notes.map((n) => ({ ...n, time: offsetSeconds + n.time }));
     const part = new Tone.Part<NoteEvent>((time, value) => {
       this.safe(() =>
-        nodes.sampler.triggerAttackRelease(
+        nodes.instrument.triggerAttackRelease(
           value.note,
           Math.max(value.duration, MIN_NOTE_DURATION),
           time,
@@ -227,6 +410,72 @@ class AudioEngine {
       );
     }, scheduled).start(0);
     nodes.part = part;
+  }
+
+  // --- Audio clips ---
+
+  /**
+   * Loads an audio file's object URL as this channel's clip, replacing any
+   * MIDI notes. `trimSeconds`, if given, caps playback to that much of the
+   * file (used when the clip block is resized shorter than the source).
+   */
+  setAudioClip(
+    channelId: string,
+    url: string,
+    offsetSeconds: number,
+    trimSeconds?: number
+  ): void {
+    const nodes = this.channels.get(channelId);
+    if (!nodes) return;
+    nodes.part?.dispose();
+    nodes.part = null;
+    nodes.audioPlayer?.dispose();
+    nodes.clipType = "audio";
+
+    this.pendingLoads += 1;
+    this.setReady(false);
+    const onSettled = () => {
+      this.pendingLoads = Math.max(0, this.pendingLoads - 1);
+      if (this.pendingLoads === 0) this.setReady(true);
+    };
+    const player = new Tone.Player({
+      url,
+      onload: () => {
+        onSettled();
+        this.safe(() => {
+          player.sync();
+          if (trimSeconds !== undefined) player.start(offsetSeconds, 0, trimSeconds);
+          else player.start(offsetSeconds);
+        });
+      },
+      onerror: onSettled,
+    });
+    nodes.audioPlayer = player;
+    this.rewireChannel(channelId);
+  }
+
+  /** Re-times an already-loaded audio clip after it's moved or resized on
+   * the timeline, without re-decoding the file. */
+  setAudioTrim(channelId: string, offsetSeconds: number, trimSeconds?: number): void {
+    const nodes = this.channels.get(channelId);
+    const player = nodes?.audioPlayer;
+    if (!player || !player.loaded) return;
+    this.safe(() => {
+      player.unsync();
+      player.sync();
+      if (trimSeconds !== undefined) player.start(offsetSeconds, 0, trimSeconds);
+      else player.start(offsetSeconds);
+    });
+  }
+
+  /** Clears a channel's audio clip, reverting it back to a (empty) MIDI clip. */
+  clearAudioClip(channelId: string): void {
+    const nodes = this.channels.get(channelId);
+    if (!nodes) return;
+    nodes.audioPlayer?.dispose();
+    nodes.audioPlayer = null;
+    nodes.clipType = "midi";
+    this.rewireChannel(channelId);
   }
 
   /** Starts/resumes playback from wherever the transport currently sits
@@ -242,7 +491,7 @@ class AudioEngine {
   pauseAll(): void {
     Tone.getTransport().pause();
     this.channels.forEach((nodes) => {
-      this.safe(() => nodes.sampler.releaseAll());
+      this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
     });
   }
@@ -254,7 +503,7 @@ class AudioEngine {
     transport.stop();
     transport.position = 0;
     this.channels.forEach((nodes) => {
-      this.safe(() => nodes.sampler.releaseAll());
+      this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
     });
     if (this.recording) {
@@ -297,7 +546,7 @@ class AudioEngine {
         duration: Math.max(transportSeconds - open.time, MIN_NOTE_DURATION),
         velocity: open.velocity,
       });
-      this.safe(() => nodes?.sampler.triggerRelease(note, Tone.now()));
+      this.safe(() => nodes?.instrument.triggerRelease(note, Tone.now()));
     });
     nodes?.heldNotes.clear();
 

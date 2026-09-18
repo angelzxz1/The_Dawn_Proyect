@@ -14,17 +14,29 @@ export function getCopiedNotes(): NoteEvent[] | null {
   return noteClipboard;
 }
 
-interface ClipClipboard {
-  notes: NoteEvent[];
-  length: number;
+/** A copied clip is either a MIDI clip's notes or an audio clip's decoded
+ * file - the arrangement view's clipboard handles both, branching the same
+ * way the clip context menu already does. */
+export type ClipboardClip =
+  | { kind: "midi"; notes: NoteEvent[]; length: number }
+  | {
+      kind: "audio";
+      url: string;
+      fileName: string;
+      durationSeconds: number;
+      peaks: number[];
+      length: number;
+    };
+
+let clipClipboard: ClipboardClip | null = null;
+
+export function copyClip(data: ClipboardClip): void {
+  clipClipboard =
+    data.kind === "midi"
+      ? { ...data, notes: data.notes.map((n) => ({ ...n })) }
+      : { ...data };
 }
 
-let clipClipboard: ClipClipboard | null = null;
-
-export function copyClip(data: ClipClipboard): void {
-  clipClipboard = { notes: data.notes.map((n) => ({ ...n })), length: data.length };
-}
-
-export function getCopiedClip(): ClipClipboard | null {
+export function getCopiedClip(): ClipboardClip | null {
   return clipClipboard;
 }

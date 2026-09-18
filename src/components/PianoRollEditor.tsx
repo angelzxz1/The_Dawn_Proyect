@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/lib/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
-import type { NoteEvent } from "@/lib/types";
+import { DRUM_PADS, drumLabelForNote } from "@/lib/drums";
+import type { InstrumentType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { audioEngine } from "@/lib/audioEngine";
 import { copyNotes, getCopiedNotes } from "@/lib/clipboard";
@@ -13,6 +14,7 @@ import { ScaleSelector } from "./ScaleSelector";
 interface PianoRollEditorProps {
   channelName: string;
   color: TrackColor;
+  instrument?: InstrumentType;
   notes: NoteEvent[];
   length: number;
   bpm: number;
@@ -78,9 +80,25 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
 }
 
+const DRUM_MIDIS = new Set(DRUM_PADS.map((p) => noteNameToMidi(p.note)));
+
+function nearestDrumMidi(midi: number): number {
+  let best = DRUM_PADS[0].note;
+  let bestDist = Infinity;
+  for (const pad of DRUM_PADS) {
+    const dist = Math.abs(noteNameToMidi(pad.note) - midi);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = pad.note;
+    }
+  }
+  return noteNameToMidi(best);
+}
+
 export function PianoRollEditor({
   channelName,
   color,
+  instrument = "piano",
   notes: initialNotes,
   length,
   bpm,
@@ -125,12 +143,15 @@ export function PianoRollEditor({
     onChange(stripIds(next));
   };
 
-  // Center the initial vertical scroll on the notes (or middle C if empty).
+  // Center the initial vertical scroll on the notes (or middle C - or the
+  // drum pad rows, for a drum track - if empty).
   useEffect(() => {
     const centerMidi =
       notes.length > 0
         ? notes.reduce((sum, n) => sum + noteNameToMidi(n.note), 0) / notes.length
-        : 60;
+        : instrument === "drums"
+          ? noteNameToMidi("F1")
+          : 60;
     const top = rowTop(centerMidi) - GRID_VIEWPORT_H / 2 + ROW_H / 2;
     if (gridScrollRef.current) gridScrollRef.current.scrollTop = Math.max(0, top);
     if (keysViewportRef.current) keysViewportRef.current.scrollTop = Math.max(0, top);
@@ -253,7 +274,8 @@ export function PianoRollEditor({
   const handleDrawPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const time = snapTime(xToTime(e.clientX));
-    const midi = yToMidi(e.clientY);
+    const rawMidi = yToMidi(e.clientY);
+    const midi = instrument === "drums" ? nearestDrumMidi(rawMidi) : rawMidi;
     const note = midiToNoteName(midi);
     const id = `n${idCounter++}`;
     const draft: EditableNote = {
@@ -696,17 +718,25 @@ export function PianoRollEditor({
                 {pitchRows.map((midi) => {
                   const black = isBlackKey(midi);
                   const inScale = scaleSetting.enabled && isNoteInScale(midi, scaleSetting);
+                  const drumLabel =
+                    instrument === "drums" ? drumLabelForNote(midiToNoteName(midi)) : undefined;
                   return (
                     <div
                       key={midi}
                       onPointerDown={() => onPreviewNote(midiToNoteName(midi))}
-                      title={midiToNoteName(midi)}
+                      title={drumLabel ?? midiToNoteName(midi)}
                       className={`absolute left-0 w-full cursor-pointer border-b border-black/30 text-right pr-1 text-[8px] leading-[13px] ${
-                        black ? "bg-[#0d0d10] text-muted/60" : "bg-[#e9e9ec] text-black/50"
-                      } ${inScale ? "ring-1 ring-inset ring-accent/40" : ""}`}
+                        instrument === "drums"
+                          ? drumLabel
+                            ? "bg-accent/15 font-medium text-accent"
+                            : "bg-[#0d0d10] text-muted/30"
+                          : black
+                            ? "bg-[#0d0d10] text-muted/60"
+                            : "bg-[#e9e9ec] text-black/50"
+                      } ${inScale && instrument !== "drums" ? "ring-1 ring-inset ring-accent/40" : ""}`}
                       style={{ top: rowTop(midi), height: ROW_H }}
                     >
-                      {midi % 12 === 0 ? midiToNoteName(midi) : ""}
+                      {drumLabel ?? (midi % 12 === 0 ? midiToNoteName(midi) : "")}
                     </div>
                   );
                 })}
@@ -733,6 +763,7 @@ export function PianoRollEditor({
                       SCALE_ROOTS.indexOf(
                         scaleSetting.root as (typeof SCALE_ROOTS)[number]
                       ));
+                  const isDrumRow = instrument === "drums" && DRUM_MIDIS.has(midi);
                   return (
                     <div
                       key={midi}
@@ -740,13 +771,18 @@ export function PianoRollEditor({
                       style={{
                         top: rowTop(midi),
                         height: ROW_H,
-                        background: inScale
-                          ? isRoot
-                            ? color.accentSoft
-                            : "rgba(94,177,255,0.07)"
-                          : black
-                            ? "rgba(0,0,0,0.22)"
-                            : "transparent",
+                        background:
+                          instrument === "drums"
+                            ? isDrumRow
+                              ? "rgba(94,177,255,0.07)"
+                              : "rgba(0,0,0,0.22)"
+                            : inScale
+                              ? isRoot
+                                ? color.accentSoft
+                                : "rgba(94,177,255,0.07)"
+                              : black
+                                ? "rgba(0,0,0,0.22)"
+                                : "transparent",
                       }}
                     />
                   );

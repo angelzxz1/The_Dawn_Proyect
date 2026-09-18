@@ -1,12 +1,15 @@
 "use client";
 
 import { ClipBlock } from "./ClipBlock";
-import type { NoteEvent } from "@/lib/types";
+import type { ClipType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
 interface TrackLaneProps {
+  clipType?: ClipType;
   notes: NoteEvent[];
+  audioPeaks?: number[];
+  audioFileName?: string;
   color: TrackColor;
   offset: number;
   length: number;
@@ -24,7 +27,10 @@ interface TrackLaneProps {
 }
 
 export function TrackLane({
+  clipType = "midi",
   notes,
+  audioPeaks,
+  audioFileName,
   color,
   offset,
   length,
@@ -72,7 +78,10 @@ export function TrackLane({
         />
       ))}
       <ClipBlock
+        clipType={clipType}
         notes={notes}
+        audioPeaks={audioPeaks}
+        audioFileName={audioFileName}
         color={color}
         offset={offset}
         length={length}

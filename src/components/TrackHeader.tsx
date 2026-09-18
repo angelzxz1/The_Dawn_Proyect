@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Download, Pencil, Trash2, Upload, X } from "lucide-react";
+import { Download, Drum, Pencil, Piano, Sliders, Trash2, Upload, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
-import type { ChannelConfig } from "@/lib/types";
+import type { ChannelConfig, ClipType, InstrumentType } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
@@ -14,14 +14,22 @@ interface TrackHeaderProps {
   selected: boolean;
   recording: boolean;
   hasNotes: boolean;
+  /** Whether there's anything to clear - MIDI notes, or an audio clip. */
+  hasClipContent?: boolean;
   canRemove: boolean;
   /** The master bus track: no MIDI clip, no import/export/clear/remove. */
   isMaster?: boolean;
+  /** What this track's single clip currently holds - a MIDI instrument
+   * selector only makes sense while it's a MIDI clip. */
+  clipType?: ClipType;
+  effectsCount?: number;
   onSelect: () => void;
   onEdit?: () => void;
   onRename: (name: string) => void;
   onVolumeChange: (db: number) => void;
   onPanChange: (pan: number) => void;
+  onInstrumentChange?: (type: InstrumentType) => void;
+  onOpenEffects?: (e: React.MouseEvent) => void;
   onImportMidi?: (file: File) => void;
   onExportMidi?: () => void;
   onClearClip?: () => void;
@@ -72,13 +80,18 @@ export function TrackHeader({
   selected,
   recording,
   hasNotes,
+  hasClipContent,
   canRemove,
   isMaster = false,
+  clipType = "midi",
+  effectsCount = 0,
   onSelect,
   onEdit,
   onRename,
   onVolumeChange,
   onPanChange,
+  onInstrumentChange,
+  onOpenEffects,
   onImportMidi,
   onExportMidi,
   onClearClip,
@@ -192,6 +205,62 @@ export function TrackHeader({
           className="flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
         >
+          {clipType === "midi" ? (
+            <div className="flex overflow-hidden rounded border border-border">
+              <button
+                type="button"
+                title="Piano"
+                onClick={() => onInstrumentChange?.("piano")}
+                className={`flex h-6 w-6 items-center justify-center ${
+                  channel.instrument === "piano"
+                    ? "bg-accent/25 text-accent"
+                    : "text-muted hover:bg-surface-raised"
+                }`}
+              >
+                <Piano size={12} />
+              </button>
+              <button
+                type="button"
+                title="Drums"
+                onClick={() => onInstrumentChange?.("drums")}
+                className={`flex h-6 w-6 items-center justify-center border-l border-border ${
+                  channel.instrument === "drums"
+                    ? "bg-accent/25 text-accent"
+                    : "text-muted hover:bg-surface-raised"
+                }`}
+              >
+                <Drum size={12} />
+              </button>
+            </div>
+          ) : (
+            <span className="flex h-6 items-center rounded border border-border px-1.5 text-[10px] text-muted">
+              Audio
+            </span>
+          )}
+          <button
+            type="button"
+            title={`Effects${effectsCount > 0 ? ` (${effectsCount})` : ""}`}
+            onClick={(e) => onOpenEffects?.(e)}
+            className={`relative flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised ${
+              effectsCount > 0 ? "text-accent" : "text-muted"
+            }`}
+          >
+            <Sliders size={12} />
+            {effectsCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
+                {effectsCount}
+              </span>
+            )}
+          </button>
+          <div className="flex-1" />
+        </div>
+      )}
+
+      {!isMaster && (
+        <div
+          className="flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
           <IconButton title="Import .mid" onClick={() => fileInputRef.current?.click()}>
             <Upload size={12} />
           </IconButton>
@@ -206,10 +275,18 @@ export function TrackHeader({
               e.target.value = "";
             }}
           />
-          <IconButton title="Export .mid" onClick={() => onExportMidi?.()} disabled={!hasNotes}>
+          <IconButton
+            title="Export .mid"
+            onClick={() => onExportMidi?.()}
+            disabled={clipType === "audio" || !hasNotes}
+          >
             <Download size={12} />
           </IconButton>
-          <IconButton title="Clear clip" onClick={() => onClearClip?.()} disabled={!hasNotes}>
+          <IconButton
+            title="Clear clip"
+            onClick={() => onClearClip?.()}
+            disabled={!(hasClipContent ?? hasNotes)}
+          >
             <Trash2 size={12} />
           </IconButton>
           <div className="flex-1" />

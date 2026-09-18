@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import type { NoteEvent } from "@/lib/types";
+import type { ClipType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { TRACK_ROW_HEIGHT, secondsPerBar } from "@/lib/timeline";
 
 interface ClipBlockProps {
+  clipType?: ClipType;
   notes: NoteEvent[];
+  /** Waveform peaks (0..1) for an audio clip, and the source file's name. */
+  audioPeaks?: number[];
+  audioFileName?: string;
   color: TrackColor;
   offset: number;
   length: number;
@@ -36,7 +40,10 @@ function noteNameToMidi(name: string): number {
 }
 
 export function ClipBlock({
+  clipType = "midi",
   notes,
+  audioPeaks,
+  audioFileName,
   color,
   offset,
   length,
@@ -140,33 +147,55 @@ export function ClipBlock({
       }}
     >
       <div
-        className="flex items-center justify-between px-1.5 py-0.5 text-[10px]"
+        className="flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px]"
         style={{ background: color.accent, color: "#0a0a0a" }}
       >
-        <span>{notes.length > 0 ? `${notes.length} notes` : "empty"}</span>
-        <span className="opacity-0 group-hover:opacity-100">drag · dbl-click to edit</span>
+        <span className="truncate">
+          {clipType === "audio"
+            ? audioFileName ?? "audio"
+            : notes.length > 0
+              ? `${notes.length} notes`
+              : "empty"}
+        </span>
+        <span className="shrink-0 opacity-0 group-hover:opacity-100">
+          drag · {clipType === "midi" ? "dbl-click to edit" : "resize to trim"}
+        </span>
       </div>
       <div className="relative flex-1">
-        {visibleNotes.map((n, i) => {
-          const midi = noteNameToMidi(n.note);
-          const x = (n.time / length) * 100;
-          const w = Math.max((n.duration / length) * 100, 0.5);
-          const y =
-            laneHeight -
-            ((midi - MIN_MIDI) / (MAX_MIDI - MIN_MIDI)) * laneHeight;
-          return (
-            <div
-              key={i}
-              className="absolute h-[2px] rounded-full"
-              style={{
-                left: `${x}%`,
-                width: `${w}%`,
-                top: Math.min(Math.max(y, 0), laneHeight - 2),
-                background: color.accent,
-              }}
-            />
-          );
-        })}
+        {clipType === "audio"
+          ? (audioPeaks ?? []).map((peak, i, arr) => (
+              <div
+                key={i}
+                className="absolute bottom-0 rounded-t-sm"
+                style={{
+                  left: `${(i / arr.length) * 100}%`,
+                  width: `${100 / arr.length}%`,
+                  height: `${Math.max(peak, 0.04) * laneHeight}px`,
+                  background: color.accent,
+                  opacity: 0.75,
+                }}
+              />
+            ))
+          : visibleNotes.map((n, i) => {
+              const midi = noteNameToMidi(n.note);
+              const x = (n.time / length) * 100;
+              const w = Math.max((n.duration / length) * 100, 0.5);
+              const y =
+                laneHeight -
+                ((midi - MIN_MIDI) / (MAX_MIDI - MIN_MIDI)) * laneHeight;
+              return (
+                <div
+                  key={i}
+                  className="absolute h-[2px] rounded-full"
+                  style={{
+                    left: `${x}%`,
+                    width: `${w}%`,
+                    top: Math.min(Math.max(y, 0), laneHeight - 2),
+                    background: color.accent,
+                  }}
+                />
+              );
+            })}
       </div>
       <div
         onPointerDown={handleResizePointerDown}

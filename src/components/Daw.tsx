@@ -468,11 +468,15 @@ export function Daw() {
           length={lengthOf(editingChannel.id)}
           bpm={bpm}
           beatsPerBar={beatsPerBar}
+          offset={offsetOf(editingChannel.id)}
           scaleSetting={scaleSetting}
           onScaleChange={setScaleSetting}
           onChange={(notes) => handleEditorChange(editingChannel.id, notes)}
           onClose={() => setEditingChannelId(null)}
           onPreviewNote={(note) => handlePreviewNote(editingChannel.id, note)}
+          isPlaying={transportState === "playing"}
+          onPlay={handlePlay}
+          onStop={handleStop}
         />
       )}
     </div>

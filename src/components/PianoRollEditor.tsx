@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, MousePointer2, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/lib/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
 import type { NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
+import { audioEngine } from "@/lib/audioEngine";
 import { ScaleSelector } from "./ScaleSelector";
 
 interface PianoRollEditorProps {
@@ -15,11 +16,16 @@ interface PianoRollEditorProps {
   length: number;
   bpm: number;
   beatsPerBar: number;
+  /** This clip's start offset on the main timeline, for aligning the playhead. */
+  offset: number;
   scaleSetting: ScaleSetting;
   onScaleChange: (setting: ScaleSetting) => void;
   onChange: (notes: NoteEvent[]) => void;
   onClose: () => void;
   onPreviewNote: (note: string) => void;
+  isPlaying: boolean;
+  onPlay: () => void;
+  onStop: () => void;
 }
 
 interface EditableNote extends NoteEvent {
@@ -78,11 +84,15 @@ export function PianoRollEditor({
   length,
   bpm,
   beatsPerBar,
+  offset,
   scaleSetting,
   onScaleChange,
   onChange,
   onClose,
   onPreviewNote,
+  isPlaying,
+  onPlay,
+  onStop,
 }: PianoRollEditorProps) {
   const [notes, setNotes] = useState<EditableNote[]>(() => withIds(initialNotes));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -96,6 +106,7 @@ export function PianoRollEditor({
   const keysViewportRef = useRef<HTMLDivElement>(null);
   const rulerViewportRef = useRef<HTMLDivElement>(null);
   const velocityViewportRef = useRef<HTMLDivElement>(null);
+  const playheadRef = useRef<HTMLDivElement>(null);
 
   const secondsPerBeat = 60 / bpm;
   const secondsPer16th = secondsPerBeat / 4;
@@ -140,7 +151,8 @@ export function PianoRollEditor({
     });
   };
 
-  // Mode toggle ('b') and Delete/Backspace for the current selection.
+  // Mode toggle ('b'), Delete/Backspace, Space to play/stop, and arrow keys
+  // to nudge the current selection.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
@@ -151,12 +163,48 @@ export function PianoRollEditor({
         }
       } else if (e.key.toLowerCase() === "b") {
         setMode((m) => (m === "draw" ? "select" : "draw"));
+      } else if (e.code === "Space") {
+        e.preventDefault();
+        if (isPlaying) onStop();
+        else onPlay();
+      } else if (
+        selectedIds.size > 0 &&
+        (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ) {
+        e.preventDefault();
+        const deltaRows = e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0;
+        const deltaTime =
+          e.key === "ArrowRight" ? secondsPer16th : e.key === "ArrowLeft" ? -secondsPer16th : 0;
+        commit(
+          notes.map((n) => {
+            if (!selectedIds.has(n.id)) return n;
+            const midi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, noteNameToMidi(n.note) + deltaRows));
+            const time = Math.min(length, Math.max(0, n.time + deltaTime));
+            return { ...n, note: midiToNoteName(midi), time };
+          })
+        );
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, notes]);
+  }, [selectedIds, notes, isPlaying, onPlay, onStop, secondsPer16th, length]);
+
+  // Playhead line, driven by rAF so it doesn't cause React re-renders.
+  useEffect(() => {
+    let frame: number;
+    const tick = () => {
+      if (playheadRef.current) {
+        const localTime = audioEngine.getTransportSeconds() - offset;
+        const visible = localTime >= 0 && localTime <= length;
+        playheadRef.current.style.opacity = visible ? "1" : "0";
+        playheadRef.current.style.transform = `translateX(${localTime * pxPerSecond}px)`;
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [offset, length, pxPerSecond]);
 
   const handleGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollLeft } = e.currentTarget;
@@ -203,18 +251,26 @@ export function PianoRollEditor({
 
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
+    const startClientX = e.clientX;
     let finalDuration = draft.duration;
+    let dragged = false;
 
     const applyDuration = (clientX: number) => {
+      dragged = true;
       const endTime = Math.max(time + secondsPer16th, snapTime(xToTime(clientX)));
       finalDuration = endTime - time;
       setNotes((prev) =>
         prev.map((n) => (n.id === id ? { ...n, duration: finalDuration } : n))
       );
     };
-    const onMove = (ev: PointerEvent) => applyDuration(ev.clientX);
-    const onUp = (ev: PointerEvent) => {
+    const onMove = (ev: PointerEvent) => {
+      // Only start resizing once the drag clears a small threshold, so a
+      // plain click leaves the note at its default (quarter-note) length.
+      if (!dragged && Math.abs(ev.clientX - startClientX) < DRAG_THRESHOLD_PX) return;
       applyDuration(ev.clientX);
+    };
+    const onUp = (ev: PointerEvent) => {
+      if (dragged) applyDuration(ev.clientX);
       target.releasePointerCapture(e.pointerId);
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
@@ -267,8 +323,9 @@ export function PianoRollEditor({
             ny + ROW_H > rect.y
           );
         });
-        setSelectedIds(new Set(hits.map((n) => n.id)));
-      } else {
+        const hitIds = hits.map((n) => n.id);
+        setSelectedIds(e.shiftKey ? new Set([...selectedIds, ...hitIds]) : new Set(hitIds));
+      } else if (!e.shiftKey) {
         setSelectedIds(new Set());
       }
       setMarquee(null);
@@ -289,10 +346,31 @@ export function PianoRollEditor({
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
+
+    // Shift-click toggles this note's membership in the selection instead
+    // of replacing it, so multiple notes can be built up one click at a time.
+    if (e.shiftKey) {
+      const next = new Set(selectedIds);
+      if (next.has(n.id)) next.delete(n.id);
+      else next.add(n.id);
+      setSelectedIds(next);
+      onPreviewNote(n.note);
+      if (!next.has(n.id)) return; // deselected — don't start a drag
+      handleGroupMove(e, n, next);
+      return;
+    }
+
     const activeSelection = selectedIds.has(n.id) ? selectedIds : new Set([n.id]);
     if (!selectedIds.has(n.id)) setSelectedIds(activeSelection);
     onPreviewNote(n.note);
+    handleGroupMove(e, n, activeSelection);
+  };
 
+  const handleGroupMove = (
+    e: React.PointerEvent<HTMLDivElement>,
+    n: EditableNote,
+    activeSelection: Set<string>
+  ) => {
     const baseNotes = notes;
     const groupStart = new Map<string, { time: number; midi: number }>();
     baseNotes.forEach((note) => {
@@ -342,47 +420,69 @@ export function PianoRollEditor({
     target.addEventListener("pointerup", onUp);
   };
 
-  // --- Resize an existing note (drag right edge) ---
+  // --- Resize an existing note (drag right edge). If it's part of a
+  // multi-note selection, the same length delta is applied to every
+  // selected note, like Ableton. ---
   const handleResizePointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
     n: EditableNote
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    setSelectedIds(new Set([n.id]));
+    const activeSelection = selectedIds.has(n.id) && selectedIds.size > 1 ? selectedIds : new Set([n.id]);
+    setSelectedIds(activeSelection);
     const baseNotes = notes;
+    const groupStart = new Map<string, number>();
+    baseNotes.forEach((note) => {
+      if (activeSelection.has(note.id)) groupStart.set(note.id, note.duration);
+    });
     const startClientX = e.clientX;
     const startDuration = n.duration;
-    let finalDuration = startDuration;
+    let finalDelta = 0;
+    let rafId = 0;
 
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-
-    const applyResize = (clientX: number) => {
+    const computeDelta = (clientX: number) => {
       const deltaSeconds = (clientX - startClientX) / pxPerSecond;
       const rawDuration = startDuration + deltaSeconds;
-      finalDuration = Math.max(
+      const snappedDuration = Math.max(
         secondsPer16th,
         Math.round(rawDuration / secondsPer16th) * secondsPer16th
       );
+      return snappedDuration - startDuration;
+    };
+    const applyDelta = (delta: number) => {
       setNotes((prev) =>
-        prev.map((note) => (note.id === n.id ? { ...note, duration: finalDuration } : note))
+        prev.map((note) => {
+          const orig = groupStart.get(note.id);
+          if (orig === undefined) return note;
+          return { ...note, duration: Math.max(secondsPer16th, orig + delta) };
+        })
       );
     };
-    const onMove = (ev: PointerEvent) => applyResize(ev.clientX);
-    const onUp = (ev: PointerEvent) => {
-      applyResize(ev.clientX);
-      target.releasePointerCapture(e.pointerId);
-      target.removeEventListener("pointermove", onMove);
-      target.removeEventListener("pointerup", onUp);
+    // Batching the note-array update to at most once per animation frame
+    // (rather than once per raw mousemove) avoids pushing two simultaneous
+    // DOM style updates — one per selected note — on every single input
+    // event, which can otherwise make the browser drop input mid-drag when
+    // resizing more than one note at once.
+    const onMove = (ev: MouseEvent) => {
+      finalDelta = computeDelta(ev.clientX);
+      if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; applyDelta(finalDelta); });
+    };
+    const onUp = (ev: MouseEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      finalDelta = computeDelta(ev.clientX);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
       commit(
-        baseNotes.map((note) =>
-          note.id === n.id ? { ...note, duration: finalDuration } : note
-        )
+        baseNotes.map((note) => {
+          const orig = groupStart.get(note.id);
+          if (orig === undefined) return note;
+          return { ...note, duration: Math.max(secondsPer16th, orig + finalDelta) };
+        })
       );
     };
-    target.addEventListener("pointermove", onMove);
-    target.addEventListener("pointerup", onUp);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   };
 
   // --- Velocity lane: drag a note's bar vertically to change its velocity ---
@@ -480,6 +580,18 @@ export function PianoRollEditor({
             <span className="text-sm font-medium">Piano Roll — {channelName}</span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={isPlaying ? onStop : onPlay}
+              title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+              className={`flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+                isPlaying
+                  ? "border-accent bg-accent/20 text-accent"
+                  : "border-border text-success hover:bg-surface"
+              }`}
+            >
+              {isPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
+            </button>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -512,9 +624,9 @@ export function PianoRollEditor({
 
         <div className="px-3 pt-2 text-[11px] text-muted">
           {mode === "draw"
-            ? "drag on empty space to draw a note · drag a note to move it · drag its right edge to resize · right-click a note to delete it"
-            : "drag on empty space to box-select notes · drag a note (or selection) to move it · Delete to remove selected notes"}
-          {" · press B to toggle mode · drag a velocity bar to change velocity"}
+            ? "drag on empty space to draw a note · shift-click or drag a selection to move it · drag its right edge to resize · right-click a note to delete it"
+            : "drag on empty space to box-select notes · shift-click to add/remove a note · drag a selection to move it · Delete to remove"}
+          {" · press B to toggle mode · arrow keys nudge the selection · Space to play/stop"}
         </div>
 
         <div
@@ -681,6 +793,13 @@ export function PianoRollEditor({
                     }}
                   />
                 )}
+                <div
+                  ref={playheadRef}
+                  className="pointer-events-none absolute left-0 top-0 z-20 w-px bg-record"
+                  style={{ height: contentHeight }}
+                >
+                  <div className="absolute -left-[3px] top-0 h-2 w-2 rounded-full bg-record" />
+                </div>
               </div>
             </div>
           </div>

@@ -172,8 +172,12 @@ class AudioEngine {
     }
   }
 
-  /** Replace a channel's playable clip (used after recording, import, or clear). */
-  setClip(channelId: string, notes: NoteEvent[]): void {
+  /**
+   * Replace a channel's playable clip (used after recording, import, clear,
+   * or editing). `notes` are clip-relative; `offsetSeconds` is where the
+   * clip sits on the arrangement timeline.
+   */
+  setClip(channelId: string, notes: NoteEvent[], offsetSeconds = 0): void {
     const nodes = this.channels.get(channelId);
     if (!nodes) return;
     nodes.part?.dispose();
@@ -181,6 +185,7 @@ class AudioEngine {
       nodes.part = null;
       return;
     }
+    const scheduled = notes.map((n) => ({ ...n, time: offsetSeconds + n.time }));
     const part = new Tone.Part<NoteEvent>((time, value) => {
       this.safe(() =>
         nodes.sampler.triggerAttackRelease(
@@ -190,7 +195,7 @@ class AudioEngine {
           value.velocity
         )
       );
-    }, notes).start(0);
+    }, scheduled).start(0);
     nodes.part = part;
   }
 
@@ -228,8 +233,12 @@ class AudioEngine {
     transport.start();
   }
 
-  /** Stops recording, finalizes the clip, and returns the recorded notes. */
-  finishRecording(): NoteEvent[] {
+  /**
+   * Stops recording, finalizes the clip, and returns the recorded notes.
+   * `offsetSeconds` is the clip's current position on the timeline, so
+   * playback scheduling doesn't get reset to the start of the timeline.
+   */
+  finishRecording(offsetSeconds = 0): NoteEvent[] {
     const rec = this.recording;
     if (!rec) return [];
     const nodes = this.channels.get(rec.channelId);
@@ -248,7 +257,7 @@ class AudioEngine {
 
     this.recording = null;
     const events = rec.events.sort((a, b) => a.time - b.time);
-    this.setClip(rec.channelId, events);
+    this.setClip(rec.channelId, events, offsetSeconds);
     return events;
   }
 
@@ -260,12 +269,59 @@ class AudioEngine {
     Tone.getTransport().bpm.value = bpm;
   }
 
+  setTimeSignature(beatsPerBar: number): void {
+    Tone.getTransport().timeSignature = beatsPerBar;
+    this.metronomeBeatsPerBar = beatsPerBar;
+  }
+
   getTransportSeconds(): number {
     return Tone.getTransport().seconds;
   }
 
   getTransportState(): "started" | "stopped" | "paused" {
     return Tone.getTransport().state;
+  }
+
+  // --- Metronome ---
+  private metronomeSynth: Tone.Synth | null = null;
+  private metronomeLoop: Tone.Loop | null = null;
+  private metronomeBeatsPerBar = 4;
+  private metronomeBeatIndex = 0;
+  private metronomeStartHooked = false;
+
+  setMetronome(enabled: boolean): void {
+    if (!this.metronomeStartHooked) {
+      this.metronomeStartHooked = true;
+      Tone.getTransport().on("start", () => {
+        this.metronomeBeatIndex = 0;
+      });
+    }
+    if (enabled) {
+      if (!this.metronomeSynth) {
+        this.metronomeSynth = new Tone.Synth({
+          oscillator: { type: "square" },
+          envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 },
+        }).toDestination();
+        this.metronomeSynth.volume.value = -14;
+      }
+      if (!this.metronomeLoop) {
+        this.metronomeBeatIndex = 0;
+        this.metronomeLoop = new Tone.Loop((time) => {
+          const accent = this.metronomeBeatIndex % this.metronomeBeatsPerBar === 0;
+          this.safe(() =>
+            this.metronomeSynth!.triggerAttackRelease(
+              accent ? "C6" : "C5",
+              0.03,
+              time
+            )
+          );
+          this.metronomeBeatIndex += 1;
+        }, "4n").start(0);
+      }
+    } else {
+      this.metronomeLoop?.dispose();
+      this.metronomeLoop = null;
+    }
   }
 }
 

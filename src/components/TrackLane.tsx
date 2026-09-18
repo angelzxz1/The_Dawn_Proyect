@@ -8,25 +8,35 @@ import { computeBarMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 interface TrackLaneProps {
   notes: NoteEvent[];
   color: TrackColor;
+  offset: number;
+  length: number;
   bpm: number;
+  beatsPerBar: number;
   totalSeconds: number;
   pxPerSecond: number;
   selected: boolean;
   onSelect: () => void;
   onEdit: () => void;
+  onMoveClip: (offsetSeconds: number) => void;
+  onResizeClip: (lengthSeconds: number) => void;
 }
 
 export function TrackLane({
   notes,
   color,
+  offset,
+  length,
   bpm,
+  beatsPerBar,
   totalSeconds,
   pxPerSecond,
   selected,
   onSelect,
   onEdit,
+  onMoveClip,
+  onResizeClip,
 }: TrackLaneProps) {
-  const marks = computeBarMarks(bpm, totalSeconds, pxPerSecond);
+  const marks = computeBarMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
 
   return (
     <div
@@ -46,10 +56,16 @@ export function TrackLane({
       <ClipBlock
         notes={notes}
         color={color}
+        offset={offset}
+        length={length}
+        bpm={bpm}
+        beatsPerBar={beatsPerBar}
         pxPerSecond={pxPerSecond}
         selected={selected}
         onSelect={onSelect}
         onEdit={onEdit}
+        onMove={onMoveClip}
+        onResize={onResizeClip}
       />
     </div>
   );

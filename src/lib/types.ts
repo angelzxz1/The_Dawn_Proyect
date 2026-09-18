@@ -16,3 +16,8 @@ export interface ChannelConfig {
   pan: number; // -1..1
   colorIndex: number;
 }
+
+export interface TimeSignature {
+  numerator: number;
+  denominator: number;
+}

@@ -6,10 +6,16 @@ interface TimelineRulerProps {
   bpm: number;
   totalSeconds: number;
   pxPerSecond: number;
+  beatsPerBar: number;
 }
 
-export function TimelineRuler({ bpm, totalSeconds, pxPerSecond }: TimelineRulerProps) {
-  const marks = computeBarMarks(bpm, totalSeconds, pxPerSecond);
+export function TimelineRuler({
+  bpm,
+  totalSeconds,
+  pxPerSecond,
+  beatsPerBar,
+}: TimelineRulerProps) {
+  const marks = computeBarMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
 
   return (
     <div

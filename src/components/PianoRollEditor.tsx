@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Pencil, MousePointer2, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/lib/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
 import type { NoteEvent } from "@/lib/types";
@@ -12,7 +12,9 @@ interface PianoRollEditorProps {
   channelName: string;
   color: TrackColor;
   notes: NoteEvent[];
+  length: number;
   bpm: number;
+  beatsPerBar: number;
   scaleSetting: ScaleSetting;
   onScaleChange: (setting: ScaleSetting) => void;
   onChange: (notes: NoteEvent[]) => void;
@@ -23,6 +25,8 @@ interface PianoRollEditorProps {
 interface EditableNote extends NoteEvent {
   id: string;
 }
+
+type Mode = "draw" | "select";
 
 let idCounter = 0;
 function withIds(notes: NoteEvent[]): EditableNote[] {
@@ -44,9 +48,11 @@ const KEY_COL_WIDTH = 44;
 const RULER_H = 22;
 const GRID_VIEWPORT_H = 380;
 const VELOCITY_H = 72;
-const PX_PER_SECOND = 130;
-const MIN_EDITOR_SECONDS = 8;
+const DEFAULT_PX_PER_SECOND = 130;
+const MIN_PX_PER_SECOND = 40;
+const MAX_PX_PER_SECOND = 500;
 const DEFAULT_NOTE_BEATS = 1; // default drawn-note length, in beats
+const DRAG_THRESHOLD_PX = 3;
 
 function noteNameToMidi(name: string): number {
   const match = name.match(/^([A-G]#?)(-?\d+)$/);
@@ -60,11 +66,18 @@ function rowTop(midi: number): number {
   return (MAX_MIDI - midi) * ROW_H;
 }
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+}
+
 export function PianoRollEditor({
   channelName,
   color,
   notes: initialNotes,
+  length,
   bpm,
+  beatsPerBar,
   scaleSetting,
   onScaleChange,
   onChange,
@@ -72,7 +85,12 @@ export function PianoRollEditor({
   onPreviewNote,
 }: PianoRollEditorProps) {
   const [notes, setNotes] = useState<EditableNote[]>(() => withIds(initialNotes));
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<Mode>("draw");
+  const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
+    null
+  );
 
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const keysViewportRef = useRef<HTMLDivElement>(null);
@@ -81,18 +99,14 @@ export function PianoRollEditor({
 
   const secondsPerBeat = 60 / bpm;
   const secondsPer16th = secondsPerBeat / 4;
+  const ticksPerBar = Math.max(1, Math.round(beatsPerBar * 4));
   const defaultNoteDuration = secondsPerBeat * DEFAULT_NOTE_BEATS;
 
-  const editorSeconds = useMemo(() => {
-    const end = notes.reduce((max, n) => Math.max(max, n.time + n.duration), 0);
-    return Math.max(MIN_EDITOR_SECONDS, Math.ceil(end + 4));
-  }, [notes]);
-
-  const contentWidth = editorSeconds * PX_PER_SECOND;
+  const contentWidth = length * pxPerSecond;
   const contentHeight = (MAX_MIDI - MIN_MIDI + 1) * ROW_H;
 
   const snapTime = (t: number) =>
-    Math.max(0, Math.round(t / secondsPer16th) * secondsPer16th);
+    Math.min(length, Math.max(0, Math.round(t / secondsPer16th) * secondsPer16th));
 
   const commit = (next: EditableNote[]) => {
     setNotes(next);
@@ -111,6 +125,39 @@ export function PianoRollEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    commit(notes.filter((n) => !selectedIds.has(n.id)));
+    setSelectedIds(new Set());
+  };
+
+  const handleDeleteNote = (id: string) => {
+    commit(notes.filter((n) => n.id !== id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  // Mode toggle ('b') and Delete/Backspace for the current selection.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedIds.size > 0) {
+          e.preventDefault();
+          handleDeleteSelected();
+        }
+      } else if (e.key.toLowerCase() === "b") {
+        setMode((m) => (m === "draw" ? "select" : "draw"));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, notes]);
+
   const handleGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollLeft } = e.currentTarget;
     if (keysViewportRef.current) keysViewportRef.current.scrollTop = scrollTop;
@@ -118,20 +165,25 @@ export function PianoRollEditor({
     if (velocityViewportRef.current) velocityViewportRef.current.scrollLeft = scrollLeft;
   };
 
-  const xToTime = (clientX: number) => {
+  /** Content-pixel coordinates (accounting for scroll) for a client point. */
+  const contentPoint = (clientX: number, clientY: number) => {
     const rect = gridScrollRef.current!.getBoundingClientRect();
     const scrollLeft = gridScrollRef.current!.scrollLeft;
-    return Math.max(0, (clientX - rect.left + scrollLeft) / PX_PER_SECOND);
-  };
-  const yToMidi = (clientY: number) => {
-    const rect = gridScrollRef.current!.getBoundingClientRect();
     const scrollTop = gridScrollRef.current!.scrollTop;
-    const rowIndex = Math.floor((clientY - rect.top + scrollTop) / ROW_H);
+    return {
+      x: clientX - rect.left + scrollLeft,
+      y: clientY - rect.top + scrollTop,
+    };
+  };
+  const xToTime = (clientX: number) =>
+    Math.max(0, contentPoint(clientX, 0).x / pxPerSecond);
+  const yToMidi = (clientY: number) => {
+    const rowIndex = Math.floor(contentPoint(0, clientY).y / ROW_H);
     return Math.min(MAX_MIDI, Math.max(MIN_MIDI, MAX_MIDI - rowIndex));
   };
 
   // --- Draw a new note by click-dragging on empty grid space ---
-  const handleGridPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleDrawPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const time = snapTime(xToTime(e.clientX));
     const midi = yToMidi(e.clientY);
@@ -146,7 +198,7 @@ export function PianoRollEditor({
     };
     const baseNotes = notes;
     setNotes((prev) => [...prev, draft]);
-    setSelectedId(id);
+    setSelectedIds(new Set([id]));
     onPreviewNote(note);
 
     const target = e.currentTarget;
@@ -172,38 +224,103 @@ export function PianoRollEditor({
     target.addEventListener("pointerup", onUp);
   };
 
-  // --- Move an existing note (drag body) ---
+  // --- Rubber-band select notes in Select mode ---
+  const handleMarqueePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const start = contentPoint(e.clientX, e.clientY);
+    let moved = false;
+
+    const rectAt = (clientX: number, clientY: number) => {
+      const cur = contentPoint(clientX, clientY);
+      return {
+        x: Math.min(start.x, cur.x),
+        y: Math.min(start.y, cur.y),
+        w: Math.abs(cur.x - start.x),
+        h: Math.abs(cur.y - start.y),
+      };
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - e.clientX) > DRAG_THRESHOLD_PX ||
+          Math.abs(ev.clientY - e.clientY) > DRAG_THRESHOLD_PX) {
+        moved = true;
+      }
+      setMarquee(rectAt(ev.clientX, ev.clientY));
+    };
+    const onUp = (ev: PointerEvent) => {
+      target.releasePointerCapture(e.pointerId);
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      if (moved) {
+        const rect = rectAt(ev.clientX, ev.clientY);
+        const hits = notes.filter((n) => {
+          const midi = noteNameToMidi(n.note);
+          const nx = n.time * pxPerSecond;
+          const nw = Math.max(n.duration * pxPerSecond, 6);
+          const ny = rowTop(midi);
+          return (
+            nx < rect.x + rect.w &&
+            nx + nw > rect.x &&
+            ny < rect.y + rect.h &&
+            ny + ROW_H > rect.y
+          );
+        });
+        setSelectedIds(new Set(hits.map((n) => n.id)));
+      } else {
+        setSelectedIds(new Set());
+      }
+      setMarquee(null);
+    };
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+  };
+
+  const handleGridPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (mode === "select") handleMarqueePointerDown(e);
+    else handleDrawPointerDown(e);
+  };
+
+  // --- Move a note (or the whole selected group if it's part of one) ---
   const handleNotePointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
     n: EditableNote
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    setSelectedId(n.id);
+    const activeSelection = selectedIds.has(n.id) ? selectedIds : new Set([n.id]);
+    if (!selectedIds.has(n.id)) setSelectedIds(activeSelection);
     onPreviewNote(n.note);
+
     const baseNotes = notes;
+    const groupStart = new Map<string, { time: number; midi: number }>();
+    baseNotes.forEach((note) => {
+      if (activeSelection.has(note.id)) {
+        groupStart.set(note.id, { time: note.time, midi: noteNameToMidi(note.note) });
+      }
+    });
+    const primaryStart = groupStart.get(n.id)!;
     const startClientX = e.clientX;
     const startClientY = e.clientY;
-    const startTime = n.time;
-    const startMidi = noteNameToMidi(n.note);
-    let finalTime = startTime;
-    let finalNoteName = n.note;
+    let deltaTime = 0;
+    let deltaRows = 0;
 
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
 
     const applyMove = (clientX: number, clientY: number) => {
-      const deltaSeconds = (clientX - startClientX) / PX_PER_SECOND;
-      const deltaRows = Math.round((clientY - startClientY) / ROW_H);
-      finalTime = snapTime(startTime + deltaSeconds);
-      const newMidi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, startMidi - deltaRows));
-      finalNoteName = midiToNoteName(newMidi);
+      const rawDeltaSeconds = (clientX - startClientX) / pxPerSecond;
+      deltaRows = Math.round((clientY - startClientY) / ROW_H);
+      const newPrimaryTime = snapTime(primaryStart.time + rawDeltaSeconds);
+      deltaTime = newPrimaryTime - primaryStart.time;
       setNotes((prev) =>
-        prev.map((note) =>
-          note.id === n.id
-            ? { ...note, time: finalTime, note: finalNoteName }
-            : note
-        )
+        prev.map((note) => {
+          const gs = groupStart.get(note.id);
+          if (!gs) return note;
+          const newMidi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, gs.midi - deltaRows));
+          return { ...note, time: Math.max(0, gs.time + deltaTime), note: midiToNoteName(newMidi) };
+        })
       );
     };
     const onMove = (ev: PointerEvent) => applyMove(ev.clientX, ev.clientY);
@@ -213,11 +330,12 @@ export function PianoRollEditor({
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
       commit(
-        baseNotes.map((note) =>
-          note.id === n.id
-            ? { ...note, time: finalTime, note: finalNoteName }
-            : note
-        )
+        baseNotes.map((note) => {
+          const gs = groupStart.get(note.id);
+          if (!gs) return note;
+          const newMidi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, gs.midi - deltaRows));
+          return { ...note, time: Math.max(0, gs.time + deltaTime), note: midiToNoteName(newMidi) };
+        })
       );
     };
     target.addEventListener("pointermove", onMove);
@@ -231,7 +349,7 @@ export function PianoRollEditor({
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    setSelectedId(n.id);
+    setSelectedIds(new Set([n.id]));
     const baseNotes = notes;
     const startClientX = e.clientX;
     const startDuration = n.duration;
@@ -241,7 +359,7 @@ export function PianoRollEditor({
     target.setPointerCapture(e.pointerId);
 
     const applyResize = (clientX: number) => {
-      const deltaSeconds = (clientX - startClientX) / PX_PER_SECOND;
+      const deltaSeconds = (clientX - startClientX) / pxPerSecond;
       const rawDuration = startDuration + deltaSeconds;
       finalDuration = Math.max(
         secondsPer16th,
@@ -267,11 +385,6 @@ export function PianoRollEditor({
     target.addEventListener("pointerup", onUp);
   };
 
-  const handleDeleteNote = (id: string) => {
-    commit(notes.filter((n) => n.id !== id));
-    if (selectedId === id) setSelectedId(null);
-  };
-
   // --- Velocity lane: drag a note's bar vertically to change its velocity ---
   const handleVelocityPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
@@ -279,7 +392,7 @@ export function PianoRollEditor({
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    setSelectedId(n.id);
+    setSelectedIds(new Set([n.id]));
     const baseNotes = notes;
     let finalVelocity = n.velocity;
     const target = e.currentTarget;
@@ -317,19 +430,46 @@ export function PianoRollEditor({
     return rows;
   }, []);
 
+  // Adaptive grid: bars always shown; beat/16th subdivisions and their
+  // labels fade in as you zoom in, like Ableton's ruler.
   const gridLines = useMemo(() => {
-    const totalTicks = Math.ceil(editorSeconds / secondsPer16th);
-    return Array.from({ length: totalTicks + 1 }, (_, i) => {
-      const strength = i % 16 === 0 ? "bar" : i % 4 === 0 ? "beat" : "tick";
-      return { left: i * secondsPer16th * PX_PER_SECOND, strength, index: i };
-    });
-  }, [editorSeconds, secondsPer16th]);
+    const totalTicks = Math.ceil(length / secondsPer16th);
+    const beatPx = secondsPerBeat * pxPerSecond;
+    const sixteenthPx = secondsPer16th * pxPerSecond;
+    const showBeats = beatPx >= 26;
+    const show16ths = sixteenthPx >= 18;
+    const lines: {
+      left: number;
+      strength: "bar" | "beat" | "tick";
+      index: number;
+      label: string | null;
+    }[] = [];
+    for (let i = 0; i <= totalTicks; i++) {
+      const withinBar = i % ticksPerBar;
+      const bar = Math.floor(i / ticksPerBar) + 1;
+      const beat = Math.floor(withinBar / 4) + 1;
+      const sixteenth = (withinBar % 4) + 1;
+      let strength: "bar" | "beat" | "tick" = "tick";
+      let label: string | null = null;
+      if (withinBar === 0) {
+        strength = "bar";
+        label = `${bar}`;
+      } else if (withinBar % 4 === 0) {
+        strength = "beat";
+        if (showBeats) label = `${bar}.${beat}`;
+      } else if (show16ths) {
+        label = `${bar}.${beat}.${sixteenth}`;
+      }
+      lines.push({ left: i * secondsPer16th * pxPerSecond, strength, index: i, label });
+    }
+    return lines;
+  }, [length, secondsPer16th, secondsPerBeat, pxPerSecond, ticksPerBar]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
-        className="flex max-h-[90vh] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl"
-        style={{ width: "min(1120px, 96vw)" }}
+        className="relative flex max-h-[90vh] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl"
+        style={{ width: "min(1160px, 96vw)" }}
       >
         <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-raised px-3 py-2">
           <div className="flex items-center gap-2">
@@ -340,6 +480,24 @@ export function PianoRollEditor({
             <span className="text-sm font-medium">Piano Roll — {channelName}</span>
           </div>
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 40))}
+                title="Zoom out"
+                className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted hover:bg-surface"
+              >
+                <ZoomOut size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 40))}
+                title="Zoom in"
+                className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted hover:bg-surface"
+              >
+                <ZoomIn size={13} />
+              </button>
+            </div>
             <ScaleSelector value={scaleSetting} onChange={onScaleChange} />
             <button
               type="button"
@@ -353,9 +511,18 @@ export function PianoRollEditor({
         </div>
 
         <div className="px-3 pt-2 text-[11px] text-muted">
-          drag on empty space to draw a note · drag a note to move it · drag its
-          right edge to resize · double-click a note to delete it · drag a
-          velocity bar to change velocity
+          {mode === "draw"
+            ? "drag on empty space to draw a note · drag a note to move it · drag its right edge to resize · right-click a note to delete it"
+            : "drag on empty space to box-select notes · drag a note (or selection) to move it · Delete to remove selected notes"}
+          {" · press B to toggle mode · drag a velocity bar to change velocity"}
+        </div>
+
+        <div
+          className="pointer-events-none absolute left-3 top-12 z-30 flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
+        >
+          {mode === "draw" ? <Pencil size={11} /> : <MousePointer2 size={11} />}
+          {mode}
+          <span className="font-normal normal-case text-white/60">(b)</span>
         </div>
 
         <div className="flex flex-col overflow-hidden p-3">
@@ -369,14 +536,18 @@ export function PianoRollEditor({
             >
               <div className="relative" style={{ width: contentWidth, height: RULER_H }}>
                 {gridLines
-                  .filter((l) => l.strength === "bar")
+                  .filter((l) => l.label !== null)
                   .map((l) => (
                     <div
                       key={l.index}
-                      className="absolute top-0 h-full border-l border-border/70 pl-1 pt-0.5 text-[9px] text-muted"
+                      className={`absolute top-0 h-full pl-1 pt-0.5 text-[9px] ${
+                        l.strength === "bar"
+                          ? "border-l border-border/70 text-muted"
+                          : "text-muted/50"
+                      }`}
                       style={{ left: l.left }}
                     >
-                      {l.index / 16 + 1}
+                      {l.label}
                     </div>
                   ))}
               </div>
@@ -419,7 +590,7 @@ export function PianoRollEditor({
             >
               <div
                 onPointerDown={handleGridPointerDown}
-                className="relative cursor-crosshair"
+                className={`relative ${mode === "draw" ? "cursor-crosshair" : "cursor-default"}`}
                 style={{ width: contentWidth, height: contentHeight }}
               >
                 {pitchRows.map((midi) => {
@@ -467,17 +638,17 @@ export function PianoRollEditor({
                 ))}
                 {notes.map((n) => {
                   const midi = noteNameToMidi(n.note);
-                  const left = n.time * PX_PER_SECOND;
-                  const width = Math.max(n.duration * PX_PER_SECOND, 6);
-                  const selected = n.id === selectedId;
+                  const left = n.time * pxPerSecond;
+                  const width = Math.max(n.duration * pxPerSecond, 6);
+                  const selected = selectedIds.has(n.id);
                   return (
                     <div
                       key={n.id}
                       data-note-id={n.id}
                       onPointerDown={(e) => handleNotePointerDown(e, n)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteNote(n.id);
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (mode === "draw") handleDeleteNote(n.id);
                       }}
                       className={`absolute flex items-center rounded-[3px] border ${
                         selected ? "ring-2 ring-white/80" : ""
@@ -499,6 +670,17 @@ export function PianoRollEditor({
                     </div>
                   );
                 })}
+                {marquee && (
+                  <div
+                    className="absolute border border-accent bg-accent/15"
+                    style={{
+                      left: marquee.x,
+                      top: marquee.y,
+                      width: marquee.w,
+                      height: marquee.h,
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -518,7 +700,7 @@ export function PianoRollEditor({
             >
               <div className="relative" style={{ width: contentWidth, height: VELOCITY_H }}>
                 {notes.map((n) => {
-                  const selected = n.id === selectedId;
+                  const selected = selectedIds.has(n.id);
                   const h = Math.max(3, n.velocity * (VELOCITY_H - 6));
                   return (
                     <div
@@ -529,7 +711,7 @@ export function PianoRollEditor({
                         selected ? "ring-1 ring-white/80" : ""
                       }`}
                       style={{
-                        left: n.time * PX_PER_SECOND,
+                        left: n.time * pxPerSecond,
                         height: h,
                         background: color.accent,
                       }}

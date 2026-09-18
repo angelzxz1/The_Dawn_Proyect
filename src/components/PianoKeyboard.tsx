@@ -15,6 +15,9 @@ interface PianoKeyboardProps {
   onNoteOn: (note: string, velocity: number) => void;
   onNoteOff: (note: string) => void;
   scaleSetting: ScaleSetting;
+  /** Disables computer-keyboard shortcuts, e.g. while a modal with its own
+   * shortcuts (like the piano roll editor's 'b' mode toggle) is open. */
+  keyboardShortcutsEnabled?: boolean;
 }
 
 const PITCHES_WITH_BLACK_AFTER = new Set(["C", "D", "F", "G", "A"]);
@@ -46,6 +49,7 @@ export function PianoKeyboard({
   onNoteOn,
   onNoteOff,
   scaleSetting,
+  keyboardShortcutsEnabled = true,
 }: PianoKeyboardProps) {
   const [octaveShift, setOctaveShift] = useState(0);
   const pressedKeys = useRef<Set<string>>(new Set());
@@ -57,6 +61,8 @@ export function PianoKeyboard({
   );
 
   useEffect(() => {
+    if (!keyboardShortcutsEnabled) return;
+
     const isTypingTarget = (target: EventTarget | null) => {
       const el = target as HTMLElement | null;
       return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
@@ -87,7 +93,7 @@ export function PianoKeyboard({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [octaveShift, onNoteOn, onNoteOff]);
+  }, [octaveShift, onNoteOn, onNoteOff, keyboardShortcutsEnabled]);
 
   // Releases any keys the computer keyboard was holding when the octave shifts,
   // so notes don't get stuck on if the note name changes mid-hold.
@@ -104,6 +110,21 @@ export function PianoKeyboard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [octaveShift]);
+
+  // Also release any held keys the moment shortcuts get suspended (e.g. the
+  // piano roll editor opens), so a note can't get stuck on in the background.
+  useEffect(() => {
+    if (keyboardShortcutsEnabled) return;
+    const keys = pressedKeys.current;
+    keys.forEach((key) => {
+      const offset = KEYBOARD_KEY_OFFSETS[key];
+      if (offset !== undefined) {
+        onNoteOff(midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset));
+      }
+    });
+    keys.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboardShortcutsEnabled]);
 
   const handleMouseDown = (note: string) => {
     pressedMouseNote.current = note;

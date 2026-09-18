@@ -43,7 +43,7 @@ export function Meter({ channelId }: MeterProps) {
   }, [channelId]);
 
   return (
-    <div className="relative h-28 w-3.5 overflow-hidden rounded-sm border border-border bg-black/50">
+    <div className="relative h-full w-3 overflow-hidden rounded-sm border border-border bg-black/50">
       <div
         ref={fillRef}
         className="absolute inset-0"

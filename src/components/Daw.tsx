@@ -26,13 +26,16 @@ import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
+  MIN_EMPTY_CLIP_SECONDS,
   MIN_PX_PER_SECOND,
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
   TRACK_HEADER_WIDTH,
   TRACK_ROW_HEIGHT,
+  quarterNotesPerBar,
+  roundUpToBar,
 } from "@/lib/timeline";
-import type { ChannelConfig, NoteEvent } from "@/lib/types";
+import type { ChannelConfig, NoteEvent, TimeSignature } from "@/lib/types";
 
 type TransportState = "stopped" | "playing" | "recording";
 
@@ -55,11 +58,18 @@ export function Daw() {
     createChannel("Piano 3"),
   ]);
   const [clips, setClips] = useState<Record<string, NoteEvent[]>>({});
+  const [clipLengths, setClipLengths] = useState<Record<string, number>>({});
+  const [clipOffsets, setClipOffsets] = useState<Record<string, number>>({});
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
   const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const [bpm, setBpm] = useState(120);
+  const [timeSignature, setTimeSignature] = useState<TimeSignature>({
+    numerator: 4,
+    denominator: 4,
+  });
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
   const [transportState, setTransportState] = useState<TransportState>(
     "stopped"
   );
@@ -74,6 +84,20 @@ export function Daw() {
     useCallback((listener) => audioEngine.onReadyChange(listener), []),
     () => audioEngine.samplesReady,
     () => true
+  );
+
+  const beatsPerBar = quarterNotesPerBar(
+    timeSignature.numerator,
+    timeSignature.denominator
+  );
+
+  const lengthOf = useCallback(
+    (id: string) => clipLengths[id] ?? MIN_EMPTY_CLIP_SECONDS,
+    [clipLengths]
+  );
+  const offsetOf = useCallback(
+    (id: string) => clipOffsets[id] ?? 0,
+    [clipOffsets]
   );
 
   const registeredChannelIds = useRef(new Set<string>());
@@ -100,6 +124,14 @@ export function Daw() {
   useEffect(() => {
     audioEngine.setBpm(bpm);
   }, [bpm]);
+
+  useEffect(() => {
+    audioEngine.setTimeSignature(beatsPerBar);
+  }, [beatsPerBar]);
+
+  useEffect(() => {
+    audioEngine.setMetronome(metronomeEnabled);
+  }, [metronomeEnabled]);
 
   const handleNoteOn = useCallback(
     async (note: string, velocity: number) => {
@@ -139,13 +171,26 @@ export function Daw() {
 
   const handleStop = useCallback(() => {
     if (transportState === "recording") {
-      const events = audioEngine.finishRecording();
+      const events = audioEngine.finishRecording(offsetOf(selectedChannelId));
       setClips((prev) => ({ ...prev, [selectedChannelId]: events }));
+      if (events.length > 0) {
+        const lastEnd = events.reduce(
+          (m, n) => Math.max(m, n.time + n.duration),
+          0
+        );
+        setClipLengths((prev) => ({
+          ...prev,
+          [selectedChannelId]: Math.max(
+            prev[selectedChannelId] ?? 0,
+            roundUpToBar(lastEnd, bpm, beatsPerBar)
+          ),
+        }));
+      }
     }
     setTransportState("stopped");
     audioEngine.stopAll();
     setActiveNotes(new Set());
-  }, [transportState, selectedChannelId]);
+  }, [transportState, selectedChannelId, bpm, beatsPerBar, offsetOf]);
 
   const handlePlay = useCallback(async () => {
     if (transportState === "recording") return;
@@ -174,6 +219,16 @@ export function Daw() {
         delete next[id];
         return next;
       });
+      setClipLengths((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setClipOffsets((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       if (selectedChannelId === id) {
         const fallback = channels.find((c) => c.id !== id);
         if (fallback) setSelectedChannelId(fallback.id);
@@ -197,11 +252,23 @@ export function Daw() {
     );
   }, []);
 
-  const handleImportMidi = useCallback(async (id: string, file: File) => {
-    const notes = await parseMidiFile(file);
-    audioEngine.setClip(id, notes);
-    setClips((prev) => ({ ...prev, [id]: notes }));
-  }, []);
+  const handleImportMidi = useCallback(
+    async (id: string, file: File) => {
+      const notes = await parseMidiFile(file);
+      const offset = offsetOf(id);
+      audioEngine.setClip(id, notes, offset);
+      setClips((prev) => ({ ...prev, [id]: notes }));
+      const lastEnd = notes.reduce(
+        (m, n) => Math.max(m, n.time + n.duration),
+        0
+      );
+      setClipLengths((prev) => ({
+        ...prev,
+        [id]: roundUpToBar(lastEnd, bpm, beatsPerBar),
+      }));
+    },
+    [offsetOf, bpm, beatsPerBar]
+  );
 
   const handleExportMidi = useCallback(
     (id: string) => {
@@ -211,18 +278,33 @@ export function Daw() {
     [channels, clips, bpm]
   );
 
-  const handleClearClip = useCallback((id: string) => {
-    audioEngine.setClip(id, []);
-    setClips((prev) => ({ ...prev, [id]: [] }));
-  }, []);
+  const handleClearClip = useCallback(
+    (id: string) => {
+      audioEngine.setClip(id, [], offsetOf(id));
+      setClips((prev) => ({ ...prev, [id]: [] }));
+    },
+    [offsetOf]
+  );
 
   const handleEditorChange = useCallback(
     (id: string, notes: NoteEvent[]) => {
-      audioEngine.setClip(id, notes);
+      audioEngine.setClip(id, notes, offsetOf(id));
       setClips((prev) => ({ ...prev, [id]: notes }));
     },
-    []
+    [offsetOf]
   );
+
+  const handleMoveClip = useCallback(
+    (id: string, newOffset: number) => {
+      setClipOffsets((prev) => ({ ...prev, [id]: newOffset }));
+      audioEngine.setClip(id, clips[id] ?? [], newOffset);
+    },
+    [clips]
+  );
+
+  const handleResizeClip = useCallback((id: string, newLength: number) => {
+    setClipLengths((prev) => ({ ...prev, [id]: newLength }));
+  }, []);
 
   const handlePreviewNote = useCallback(
     (channelId: string, note: string) => {
@@ -235,12 +317,12 @@ export function Daw() {
   );
 
   const totalSeconds = useMemo(() => {
-    const longest = Object.values(clips).reduce((max, notes) => {
-      const end = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
-      return Math.max(max, end);
-    }, 0);
+    const longest = channels.reduce(
+      (max, c) => Math.max(max, offsetOf(c.id) + lengthOf(c.id)),
+      0
+    );
     return Math.max(MIN_TIMELINE_SECONDS, Math.ceil(longest + 8));
-  }, [clips]);
+  }, [channels, offsetOf, lengthOf]);
 
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
   const editingChannel = channels.find((c) => c.id === editingChannelId);
@@ -262,6 +344,10 @@ export function Daw() {
       <TransportBar
         bpm={bpm}
         onBpmChange={setBpm}
+        timeSignature={timeSignature}
+        onTimeSignatureChange={setTimeSignature}
+        metronomeEnabled={metronomeEnabled}
+        onToggleMetronome={() => setMetronomeEnabled((v) => !v)}
         isPlaying={transportState === "playing"}
         isRecording={transportState === "recording"}
         selectedChannelName={selectedChannel?.name ?? ""}
@@ -335,18 +421,28 @@ export function Daw() {
         </div>
 
         <div className="relative flex-1 overflow-x-auto">
-          <TimelineRuler bpm={bpm} totalSeconds={totalSeconds} pxPerSecond={pxPerSecond} />
+          <TimelineRuler
+            bpm={bpm}
+            totalSeconds={totalSeconds}
+            pxPerSecond={pxPerSecond}
+            beatsPerBar={beatsPerBar}
+          />
           {channels.map((channel) => (
             <TrackLane
               key={channel.id}
               notes={clips[channel.id] ?? []}
               color={trackColorForIndex(channel.colorIndex)}
+              offset={offsetOf(channel.id)}
+              length={lengthOf(channel.id)}
               bpm={bpm}
+              beatsPerBar={beatsPerBar}
               totalSeconds={totalSeconds}
               pxPerSecond={pxPerSecond}
               selected={channel.id === selectedChannelId}
               onSelect={() => setSelectedChannelId(channel.id)}
               onEdit={() => setEditingChannelId(channel.id)}
+              onMoveClip={(offset) => handleMoveClip(channel.id, offset)}
+              onResizeClip={(length) => handleResizeClip(channel.id, length)}
             />
           ))}
           <Playhead pxPerSecond={pxPerSecond} height={RULER_HEIGHT + lanesHeight} />
@@ -359,6 +455,7 @@ export function Daw() {
           onNoteOn={handleNoteOn}
           onNoteOff={handleNoteOff}
           scaleSetting={scaleSetting}
+          keyboardShortcutsEnabled={!editingChannelId}
         />
       </div>
 
@@ -368,7 +465,9 @@ export function Daw() {
           channelName={editingChannel.name}
           color={trackColorForIndex(editingChannel.colorIndex)}
           notes={clips[editingChannel.id] ?? []}
+          length={lengthOf(editingChannel.id)}
           bpm={bpm}
+          beatsPerBar={beatsPerBar}
           scaleSetting={scaleSetting}
           onScaleChange={setScaleSetting}
           onChange={(notes) => handleEditorChange(editingChannel.id, notes)}

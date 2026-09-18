@@ -1,22 +1,30 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
-import { MIN_EMPTY_CLIP_SECONDS, TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import { TRACK_ROW_HEIGHT, secondsPerBar } from "@/lib/timeline";
 
 interface ClipBlockProps {
   notes: NoteEvent[];
   color: TrackColor;
+  offset: number;
+  length: number;
+  bpm: number;
+  beatsPerBar: number;
   pxPerSecond: number;
   selected: boolean;
   onSelect: () => void;
   onEdit: () => void;
+  onMove: (offsetSeconds: number) => void;
+  onResize: (lengthSeconds: number) => void;
 }
 
 const MIN_MIDI = 36;
 const MAX_MIDI = 96;
 const LANE_PADDING = 10;
+const DOUBLE_CLICK_MS = 350;
+const DRAG_THRESHOLD_PX = 3;
 
 function noteNameToMidi(name: string): number {
   const match = name.match(/^([A-G]#?)(-?\d+)$/);
@@ -29,35 +37,96 @@ function noteNameToMidi(name: string): number {
 export function ClipBlock({
   notes,
   color,
+  offset,
+  length,
+  bpm,
+  beatsPerBar,
   pxPerSecond,
   selected,
   onSelect,
   onEdit,
+  onMove,
+  onResize,
 }: ClipBlockProps) {
-  const duration = useMemo(
-    () => notes.reduce((max, n) => Math.max(max, n.time + n.duration), 0),
-    [notes]
-  );
-  const clipSeconds = Math.max(duration, MIN_EMPTY_CLIP_SECONDS);
   const laneHeight = TRACK_ROW_HEIGHT - LANE_PADDING * 2 - 18;
+  const lastClickAt = useRef(0);
+
+  const bar = secondsPerBar(bpm, beatsPerBar);
+  const snap = (seconds: number) => Math.round(seconds / bar) * bar;
+
+  const handleBodyPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startClientX = e.clientX;
+    const startOffset = offset;
+    let moved = false;
+    let finalOffset = offset;
+
+    const onMoveEvt = (ev: PointerEvent) => {
+      const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
+      if (Math.abs(ev.clientX - startClientX) > DRAG_THRESHOLD_PX) moved = true;
+      if (!moved) return;
+      finalOffset = Math.max(0, snap(startOffset + deltaSeconds));
+      onMove(finalOffset);
+    };
+    const onUp = () => {
+      target.releasePointerCapture(e.pointerId);
+      target.removeEventListener("pointermove", onMoveEvt);
+      target.removeEventListener("pointerup", onUp);
+      if (!moved) {
+        const now = Date.now();
+        if (now - lastClickAt.current < DOUBLE_CLICK_MS) {
+          onEdit();
+          lastClickAt.current = 0;
+        } else {
+          onSelect();
+          lastClickAt.current = now;
+        }
+      }
+    };
+    target.addEventListener("pointermove", onMoveEvt);
+    target.addEventListener("pointerup", onUp);
+  };
+
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startClientX = e.clientX;
+    const startLength = length;
+
+    const onMoveEvt = (ev: PointerEvent) => {
+      const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
+      const newLength = Math.max(bar, snap(startLength + deltaSeconds));
+      onResize(newLength);
+    };
+    const onUp = () => {
+      target.releasePointerCapture(e.pointerId);
+      target.removeEventListener("pointermove", onMoveEvt);
+      target.removeEventListener("pointerup", onUp);
+    };
+    target.addEventListener("pointermove", onMoveEvt);
+    target.addEventListener("pointerup", onUp);
+  };
+
+  const visibleNotes = useMemo(
+    () => notes.filter((n) => n.time < length),
+    [notes, length]
+  );
 
   return (
     <div
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect();
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onEdit();
-      }}
-      title="Double-click to edit in the piano roll"
-      className={`group absolute top-2.5 flex cursor-pointer flex-col overflow-hidden rounded-md border transition-colors ${
+      onPointerDown={handleBodyPointerDown}
+      title="Drag to move · drag right edge to resize · click twice to edit"
+      className={`group absolute top-2.5 flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
         selected ? "ring-2 ring-accent" : ""
       }`}
       style={{
-        left: 0,
-        width: clipSeconds * pxPerSecond,
+        left: offset * pxPerSecond,
+        width: length * pxPerSecond,
         height: TRACK_ROW_HEIGHT - LANE_PADDING * 2,
         borderColor: color.accent,
         background: color.accentSoft,
@@ -68,13 +137,13 @@ export function ClipBlock({
         style={{ background: color.accent, color: "#0a0a0a" }}
       >
         <span>{notes.length > 0 ? `${notes.length} notes` : "empty"}</span>
-        <span className="opacity-0 group-hover:opacity-100">double-click to edit</span>
+        <span className="opacity-0 group-hover:opacity-100">drag · dbl-click to edit</span>
       </div>
       <div className="relative flex-1">
-        {notes.map((n, i) => {
+        {visibleNotes.map((n, i) => {
           const midi = noteNameToMidi(n.note);
-          const x = (n.time / clipSeconds) * 100;
-          const w = Math.max((n.duration / clipSeconds) * 100, 0.5);
+          const x = (n.time / length) * 100;
+          const w = Math.max((n.duration / length) * 100, 0.5);
           const y =
             laneHeight -
             ((midi - MIN_MIDI) / (MAX_MIDI - MIN_MIDI)) * laneHeight;
@@ -92,6 +161,11 @@ export function ClipBlock({
           );
         })}
       </div>
+      <div
+        onPointerDown={handleResizePointerDown}
+        title="Drag to resize the clip length"
+        className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/0 hover:bg-black/30"
+      />
     </div>
   );
 }

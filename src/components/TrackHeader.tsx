@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { Download, Pencil, Trash2, Upload, X } from "lucide-react";
-import { Knob } from "./Knob";
+import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import type { ChannelConfig } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
@@ -26,7 +26,7 @@ interface TrackHeaderProps {
 }
 
 function formatDb(db: number): string {
-  return db <= -60 ? "-∞" : db.toFixed(1);
+  return db <= -60 ? "-∞" : `${db.toFixed(1)}dB`;
 }
 
 function formatPan(pan: number): string {
@@ -112,26 +112,34 @@ export function TrackHeader({
         </button>
       </div>
 
-      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-        <Knob
-          label="Pan"
-          value={channel.pan}
-          min={-1}
-          max={1}
-          defaultValue={0}
-          onChange={onPanChange}
-          formatValue={formatPan}
-        />
-        <Knob
-          label="Vol"
-          value={channel.volume}
-          min={-60}
-          max={6}
-          defaultValue={0}
-          onChange={onVolumeChange}
-          formatValue={formatDb}
-        />
-        <Meter channelId={channel.id} />
+      <div
+        className="flex items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col gap-1">
+          <ValueBar
+            label="Pan"
+            value={channel.pan}
+            min={-1}
+            max={1}
+            defaultValue={0}
+            onChange={onPanChange}
+            formatValue={formatPan}
+            bipolar
+          />
+          <ValueBar
+            label="Vol"
+            value={channel.volume}
+            min={-60}
+            max={6}
+            defaultValue={0}
+            onChange={onVolumeChange}
+            formatValue={formatDb}
+          />
+        </div>
+        <div className="h-11">
+          <Meter channelId={channel.id} />
+        </div>
       </div>
 
       <div

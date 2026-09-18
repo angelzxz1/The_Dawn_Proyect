@@ -199,16 +199,26 @@ class AudioEngine {
     nodes.part = part;
   }
 
-  /** Starts playback of every channel's clip from the beginning. */
+  /** Starts/resumes playback from wherever the transport currently sits
+   * (position 0 if it was never played or was explicitly stopped, or a
+   * seeked/paused position otherwise). */
   async startPlayback(): Promise<void> {
     await this.ensureStarted();
-    const transport = Tone.getTransport();
-    transport.stop();
-    transport.position = 0;
-    transport.start();
+    Tone.getTransport().start();
   }
 
-  /** Stops playback/recording and releases any hanging notes. */
+  /** Pauses playback in place - unlike stopAll, the transport position is
+   * preserved so playback can resume from the same spot. */
+  pauseAll(): void {
+    Tone.getTransport().pause();
+    this.channels.forEach((nodes) => {
+      this.safe(() => nodes.sampler.releaseAll());
+      nodes.heldNotes.clear();
+    });
+  }
+
+  /** Stops playback/recording, resets the playhead to the start, and
+   * releases any hanging notes. */
   stopAll(): void {
     const transport = Tone.getTransport();
     transport.stop();
@@ -220,6 +230,12 @@ class AudioEngine {
     if (this.recording) {
       this.finishRecording();
     }
+  }
+
+  /** Moves the playhead to an absolute position on the timeline, whether
+   * the transport is currently playing, paused, or stopped. */
+  seekTo(seconds: number): void {
+    Tone.getTransport().seconds = Math.max(0, seconds);
   }
 
   /** Arms a channel for recording and starts the transport (other channels' clips still play back). */

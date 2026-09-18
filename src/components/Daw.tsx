@@ -22,6 +22,7 @@ import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
 import { trackColorForIndex } from "@/lib/colors";
+import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
@@ -34,10 +35,16 @@ import {
   TRACK_ROW_HEIGHT,
   quarterNotesPerBar,
   roundUpToBar,
+  secondsPerBar,
 } from "@/lib/timeline";
 import type { ChannelConfig, NoteEvent, TimeSignature } from "@/lib/types";
 
-type TransportState = "stopped" | "playing" | "recording";
+type TransportState = "stopped" | "playing" | "paused" | "recording";
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
+}
 
 let channelCounter = 0;
 function createChannel(name: string): ChannelConfig {
@@ -101,6 +108,14 @@ export function Daw() {
   );
 
   const registeredChannelIds = useRef(new Set<string>());
+  const rulerViewportRef = useRef<HTMLDivElement>(null);
+  const lanesScrollRef = useRef<HTMLDivElement>(null);
+
+  const handleLanesScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (rulerViewportRef.current) {
+      rulerViewportRef.current.scrollLeft = e.currentTarget.scrollLeft;
+    }
+  }, []);
 
   // Keep the audio engine's channels in sync with React state.
   useEffect(() => {
@@ -197,6 +212,18 @@ export function Daw() {
     await audioEngine.startPlayback();
     setTransportState("playing");
   }, [transportState]);
+
+  const handlePause = useCallback(() => {
+    if (transportState !== "playing") return;
+    audioEngine.pauseAll();
+    setTransportState("paused");
+    setActiveNotes(new Set());
+  }, [transportState]);
+
+  const handleTogglePlay = useCallback(() => {
+    if (transportState === "playing") void handlePause();
+    else if (transportState !== "recording") void handlePlay();
+  }, [transportState, handlePlay, handlePause]);
 
   const handleRecord = useCallback(async () => {
     if (transportState === "recording") {
@@ -306,6 +333,47 @@ export function Daw() {
     setClipLengths((prev) => ({ ...prev, [id]: newLength }));
   }, []);
 
+  const handleSeek = useCallback((seconds: number) => {
+    audioEngine.seekTo(seconds);
+  }, []);
+
+  const handleCopyClip = useCallback(() => {
+    copyClip({ notes: clips[selectedChannelId] ?? [], length: lengthOf(selectedChannelId) });
+  }, [clips, selectedChannelId, lengthOf]);
+
+  const handlePasteClip = useCallback(() => {
+    const copied = getCopiedClip();
+    if (!copied) return;
+    const bar = secondsPerBar(bpm, beatsPerBar);
+    const anchor = Math.max(0, Math.round(audioEngine.getTransportSeconds() / bar) * bar);
+    setClipOffsets((prev) => ({ ...prev, [selectedChannelId]: anchor }));
+    setClipLengths((prev) => ({ ...prev, [selectedChannelId]: copied.length }));
+    setClips((prev) => ({ ...prev, [selectedChannelId]: copied.notes }));
+    audioEngine.setClip(selectedChannelId, copied.notes, anchor);
+  }, [selectedChannelId, bpm, beatsPerBar]);
+
+  // Space to play/pause, Ctrl/Cmd+C/V to copy/paste the selected channel's
+  // clip onto the bar nearest the playhead - both suspended while the piano
+  // roll editor is open (it handles its own shortcuts) or while typing.
+  useEffect(() => {
+    if (editingChannelId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        handleTogglePlay();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        handleCopyClip();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        handlePasteClip();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editingChannelId, handleTogglePlay, handleCopyClip, handlePasteClip]);
+
   const handlePreviewNote = useCallback(
     (channelId: string, note: string) => {
       audioEngine.ensureStarted().then(() => {
@@ -329,34 +397,38 @@ export function Daw() {
   const lanesHeight = channels.length * TRACK_ROW_HEIGHT;
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
+    <div className="flex h-screen flex-col gap-4 overflow-hidden p-4">
+      <header className="flex shrink-0 items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">
           The Dawn Project
         </h1>
         <p className="text-xs text-muted">
           {samplesReady
-            ? "double-click a clip to edit it in the piano roll"
+            ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste a clip"
             : "loading piano sounds…"}
         </p>
       </header>
 
-      <TransportBar
-        bpm={bpm}
-        onBpmChange={setBpm}
-        timeSignature={timeSignature}
-        onTimeSignatureChange={setTimeSignature}
-        metronomeEnabled={metronomeEnabled}
-        onToggleMetronome={() => setMetronomeEnabled((v) => !v)}
-        isPlaying={transportState === "playing"}
-        isRecording={transportState === "recording"}
-        selectedChannelName={selectedChannel?.name ?? ""}
-        onPlay={handlePlay}
-        onStop={handleStop}
-        onRecord={handleRecord}
-      />
+      <div className="shrink-0">
+        <TransportBar
+          bpm={bpm}
+          onBpmChange={setBpm}
+          timeSignature={timeSignature}
+          onTimeSignatureChange={setTimeSignature}
+          metronomeEnabled={metronomeEnabled}
+          onToggleMetronome={() => setMetronomeEnabled((v) => !v)}
+          isPlaying={transportState === "playing"}
+          isPaused={transportState === "paused"}
+          isRecording={transportState === "recording"}
+          selectedChannelName={selectedChannel?.name ?? ""}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onStop={handleStop}
+          onRecord={handleRecord}
+        />
+      </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-1 text-xs text-muted">
           <button
             type="button"
@@ -382,74 +454,90 @@ export function Daw() {
         <ScaleSelector value={scaleSetting} onChange={setScaleSetting} />
       </div>
 
-      <div className="flex overflow-hidden rounded-lg border border-border">
-        <div className="flex shrink-0 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border">
+        {/* Sticky ruler row - a direct child of the vertical scroller (not
+            nested inside the horizontally-scrolling lanes column), so
+            position: sticky actually has that scroller as its containing
+            block instead of getting stuck relative to an inner element. */}
+        <div className="sticky top-0 z-20 flex shrink-0 bg-surface">
           <div
             style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT }}
             className="shrink-0 border-b border-r border-border bg-surface"
           />
-          {channels.map((channel) => (
-            <TrackHeader
-              key={channel.id}
-              channel={channel}
-              color={trackColorForIndex(channel.colorIndex)}
-              selected={channel.id === selectedChannelId}
-              recording={
-                transportState === "recording" &&
-                channel.id === selectedChannelId
-              }
-              hasNotes={(clips[channel.id] ?? []).length > 0}
-              canRemove={channels.length > 1}
-              onSelect={() => setSelectedChannelId(channel.id)}
-              onEdit={() => setEditingChannelId(channel.id)}
-              onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
-              onPanChange={(pan) => handlePanChange(channel.id, pan)}
-              onImportMidi={(file) => void handleImportMidi(channel.id, file)}
-              onExportMidi={() => handleExportMidi(channel.id)}
-              onClearClip={() => handleClearClip(channel.id)}
-              onRemove={() => handleRemoveChannel(channel.id)}
-            />
-          ))}
-          <button
-            type="button"
-            onClick={handleAddChannel}
-            style={{ width: TRACK_HEADER_WIDTH }}
-            className="flex h-9 shrink-0 items-center justify-center border-r border-border text-xs text-muted hover:bg-surface-raised hover:text-accent"
-          >
-            + Add track
-          </button>
-        </div>
-
-        <div className="relative flex-1 overflow-x-auto">
-          <TimelineRuler
-            bpm={bpm}
-            totalSeconds={totalSeconds}
-            pxPerSecond={pxPerSecond}
-            beatsPerBar={beatsPerBar}
-          />
-          {channels.map((channel) => (
-            <TrackLane
-              key={channel.id}
-              notes={clips[channel.id] ?? []}
-              color={trackColorForIndex(channel.colorIndex)}
-              offset={offsetOf(channel.id)}
-              length={lengthOf(channel.id)}
+          <div ref={rulerViewportRef} className="flex-1 overflow-hidden border-b border-border">
+            <TimelineRuler
               bpm={bpm}
-              beatsPerBar={beatsPerBar}
               totalSeconds={totalSeconds}
               pxPerSecond={pxPerSecond}
-              selected={channel.id === selectedChannelId}
-              onSelect={() => setSelectedChannelId(channel.id)}
-              onEdit={() => setEditingChannelId(channel.id)}
-              onMoveClip={(offset) => handleMoveClip(channel.id, offset)}
-              onResizeClip={(length) => handleResizeClip(channel.id, length)}
+              beatsPerBar={beatsPerBar}
+              onSeek={handleSeek}
             />
-          ))}
-          <Playhead pxPerSecond={pxPerSecond} height={RULER_HEIGHT + lanesHeight} />
+          </div>
+        </div>
+
+        <div className="flex">
+          <div className="flex shrink-0 flex-col">
+            {channels.map((channel) => (
+              <TrackHeader
+                key={channel.id}
+                channel={channel}
+                color={trackColorForIndex(channel.colorIndex)}
+                selected={channel.id === selectedChannelId}
+                recording={
+                  transportState === "recording" &&
+                  channel.id === selectedChannelId
+                }
+                hasNotes={(clips[channel.id] ?? []).length > 0}
+                canRemove={channels.length > 1}
+                onSelect={() => setSelectedChannelId(channel.id)}
+                onEdit={() => setEditingChannelId(channel.id)}
+                onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
+                onPanChange={(pan) => handlePanChange(channel.id, pan)}
+                onImportMidi={(file) => void handleImportMidi(channel.id, file)}
+                onExportMidi={() => handleExportMidi(channel.id)}
+                onClearClip={() => handleClearClip(channel.id)}
+                onRemove={() => handleRemoveChannel(channel.id)}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={handleAddChannel}
+              style={{ width: TRACK_HEADER_WIDTH }}
+              className="flex h-9 shrink-0 items-center justify-center border-r border-border text-xs text-muted hover:bg-surface-raised hover:text-accent"
+            >
+              + Add track
+            </button>
+          </div>
+
+          <div
+            ref={lanesScrollRef}
+            onScroll={handleLanesScroll}
+            className="relative flex-1 overflow-x-auto"
+          >
+            {channels.map((channel) => (
+              <TrackLane
+                key={channel.id}
+                notes={clips[channel.id] ?? []}
+                color={trackColorForIndex(channel.colorIndex)}
+                offset={offsetOf(channel.id)}
+                length={lengthOf(channel.id)}
+                bpm={bpm}
+                beatsPerBar={beatsPerBar}
+                totalSeconds={totalSeconds}
+                pxPerSecond={pxPerSecond}
+                selected={channel.id === selectedChannelId}
+                onSelect={() => setSelectedChannelId(channel.id)}
+                onEdit={() => setEditingChannelId(channel.id)}
+                onMoveClip={(offset) => handleMoveClip(channel.id, offset)}
+                onResizeClip={(length) => handleResizeClip(channel.id, length)}
+              />
+            ))}
+            <Playhead pxPerSecond={pxPerSecond} height={lanesHeight} />
+          </div>
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-surface p-3">
+      <div className="shrink-0 rounded-lg border border-border bg-surface p-3">
         <PianoKeyboard
           activeNotes={activeNotes}
           onNoteOn={handleNoteOn}
@@ -476,7 +564,7 @@ export function Daw() {
           onPreviewNote={(note) => handlePreviewNote(editingChannel.id, note)}
           isPlaying={transportState === "playing"}
           onPlay={handlePlay}
-          onStop={handleStop}
+          onPause={handlePause}
         />
       )}
     </div>

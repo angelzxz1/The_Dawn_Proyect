@@ -7,6 +7,7 @@ import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
 import type { NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { audioEngine } from "@/lib/audioEngine";
+import { copyNotes, getCopiedNotes } from "@/lib/clipboard";
 import { ScaleSelector } from "./ScaleSelector";
 
 interface PianoRollEditorProps {
@@ -25,7 +26,7 @@ interface PianoRollEditorProps {
   onPreviewNote: (note: string) => void;
   isPlaying: boolean;
   onPlay: () => void;
-  onStop: () => void;
+  onPause: () => void;
 }
 
 interface EditableNote extends NoteEvent {
@@ -92,7 +93,7 @@ export function PianoRollEditor({
   onPreviewNote,
   isPlaying,
   onPlay,
-  onStop,
+  onPause,
 }: PianoRollEditorProps) {
   const [notes, setNotes] = useState<EditableNote[]>(() => withIds(initialNotes));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -165,7 +166,7 @@ export function PianoRollEditor({
         setMode((m) => (m === "draw" ? "select" : "draw"));
       } else if (e.code === "Space") {
         e.preventDefault();
-        if (isPlaying) onStop();
+        if (isPlaying) onPause();
         else onPlay();
       } else if (
         selectedIds.size > 0 &&
@@ -183,12 +184,30 @@ export function PianoRollEditor({
             return { ...n, note: midiToNoteName(midi), time };
           })
         );
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        if (selectedIds.size === 0) return;
+        e.preventDefault();
+        copyNotes(stripIds(notes.filter((n) => selectedIds.has(n.id))));
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        const copied = getCopiedNotes();
+        if (!copied || copied.length === 0) return;
+        e.preventDefault();
+        const anchor = snapTime(Math.max(0, audioEngine.getTransportSeconds() - offset));
+        const earliest = Math.min(...copied.map((n) => n.time));
+        const shift = anchor - earliest;
+        const pasted: EditableNote[] = copied.map((n) => ({
+          ...n,
+          id: `n${idCounter++}`,
+          time: snapTime(Math.max(0, n.time + shift)),
+        }));
+        commit([...notes, ...pasted]);
+        setSelectedIds(new Set(pasted.map((p) => p.id)));
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, notes, isPlaying, onPlay, onStop, secondsPer16th, length]);
+  }, [selectedIds, notes, isPlaying, onPlay, onPause, secondsPer16th, length, offset]);
 
   // Playhead line, driven by rAF so it doesn't cause React re-renders.
   useEffect(() => {
@@ -582,7 +601,7 @@ export function PianoRollEditor({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={isPlaying ? onStop : onPlay}
+              onClick={isPlaying ? onPause : onPlay}
               title={isPlaying ? "Pause (Space)" : "Play (Space)"}
               className={`flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
                 isPlaying
@@ -626,7 +645,7 @@ export function PianoRollEditor({
           {mode === "draw"
             ? "drag on empty space to draw a note · shift-click or drag a selection to move it · drag its right edge to resize · right-click a note to delete it"
             : "drag on empty space to box-select notes · shift-click to add/remove a note · drag a selection to move it · Delete to remove"}
-          {" · press B to toggle mode · arrow keys nudge the selection · Space to play/stop"}
+          {" · press B to toggle mode · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste notes at the playhead"}
         </div>
 
         <div

@@ -1,6 +1,6 @@
 "use client";
 
-import { Circle, Play, Square, Volume1, Volume2 } from "lucide-react";
+import { Circle, Pause, Play, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/lib/types";
 
@@ -14,9 +14,11 @@ interface TransportBarProps {
   metronomeEnabled: boolean;
   onToggleMetronome: () => void;
   isPlaying: boolean;
+  isPaused: boolean;
   isRecording: boolean;
   selectedChannelName: string;
   onPlay: () => void;
+  onPause: () => void;
   onStop: () => void;
   onRecord: () => void;
 }
@@ -29,9 +31,11 @@ export function TransportBar({
   metronomeEnabled,
   onToggleMetronome,
   isPlaying,
+  isPaused,
   isRecording,
   selectedChannelName,
   onPlay,
+  onPause,
   onStop,
   onRecord,
 }: TransportBarProps) {
@@ -53,12 +57,16 @@ export function TransportBar({
         </button>
         <button
           type="button"
-          onClick={onPlay}
+          onClick={isPlaying ? onPause : onPlay}
           disabled={isRecording}
-          title="Play"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-success hover:bg-surface-raised disabled:opacity-30"
+          title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+          className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:opacity-30 ${
+            isPlaying
+              ? "border-accent bg-accent/20 text-accent"
+              : "border-border text-success hover:bg-surface-raised"
+          }`}
         >
-          <Play size={15} fill="currentColor" />
+          {isPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
         </button>
         <button
           type="button"
@@ -136,7 +144,9 @@ export function TransportBar({
           ? "playing"
           : isRecording
             ? `recording onto ${selectedChannelName}`
-            : "stopped"}{" "}
+            : isPaused
+              ? "paused"
+              : "stopped"}{" "}
         · armed channel:{" "}
         <span className="text-foreground">{selectedChannelName}</span>
       </div>

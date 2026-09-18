@@ -26,7 +26,7 @@ import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
 import { trackColorForIndex, MASTER_COLOR } from "@/lib/colors";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
-import { decodeAudioFile } from "@/lib/audioFile";
+import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import type { EffectInstance, EffectType } from "@/lib/effects";
 import type { ScaleSetting } from "@/lib/scales";
 import {
@@ -95,6 +95,8 @@ export function Daw() {
   const [audioClips, setAudioClips] = useState<Record<string, AudioClipData>>({});
   const [channelEffects, setChannelEffects] = useState<Record<string, EffectInstance[]>>({});
   const [fxPanel, setFxPanel] = useState<FxPanelState | null>(null);
+  const [recordModes, setRecordModes] = useState<Record<string, "midi" | "audio">>({});
+  const [micError, setMicError] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
@@ -141,6 +143,54 @@ export function Daw() {
   const clipTypeOf = useCallback(
     (id: string): ClipType => clipTypes[id] ?? "midi",
     [clipTypes]
+  );
+  const recordModeOf = useCallback(
+    (id: string): "midi" | "audio" => recordModes[id] ?? "midi",
+    [recordModes]
+  );
+
+  /** Drops a channel's audio clip (revoking its object URL) so it can go
+   * back to being a plain MIDI track - shared by clearing, importing a
+   * .mid file, or adding an empty MIDI clip onto a track that currently
+   * holds audio. */
+  const discardAudioClip = useCallback(
+    (id: string) => {
+      const existing = audioClips[id];
+      if (existing) URL.revokeObjectURL(existing.url);
+      audioEngine.clearAudioClip(id);
+      setClipTypes((prev) => ({ ...prev, [id]: "midi" }));
+      setAudioClips((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    },
+    [audioClips]
+  );
+
+  /** Installs a decoded audio source (an imported file, or a finished mic
+   * recording) as a channel's clip, replacing whatever it held before -
+   * shared by file import and by finishing an audio recording. */
+  const applyAudioClip = useCallback(
+    (id: string, decoded: DecodedAudioClip, anchor: number, fileName: string) => {
+      const previous = audioClips[id];
+      if (previous) URL.revokeObjectURL(previous.url);
+      audioEngine.setAudioClip(id, decoded.url, anchor);
+      setClipTypes((prev) => ({ ...prev, [id]: "audio" }));
+      setAudioClips((prev) => ({
+        ...prev,
+        [id]: {
+          url: decoded.url,
+          fileName,
+          durationSeconds: decoded.durationSeconds,
+          peaks: decoded.peaks,
+        },
+      }));
+      setClipOffsets((prev) => ({ ...prev, [id]: anchor }));
+      setClipLengths((prev) => ({ ...prev, [id]: decoded.durationSeconds }));
+      setClips((prev) => ({ ...prev, [id]: [] }));
+    },
+    [audioClips]
   );
 
   const registeredChannelIds = useRef(new Set<string>());
@@ -228,28 +278,42 @@ export function Daw() {
     });
   }, [handleNoteOn, handleNoteOff]);
 
-  const handleStop = useCallback(() => {
+  const handleStop = useCallback(async () => {
     if (transportState === "recording") {
-      const events = audioEngine.finishRecording(offsetOf(selectedChannelId));
-      setClips((prev) => ({ ...prev, [selectedChannelId]: events }));
-      if (events.length > 0) {
-        const lastEnd = events.reduce(
-          (m, n) => Math.max(m, n.time + n.duration),
-          0
-        );
-        setClipLengths((prev) => ({
-          ...prev,
-          [selectedChannelId]: Math.max(
-            prev[selectedChannelId] ?? 0,
-            roundUpToBar(lastEnd, bpm, beatsPerBar)
-          ),
-        }));
+      if (recordModeOf(selectedChannelId) === "audio") {
+        const blob = await audioEngine.finishAudioRecording();
+        if (blob && blob.size > 0) {
+          const decoded = await decodeAudioFile(blob);
+          const channelName = channels.find((c) => c.id === selectedChannelId)?.name ?? "take";
+          applyAudioClip(
+            selectedChannelId,
+            decoded,
+            offsetOf(selectedChannelId),
+            `${channelName} recording`
+          );
+        }
+      } else {
+        const events = audioEngine.finishRecording(offsetOf(selectedChannelId));
+        setClips((prev) => ({ ...prev, [selectedChannelId]: events }));
+        if (events.length > 0) {
+          const lastEnd = events.reduce(
+            (m, n) => Math.max(m, n.time + n.duration),
+            0
+          );
+          setClipLengths((prev) => ({
+            ...prev,
+            [selectedChannelId]: Math.max(
+              prev[selectedChannelId] ?? 0,
+              roundUpToBar(lastEnd, bpm, beatsPerBar)
+            ),
+          }));
+        }
       }
     }
     setTransportState("stopped");
     audioEngine.stopAll();
     setActiveNotes(new Set());
-  }, [transportState, selectedChannelId, bpm, beatsPerBar, offsetOf]);
+  }, [transportState, selectedChannelId, bpm, beatsPerBar, offsetOf, recordModeOf, channels, applyAudioClip]);
 
   const handlePlay = useCallback(async () => {
     if (transportState === "recording") return;
@@ -271,12 +335,24 @@ export function Daw() {
 
   const handleRecord = useCallback(async () => {
     if (transportState === "recording") {
-      handleStop();
+      void handleStop();
+      return;
+    }
+    if (recordModeOf(selectedChannelId) === "audio") {
+      try {
+        await audioEngine.startAudioRecording(selectedChannelId);
+        setMicError(null);
+        setTransportState("recording");
+      } catch {
+        setMicError(
+          "Couldn't access the microphone - check the browser's permission prompt or site settings."
+        );
+      }
       return;
     }
     await audioEngine.startRecording(selectedChannelId);
     setTransportState("recording");
-  }, [transportState, selectedChannelId, handleStop]);
+  }, [transportState, selectedChannelId, handleStop, recordModeOf]);
 
   const handleAddChannel = useCallback(() => {
     setChannels((prev) => [...prev, createChannel(`Piano ${prev.length + 1}`)]);
@@ -317,6 +393,11 @@ export function Daw() {
         delete next[id];
         return next;
       });
+      setRecordModes((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       if (fxPanel?.channelId === id) setFxPanel(null);
       if (selectedChannelId === id) {
         const fallback = channels.find((c) => c.id !== id);
@@ -348,24 +429,9 @@ export function Daw() {
     );
   }, []);
 
-  /** Drops a channel's audio clip (revoking its object URL) so it can go
-   * back to being a plain MIDI track - shared by clearing, importing a
-   * .mid file, or adding an empty MIDI clip onto a track that currently
-   * holds audio. */
-  const discardAudioClip = useCallback(
-    (id: string) => {
-      const existing = audioClips[id];
-      if (existing) URL.revokeObjectURL(existing.url);
-      audioEngine.clearAudioClip(id);
-      setClipTypes((prev) => ({ ...prev, [id]: "midi" }));
-      setAudioClips((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    },
-    [audioClips]
-  );
+  const handleRecordModeChange = useCallback((id: string, mode: "midi" | "audio") => {
+    setRecordModes((prev) => ({ ...prev, [id]: mode }));
+  }, []);
 
   const handleImportMidi = useCallback(
     async (id: string, file: File) => {
@@ -391,24 +457,9 @@ export function Daw() {
       const decoded = await decodeAudioFile(file);
       const bar = secondsPerBar(bpm, beatsPerBar);
       const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-      const previous = audioClips[id];
-      if (previous) URL.revokeObjectURL(previous.url);
-      audioEngine.setAudioClip(id, decoded.url, anchor);
-      setClipTypes((prev) => ({ ...prev, [id]: "audio" }));
-      setAudioClips((prev) => ({
-        ...prev,
-        [id]: {
-          url: decoded.url,
-          fileName: file.name,
-          durationSeconds: decoded.durationSeconds,
-          peaks: decoded.peaks,
-        },
-      }));
-      setClipOffsets((prev) => ({ ...prev, [id]: anchor }));
-      setClipLengths((prev) => ({ ...prev, [id]: decoded.durationSeconds }));
-      setClips((prev) => ({ ...prev, [id]: [] }));
+      applyAudioClip(id, decoded, anchor, file.name);
     },
-    [bpm, beatsPerBar, audioClips]
+    [bpm, beatsPerBar, applyAudioClip]
   );
 
   const handleExportMidi = useCallback(
@@ -795,10 +846,12 @@ export function Daw() {
         <h1 className="text-lg font-semibold tracking-tight">
           The Dawn Project
         </h1>
-        <p className="text-xs text-muted">
-          {samplesReady
-            ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste a clip"
-            : "loading piano sounds…"}
+        <p className={`text-xs ${micError ? "text-record" : "text-muted"}`}>
+          {micError
+            ? micError
+            : samplesReady
+              ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste a clip"
+              : "loading piano sounds…"}
         </p>
       </header>
 
@@ -813,10 +866,11 @@ export function Daw() {
           isPlaying={transportState === "playing"}
           isPaused={transportState === "paused"}
           isRecording={transportState === "recording"}
+          recordingMode={recordModeOf(selectedChannelId)}
           selectedChannelName={selectedChannel?.name ?? ""}
           onPlay={handlePlay}
           onPause={handlePause}
-          onStop={handleStop}
+          onStop={() => void handleStop()}
           onRecord={handleRecord}
         />
       </div>
@@ -888,6 +942,7 @@ export function Daw() {
                 }
                 clipType={clipTypeOf(channel.id)}
                 effectsCount={(channelEffects[channel.id] ?? []).length}
+                recordMode={recordModeOf(channel.id)}
                 canRemove={channels.length > 1}
                 onSelect={() => setSelectedChannelId(channel.id)}
                 onEdit={() => handleEditClip(channel.id)}
@@ -895,6 +950,7 @@ export function Daw() {
                 onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
                 onPanChange={(pan) => handlePanChange(channel.id, pan)}
                 onInstrumentChange={(type) => handleInstrumentChange(channel.id, type)}
+                onRecordModeChange={(mode) => handleRecordModeChange(channel.id, mode)}
                 onOpenEffects={(e) => openEffects(channel.id, e)}
                 onImportMidi={(file) => void handleImportMidi(channel.id, file)}
                 onExportMidi={() => handleExportMidi(channel.id)}

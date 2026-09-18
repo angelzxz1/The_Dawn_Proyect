@@ -1,6 +1,7 @@
-// Decodes an imported audio file into everything an audio clip needs: a
-// playable object URL (for Tone.Player) plus a downsampled peak array (for
-// drawing a waveform in the clip block) and its duration.
+// Decodes an audio source - an imported file, or a Blob captured from the
+// microphone - into everything an audio clip needs: a playable object URL
+// (for Tone.Player) plus a downsampled peak array (for drawing a waveform
+// in the clip block) and its duration.
 
 const PEAK_BUCKETS = 240;
 
@@ -10,8 +11,8 @@ export interface DecodedAudioClip {
   peaks: number[];
 }
 
-export async function decodeAudioFile(file: File): Promise<DecodedAudioClip> {
-  const arrayBuffer = await file.arrayBuffer();
+export async function decodeAudioFile(source: Blob): Promise<DecodedAudioClip> {
+  const arrayBuffer = await source.arrayBuffer();
   const AudioContextCtor =
     window.AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -44,7 +45,7 @@ export async function decodeAudioFile(file: File): Promise<DecodedAudioClip> {
   }
 
   return {
-    url: URL.createObjectURL(file),
+    url: URL.createObjectURL(source),
     durationSeconds: buffer.duration,
     peaks,
   };

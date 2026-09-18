@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Download, Drum, Pencil, Piano, Sliders, Trash2, Upload, X } from "lucide-react";
+import { Download, Drum, Mic, Pencil, Piano, Sliders, Trash2, Upload, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import type { ChannelConfig, ClipType, InstrumentType } from "@/lib/types";
@@ -23,12 +23,16 @@ interface TrackHeaderProps {
    * selector only makes sense while it's a MIDI clip. */
   clipType?: ClipType;
   effectsCount?: number;
+  /** What hitting the transport's Record button will capture onto this
+   * track - MIDI played on the keyboard/pads, or live microphone input. */
+  recordMode?: "midi" | "audio";
   onSelect: () => void;
   onEdit?: () => void;
   onRename: (name: string) => void;
   onVolumeChange: (db: number) => void;
   onPanChange: (pan: number) => void;
   onInstrumentChange?: (type: InstrumentType) => void;
+  onRecordModeChange?: (mode: "midi" | "audio") => void;
   onOpenEffects?: (e: React.MouseEvent) => void;
   onImportMidi?: (file: File) => void;
   onExportMidi?: () => void;
@@ -85,12 +89,14 @@ export function TrackHeader({
   isMaster = false,
   clipType = "midi",
   effectsCount = 0,
+  recordMode = "midi",
   onSelect,
   onEdit,
   onRename,
   onVolumeChange,
   onPanChange,
   onInstrumentChange,
+  onRecordModeChange,
   onOpenEffects,
   onImportMidi,
   onExportMidi,
@@ -237,6 +243,24 @@ export function TrackHeader({
               Audio
             </span>
           )}
+          <button
+            type="button"
+            title={
+              recordMode === "audio"
+                ? "Recording will capture microphone input - click to record MIDI instead"
+                : "Recording will capture MIDI - click to record microphone input instead"
+            }
+            onClick={() =>
+              onRecordModeChange?.(recordMode === "audio" ? "midi" : "audio")
+            }
+            className={`flex h-6 w-6 items-center justify-center rounded border ${
+              recordMode === "audio"
+                ? "border-record bg-record/20 text-record"
+                : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            <Mic size={12} />
+          </button>
           <button
             type="button"
             title={`Effects${effectsCount > 0 ? ` (${effectsCount})` : ""}`}

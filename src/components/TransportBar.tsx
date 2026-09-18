@@ -16,6 +16,8 @@ interface TransportBarProps {
   isPlaying: boolean;
   isPaused: boolean;
   isRecording: boolean;
+  /** What the armed channel will capture when Record is pressed. */
+  recordingMode?: "midi" | "audio";
   selectedChannelName: string;
   onPlay: () => void;
   onPause: () => void;
@@ -33,6 +35,7 @@ export function TransportBar({
   isPlaying,
   isPaused,
   isRecording,
+  recordingMode = "midi",
   selectedChannelName,
   onPlay,
   onPause,
@@ -46,7 +49,11 @@ export function TransportBar({
           type="button"
           onClick={onRecord}
           aria-pressed={isRecording}
-          title="Record onto the selected channel"
+          title={
+            recordingMode === "audio"
+              ? "Record microphone input onto the selected channel"
+              : "Record MIDI onto the selected channel"
+          }
           className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors ${
             isRecording
               ? "animate-pulse-rec border-record bg-record text-white"
@@ -143,7 +150,7 @@ export function TransportBar({
         {isPlaying
           ? "playing"
           : isRecording
-            ? `recording onto ${selectedChannelName}`
+            ? `recording ${recordingMode === "audio" ? "audio" : "MIDI"} onto ${selectedChannelName}`
             : isPaused
               ? "paused"
               : "stopped"}{" "}

@@ -127,6 +127,9 @@ class AudioEngine {
   private recording: RecordingState | null = null;
   private pendingLoads = 0;
   private readyListeners = new Set<() => void>();
+  private micStream: MediaStream | null = null;
+  private audioRecording: { channelId: string; recorder: MediaRecorder; chunks: Blob[] } | null =
+    null;
 
   /** True once every sampler currently loading has finished (or failed). */
   samplesReady = true;
@@ -509,6 +512,12 @@ class AudioEngine {
     if (this.recording) {
       this.finishRecording();
     }
+    // Defensive hard-stop only - a caller that wants the take should have
+    // already awaited finishAudioRecording() before calling stopAll().
+    if (this.audioRecording) {
+      this.safe(() => this.audioRecording!.recorder.stop());
+      this.audioRecording = null;
+    }
   }
 
   /** Moves the playhead to an absolute position on the timeline, whether
@@ -557,7 +566,72 @@ class AudioEngine {
   }
 
   get isRecording(): boolean {
-    return this.recording !== null;
+    return this.recording !== null || this.audioRecording !== null;
+  }
+
+  // --- Audio (microphone) recording ---
+
+  private async ensureMicStream(): Promise<MediaStream> {
+    if (this.micStream) return this.micStream;
+    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return this.micStream;
+  }
+
+  private static readonly PREFERRED_MIME_TYPES = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+  ];
+
+  private pickRecorderMimeType(): string | undefined {
+    return AudioEngine.PREFERRED_MIME_TYPES.find(
+      (type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)
+    );
+  }
+
+  /**
+   * Requests microphone access (prompting the user the first time) and
+   * arms a channel to capture the input as an audio clip, starting the
+   * transport from the top like MIDI recording does.
+   */
+  async startAudioRecording(channelId: string): Promise<void> {
+    await this.ensureStarted();
+    if (!this.channels.has(channelId)) return;
+    const stream = await this.ensureMicStream();
+    const mimeType = this.pickRecorderMimeType();
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    this.audioRecording = { channelId, recorder, chunks };
+    recorder.start();
+
+    const transport = Tone.getTransport();
+    transport.stop();
+    transport.position = 0;
+    transport.start();
+  }
+
+  /** Stops the mic capture and returns the recorded take as a Blob, or
+   * null if nothing was being recorded. */
+  async finishAudioRecording(): Promise<Blob | null> {
+    const rec = this.audioRecording;
+    if (!rec) return null;
+    this.audioRecording = null;
+    if (rec.recorder.state === "inactive") {
+      return rec.chunks.length > 0 ? new Blob(rec.chunks, { type: rec.recorder.mimeType }) : null;
+    }
+    return new Promise((resolve) => {
+      rec.recorder.onstop = () => {
+        resolve(rec.chunks.length > 0 ? new Blob(rec.chunks, { type: rec.recorder.mimeType }) : null);
+      };
+      rec.recorder.stop();
+    });
+  }
+
+  get isAudioRecording(): boolean {
+    return this.audioRecording !== null;
   }
 
   setBpm(bpm: number): void {

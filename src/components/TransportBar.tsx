@@ -1,22 +1,17 @@
 "use client";
 
+import { Circle, Play, Square } from "lucide-react";
+import { TransportClock } from "./TransportClock";
+
 interface TransportBarProps {
   bpm: number;
   onBpmChange: (bpm: number) => void;
   isPlaying: boolean;
   isRecording: boolean;
-  elapsedSeconds: number;
   selectedChannelName: string;
   onPlay: () => void;
   onStop: () => void;
   onRecord: () => void;
-}
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  const ms = Math.floor((seconds % 1) * 10);
-  return `${m}:${s.toString().padStart(2, "0")}.${ms}`;
 }
 
 export function TransportBar({
@@ -24,7 +19,6 @@ export function TransportBar({
   onBpmChange,
   isPlaying,
   isRecording,
-  elapsedSeconds,
   selectedChannelName,
   onPlay,
   onStop,
@@ -44,7 +38,7 @@ export function TransportBar({
               : "border-border text-record hover:bg-surface-raised"
           }`}
         >
-          ●
+          <Circle size={14} fill="currentColor" />
         </button>
         <button
           type="button"
@@ -53,7 +47,7 @@ export function TransportBar({
           title="Play"
           className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-success hover:bg-surface-raised disabled:opacity-30"
         >
-          ▶
+          <Play size={15} fill="currentColor" />
         </button>
         <button
           type="button"
@@ -61,13 +55,11 @@ export function TransportBar({
           title="Stop"
           className="flex h-9 w-9 items-center justify-center rounded-full border border-border hover:bg-surface-raised"
         >
-          ■
+          <Square size={13} fill="currentColor" />
         </button>
       </div>
 
-      <div className="font-mono text-sm text-muted">
-        {formatTime(elapsedSeconds)}
-      </div>
+      <TransportClock />
 
       <label className="flex items-center gap-2 text-xs text-muted">
         BPM

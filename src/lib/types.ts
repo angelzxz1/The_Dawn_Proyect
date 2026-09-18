@@ -14,4 +14,5 @@ export interface ChannelConfig {
   name: string;
   volume: number; // dB
   pan: number; // -1..1
+  colorIndex: number;
 }

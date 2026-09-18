@@ -8,11 +8,13 @@ import {
   isBlackKey,
   midiToNoteName,
 } from "@/lib/piano";
+import { isNoteInScale, type ScaleSetting } from "@/lib/scales";
 
 interface PianoKeyboardProps {
   activeNotes: Set<string>;
   onNoteOn: (note: string, velocity: number) => void;
   onNoteOff: (note: string) => void;
+  scaleSetting: ScaleSetting;
 }
 
 const PITCHES_WITH_BLACK_AFTER = new Set(["C", "D", "F", "G", "A"]);
@@ -43,6 +45,7 @@ export function PianoKeyboard({
   activeNotes,
   onNoteOn,
   onNoteOff,
+  scaleSetting,
 }: PianoKeyboardProps) {
   const [octaveShift, setOctaveShift] = useState(0);
   const pressedKeys = useRef<Set<string>>(new Set());
@@ -147,13 +150,18 @@ export function PianoKeyboard({
         {whiteMidis.map((m, i) => {
           const note = midiToNoteName(m);
           const active = activeNotes.has(note);
+          const inScale = scaleSetting.enabled && isNoteInScale(m, scaleSetting);
           return (
             <div
               key={m}
               onPointerDown={() => handleMouseDown(note)}
               style={{ left: `${i * whiteWidth}%`, width: `${whiteWidth}%` }}
               className={`absolute top-0 h-full rounded-b-md border border-border/80 shadow-sm transition-colors ${
-                active ? "bg-accent" : "bg-[#e9e9ec] hover:bg-white"
+                active
+                  ? "bg-accent"
+                  : inScale
+                    ? "bg-[#cfe6ff] hover:bg-white"
+                    : "bg-[#e9e9ec] hover:bg-white"
               }`}
             />
           );
@@ -161,6 +169,7 @@ export function PianoKeyboard({
         {blackKeys.map(({ midi: m, left }) => {
           const note = midiToNoteName(m);
           const active = activeNotes.has(note);
+          const inScale = scaleSetting.enabled && isNoteInScale(m, scaleSetting);
           return (
             <div
               key={m}
@@ -170,7 +179,11 @@ export function PianoKeyboard({
               }}
               style={{ left: `${left}%`, width: `${blackWidth}%` }}
               className={`absolute top-0 z-10 h-[60%] rounded-b-md border border-black shadow-md transition-colors ${
-                active ? "bg-accent" : "bg-[#0d0d10] hover:bg-[#1c1c22]"
+                active
+                  ? "bg-accent"
+                  : inScale
+                    ? "bg-[#1d3a5c] hover:bg-[#264a70]"
+                    : "bg-[#0d0d10] hover:bg-[#1c1c22]"
               }`}
             />
           );

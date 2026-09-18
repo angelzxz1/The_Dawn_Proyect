@@ -3,29 +3,49 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import { ChannelStrip } from "./ChannelStrip";
+import { ZoomIn, ZoomOut } from "lucide-react";
+import { TrackHeader } from "./TrackHeader";
+import { TrackLane } from "./TrackLane";
+import { TimelineRuler } from "./TimelineRuler";
+import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
+import { PianoRollEditor } from "./PianoRollEditor";
+import { ScaleSelector } from "./ScaleSelector";
 import { audioEngine } from "@/lib/audioEngine";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
+import { trackColorForIndex } from "@/lib/colors";
+import type { ScaleSetting } from "@/lib/scales";
+import {
+  DEFAULT_PX_PER_SECOND,
+  MAX_PX_PER_SECOND,
+  MIN_PX_PER_SECOND,
+  MIN_TIMELINE_SECONDS,
+  RULER_HEIGHT,
+  TRACK_HEADER_WIDTH,
+  TRACK_ROW_HEIGHT,
+} from "@/lib/timeline";
 import type { ChannelConfig, NoteEvent } from "@/lib/types";
 
 type TransportState = "stopped" | "playing" | "recording";
 
 let channelCounter = 0;
-function nextChannelId(): string {
-  channelCounter += 1;
-  return `ch-${channelCounter}`;
-}
-
 function createChannel(name: string): ChannelConfig {
-  return { id: nextChannelId(), name, volume: 0, pan: 0 };
+  channelCounter += 1;
+  return {
+    id: `ch-${channelCounter}`,
+    name,
+    volume: 0,
+    pan: 0,
+    colorIndex: channelCounter - 1,
+  };
 }
 
 export function Daw() {
@@ -38,12 +58,18 @@ export function Daw() {
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const [bpm, setBpm] = useState(120);
   const [transportState, setTransportState] = useState<TransportState>(
     "stopped"
   );
   const [activeNotes, setActiveNotes] = useState<Set<string>>(new Set());
-  const [elapsed, setElapsed] = useState(0);
+  const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
+  const [scaleSetting, setScaleSetting] = useState<ScaleSetting>({
+    root: "C",
+    scale: "Major",
+    enabled: false,
+  });
   const samplesReady = useSyncExternalStore(
     useCallback((listener) => audioEngine.onReadyChange(listener), []),
     () => audioEngine.samplesReady,
@@ -119,7 +145,6 @@ export function Daw() {
     setTransportState("stopped");
     audioEngine.stopAll();
     setActiveNotes(new Set());
-    setElapsed(0);
   }, [transportState, selectedChannelId]);
 
   const handlePlay = useCallback(async () => {
@@ -137,20 +162,6 @@ export function Daw() {
     setTransportState("recording");
   }, [transportState, selectedChannelId, handleStop]);
 
-  // Live elapsed-time display while the transport is running.
-  useEffect(() => {
-    if (transportState === "stopped") {
-      return;
-    }
-    let frame: number;
-    const tick = () => {
-      setElapsed(audioEngine.getTransportSeconds());
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [transportState]);
-
   const handleAddChannel = useCallback(() => {
     setChannels((prev) => [...prev, createChannel(`Piano ${prev.length + 1}`)]);
   }, []);
@@ -167,8 +178,9 @@ export function Daw() {
         const fallback = channels.find((c) => c.id !== id);
         if (fallback) setSelectedChannelId(fallback.id);
       }
+      if (editingChannelId === id) setEditingChannelId(null);
     },
-    [selectedChannelId, channels]
+    [selectedChannelId, channels, editingChannelId]
   );
 
   const handleVolumeChange = useCallback((id: string, db: number) => {
@@ -204,7 +216,35 @@ export function Daw() {
     setClips((prev) => ({ ...prev, [id]: [] }));
   }, []);
 
+  const handleEditorChange = useCallback(
+    (id: string, notes: NoteEvent[]) => {
+      audioEngine.setClip(id, notes);
+      setClips((prev) => ({ ...prev, [id]: notes }));
+    },
+    []
+  );
+
+  const handlePreviewNote = useCallback(
+    (channelId: string, note: string) => {
+      audioEngine.ensureStarted().then(() => {
+        audioEngine.noteOn(channelId, note, 0.85);
+        setTimeout(() => audioEngine.noteOff(channelId, note), 150);
+      });
+    },
+    []
+  );
+
+  const totalSeconds = useMemo(() => {
+    const longest = Object.values(clips).reduce((max, notes) => {
+      const end = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
+      return Math.max(max, end);
+    }, 0);
+    return Math.max(MIN_TIMELINE_SECONDS, Math.ceil(longest + 8));
+  }, [clips]);
+
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
+  const editingChannel = channels.find((c) => c.id === editingChannelId);
+  const lanesHeight = channels.length * TRACK_ROW_HEIGHT;
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4">
@@ -214,7 +254,7 @@ export function Daw() {
         </h1>
         <p className="text-xs text-muted">
           {samplesReady
-            ? "click a channel to select it, then record or play with the piano below"
+            ? "double-click a clip to edit it in the piano roll"
             : "loading piano sounds…"}
         </p>
       </header>
@@ -224,41 +264,93 @@ export function Daw() {
         onBpmChange={setBpm}
         isPlaying={transportState === "playing"}
         isRecording={transportState === "recording"}
-        elapsedSeconds={elapsed}
         selectedChannelName={selectedChannel?.name ?? ""}
         onPlay={handlePlay}
         onStop={handleStop}
         onRecord={handleRecord}
       />
 
-      <div className="flex flex-1 gap-3 overflow-x-auto pb-2">
-        {channels.map((channel) => (
-          <ChannelStrip
-            key={channel.id}
-            channel={channel}
-            notes={clips[channel.id] ?? []}
-            selected={channel.id === selectedChannelId}
-            recording={
-              transportState === "recording" &&
-              channel.id === selectedChannelId
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1 text-xs text-muted">
+          <button
+            type="button"
+            onClick={() =>
+              setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 20))
             }
-            canRemove={channels.length > 1}
-            onSelect={() => setSelectedChannelId(channel.id)}
-            onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
-            onPanChange={(pan) => handlePanChange(channel.id, pan)}
-            onImportMidi={(file) => void handleImportMidi(channel.id, file)}
-            onExportMidi={() => handleExportMidi(channel.id)}
-            onClearClip={() => handleClearClip(channel.id)}
-            onRemove={() => handleRemoveChannel(channel.id)}
+            title="Zoom out"
+            className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+          >
+            <ZoomOut size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 20))
+            }
+            title="Zoom in"
+            className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+          >
+            <ZoomIn size={12} />
+          </button>
+        </div>
+        <ScaleSelector value={scaleSetting} onChange={setScaleSetting} />
+      </div>
+
+      <div className="flex overflow-hidden rounded-lg border border-border">
+        <div className="flex shrink-0 flex-col">
+          <div
+            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT }}
+            className="shrink-0 border-b border-r border-border bg-surface"
           />
-        ))}
-        <button
-          type="button"
-          onClick={handleAddChannel}
-          className="flex w-44 shrink-0 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted hover:border-accent hover:text-accent"
-        >
-          + Add channel
-        </button>
+          {channels.map((channel) => (
+            <TrackHeader
+              key={channel.id}
+              channel={channel}
+              color={trackColorForIndex(channel.colorIndex)}
+              selected={channel.id === selectedChannelId}
+              recording={
+                transportState === "recording" &&
+                channel.id === selectedChannelId
+              }
+              hasNotes={(clips[channel.id] ?? []).length > 0}
+              canRemove={channels.length > 1}
+              onSelect={() => setSelectedChannelId(channel.id)}
+              onEdit={() => setEditingChannelId(channel.id)}
+              onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
+              onPanChange={(pan) => handlePanChange(channel.id, pan)}
+              onImportMidi={(file) => void handleImportMidi(channel.id, file)}
+              onExportMidi={() => handleExportMidi(channel.id)}
+              onClearClip={() => handleClearClip(channel.id)}
+              onRemove={() => handleRemoveChannel(channel.id)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={handleAddChannel}
+            style={{ width: TRACK_HEADER_WIDTH }}
+            className="flex h-9 shrink-0 items-center justify-center border-r border-border text-xs text-muted hover:bg-surface-raised hover:text-accent"
+          >
+            + Add track
+          </button>
+        </div>
+
+        <div className="relative flex-1 overflow-x-auto">
+          <TimelineRuler bpm={bpm} totalSeconds={totalSeconds} pxPerSecond={pxPerSecond} />
+          {channels.map((channel) => (
+            <TrackLane
+              key={channel.id}
+              notes={clips[channel.id] ?? []}
+              color={trackColorForIndex(channel.colorIndex)}
+              bpm={bpm}
+              totalSeconds={totalSeconds}
+              pxPerSecond={pxPerSecond}
+              selected={channel.id === selectedChannelId}
+              onSelect={() => setSelectedChannelId(channel.id)}
+              onEdit={() => setEditingChannelId(channel.id)}
+            />
+          ))}
+          <Playhead pxPerSecond={pxPerSecond} height={RULER_HEIGHT + lanesHeight} />
+        </div>
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-3">
@@ -266,8 +358,24 @@ export function Daw() {
           activeNotes={activeNotes}
           onNoteOn={handleNoteOn}
           onNoteOff={handleNoteOff}
+          scaleSetting={scaleSetting}
         />
       </div>
+
+      {editingChannel && (
+        <PianoRollEditor
+          key={editingChannel.id}
+          channelName={editingChannel.name}
+          color={trackColorForIndex(editingChannel.colorIndex)}
+          notes={clips[editingChannel.id] ?? []}
+          bpm={bpm}
+          scaleSetting={scaleSetting}
+          onScaleChange={setScaleSetting}
+          onChange={(notes) => handleEditorChange(editingChannel.id, notes)}
+          onClose={() => setEditingChannelId(null)}
+          onPreviewNote={(note) => handlePreviewNote(editingChannel.id, note)}
+        />
+      )}
     </div>
   );
 }

@@ -12,6 +12,8 @@ interface TrackLaneProps {
   beatsPerBar: number;
   totalSeconds: number;
   pxPerSecond: number;
+  /** Grid size (seconds) a clip drag snaps to; 0 means free positioning. */
+  snapSeconds: number;
   /** Whether this track is armed - tints the whole lane. */
   armed: boolean;
   /** Which one clip (if any) on this lane has the selection ring - Delete
@@ -24,6 +26,9 @@ interface TrackLaneProps {
   onResizeClip: (clipId: string, lengthSeconds: number) => void;
   onClipContextMenu: (clipId: string, e: React.MouseEvent) => void;
   onLaneContextMenu: (e: React.MouseEvent, atSeconds: number) => void;
+  /** Fired once at the start of a clip move/resize drag - lets the caller
+   * push one undo checkpoint per drag instead of one per pixel. */
+  onClipDragStart: () => void;
 }
 
 export function TrackLane({
@@ -33,6 +38,7 @@ export function TrackLane({
   beatsPerBar,
   totalSeconds,
   pxPerSecond,
+  snapSeconds,
   armed,
   selectedClipId,
   onSelectTrack,
@@ -42,6 +48,7 @@ export function TrackLane({
   onResizeClip,
   onClipContextMenu,
   onLaneContextMenu,
+  onClipDragStart,
 }: TrackLaneProps) {
   const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
 
@@ -84,15 +91,15 @@ export function TrackLane({
           color={color}
           offset={clip.offset}
           length={clip.length}
-          bpm={bpm}
-          beatsPerBar={beatsPerBar}
           pxPerSecond={pxPerSecond}
+          snapSeconds={snapSeconds}
           selected={clip.id === selectedClipId}
           onSelect={() => onSelectClip(clip.id)}
           onEdit={() => onEditClip(clip.id)}
           onMove={(offset) => onMoveClip(clip.id, offset)}
           onResize={(length) => onResizeClip(clip.id, length)}
           onContextMenu={(e) => onClipContextMenu(clip.id, e)}
+          onDragStart={onClipDragStart}
         />
       ))}
     </div>

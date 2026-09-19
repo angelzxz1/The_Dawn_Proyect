@@ -24,6 +24,11 @@ interface TrackHeaderProps {
   onRename: (name: string) => void;
   onVolumeChange: (db: number) => void;
   onPanChange: (pan: number) => void;
+  /** Fired once at the start of a vol/pan drag or edit gesture - lets the
+   * caller push one undo checkpoint per gesture. */
+  onAdjustStart?: () => void;
+  onMuteToggle?: () => void;
+  onSoloToggle?: () => void;
   /** Opens the FX window (instrument slot + effects chain). */
   onOpenFx?: () => void;
   onImportMidi?: (file: File) => void;
@@ -91,6 +96,9 @@ export function TrackHeader({
   onRename,
   onVolumeChange,
   onPanChange,
+  onAdjustStart,
+  onMuteToggle,
+  onSoloToggle,
   onOpenFx,
   onImportMidi,
   onExportMidi,
@@ -172,6 +180,7 @@ export function TrackHeader({
             max={1}
             defaultValue={0}
             onChange={onPanChange}
+            onDragStart={onAdjustStart}
             formatValue={formatPan}
             bipolar
           />
@@ -182,6 +191,7 @@ export function TrackHeader({
             max={6}
             defaultValue={0}
             onChange={onVolumeChange}
+            onDragStart={onAdjustStart}
             formatValue={formatDb}
           />
         </div>
@@ -206,6 +216,32 @@ export function TrackHeader({
             {isMidi ? instrumentLabel(channel.instrument) : "Audio"}
           </span>
           <div className="flex-1" />
+          <button
+            type="button"
+            title={channel.muted ? "Unmute" : "Mute"}
+            aria-pressed={channel.muted}
+            onClick={() => onMuteToggle?.()}
+            className={`flex h-6 w-6 items-center justify-center rounded border text-[10px] font-bold ${
+              channel.muted
+                ? "border-record bg-record/20 text-record"
+                : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            M
+          </button>
+          <button
+            type="button"
+            title={channel.solo ? "Unsolo" : "Solo"}
+            aria-pressed={channel.solo}
+            onClick={() => onSoloToggle?.()}
+            className={`flex h-6 w-6 items-center justify-center rounded border text-[10px] font-bold ${
+              channel.solo
+                ? "border-yellow-400 bg-yellow-400/20 text-yellow-300"
+                : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            S
+          </button>
           <button
             type="button"
             title={`FX${effectsCount > 0 ? ` (${effectsCount})` : ""} — instrument & effects`}

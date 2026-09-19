@@ -30,6 +30,9 @@ export interface ChannelConfig {
    * track doesn't have to have anything loaded into it. Unused for audio
    * channels. */
   instrument: InstrumentType | null;
+  muted: boolean;
+  /** Soloing any one channel silences every non-soloed channel. */
+  solo: boolean;
 }
 
 /** A clip's content type - "audio" clips hold an imported audio file instead

@@ -12,6 +12,12 @@ interface ValueBarProps {
   formatValue: (value: number) => string;
   /** Pan-style: fill grows from the center toward the sign of the value. */
   bipolar?: boolean;
+  /** Fired once, right before the first actual value change of a gesture
+   * (drag, typed entry, arrow-key nudge, or double-click reset) - never for
+   * a click that just opens/cancels the edit box without changing anything.
+   * Lets a caller push one undo checkpoint per gesture instead of one per
+   * intermediate value. */
+  onDragStart?: () => void;
 }
 
 const DRAG_RANGE_PX = 120; // vertical pixels for a full sweep
@@ -26,6 +32,7 @@ export function ValueBar({
   onChange,
   formatValue,
   bipolar,
+  onDragStart,
 }: ValueBarProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -45,7 +52,10 @@ export function ValueBar({
     const drag = dragState.current;
     if (!drag) return;
     const delta = drag.startY - e.clientY;
-    if (Math.abs(delta) > CLICK_MOVE_THRESHOLD) drag.moved = true;
+    if (Math.abs(delta) > CLICK_MOVE_THRESHOLD) {
+      if (!drag.moved) onDragStart?.();
+      drag.moved = true;
+    }
     if (!drag.moved) return;
     const range = max - min;
     onChange(clamp(drag.startValue + (delta / DRAG_RANGE_PX) * range));
@@ -67,7 +77,10 @@ export function ValueBar({
 
   const commitDraft = () => {
     const parsed = parseFloat(draft);
-    if (Number.isFinite(parsed)) onChange(clamp(parsed));
+    if (Number.isFinite(parsed)) {
+      onDragStart?.();
+      onChange(clamp(parsed));
+    }
     setEditing(false);
   };
 
@@ -99,11 +112,19 @@ export function ValueBar({
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onDoubleClick={() => onChange(defaultValue)}
+        onDoubleClick={() => {
+          onDragStart?.();
+          onChange(defaultValue);
+        }}
         onKeyDown={(e) => {
           const step = (max - min) / 100;
-          if (e.key === "ArrowUp" || e.key === "ArrowRight") onChange(clamp(value + step));
-          else if (e.key === "ArrowDown" || e.key === "ArrowLeft") onChange(clamp(value - step));
+          if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+            onDragStart?.();
+            onChange(clamp(value + step));
+          } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+            onDragStart?.();
+            onChange(clamp(value - step));
+          }
         }}
         className="relative h-[18px] w-[74px] cursor-ns-resize touch-none select-none overflow-hidden rounded-[3px] border border-border bg-black/40"
       >

@@ -24,6 +24,9 @@ interface FxWindowProps {
   onRemove: (effectId: string) => void;
   onReorder: (effectId: string, direction: -1 | 1) => void;
   onParamChange: (effectId: string, key: string, value: number) => void;
+  /** Fired once at the start of a param drag/edit gesture - lets the caller
+   * push one undo checkpoint per gesture. */
+  onParamDragStart?: () => void;
   onClose: () => void;
 }
 
@@ -50,6 +53,7 @@ export function FxWindow({
   onRemove,
   onReorder,
   onParamChange,
+  onParamDragStart,
   onClose,
 }: FxWindowProps) {
   useEffect(() => {
@@ -167,6 +171,7 @@ export function FxWindow({
                       max={spec.max}
                       defaultValue={spec.default}
                       onChange={(v) => onParamChange(fx.id, spec.key, v)}
+                      onDragStart={onParamDragStart}
                       formatValue={spec.format}
                     />
                   ))}

@@ -37,7 +37,14 @@ interface RecordingState {
 const MIN_NOTE_DURATION = 0.05;
 let effectIdCounter = 0;
 
-function createInstrument(
+/** After restoring effects with explicit ids (loading a saved project), makes
+ * sure the next auto-generated id can't collide with one that was just
+ * restored. */
+export function bumpEffectIdCounter(atLeast: number): void {
+  effectIdCounter = Math.max(effectIdCounter, atLeast);
+}
+
+export function createInstrument(
   type: InstrumentType | null,
   onSettled: () => void
 ): Instrument {
@@ -60,7 +67,7 @@ function createInstrument(
   });
 }
 
-function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
+export function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
   switch (type) {
     case "eq3":
       return new Tone.EQ3({
@@ -88,7 +95,7 @@ function createEffectNode(type: EffectType, params: Record<string, number>): Ton
   }
 }
 
-function applyEffectParam(
+export function applyEffectParam(
   node: Tone.ToneAudioNode,
   type: EffectType,
   key: string,
@@ -180,18 +187,21 @@ class AudioEngine {
   }
 
   // --- Master bus: every track channel routes through this before hitting
-  // the speakers, so the Master track's fader/meter reflects the real mix. ---
+  // the speakers, so the Master track's fader/meter reflects the real mix.
+  // A brake-wall Limiter sits right before the meter/destination so nothing
+  // downstream can clip no matter how hot the mix gets. ---
   private masterChannel: Tone.Channel | null = null;
+  private masterLimiter: Tone.Limiter | null = null;
   private masterMeter: Tone.Meter | null = null;
 
-  private ensureMaster(): { channel: Tone.Channel; meter: Tone.Meter } {
-    if (!this.masterChannel || !this.masterMeter) {
+  private ensureMaster(): { channel: Tone.Channel; limiter: Tone.Limiter; meter: Tone.Meter } {
+    if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
       this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
-      this.masterChannel = new Tone.Channel({ volume: 0, pan: 0 })
-        .connect(this.masterMeter)
-        .toDestination();
+      this.masterLimiter = new Tone.Limiter(-1).connect(this.masterMeter);
+      this.masterMeter.toDestination();
+      this.masterChannel = new Tone.Channel({ volume: 0, pan: 0 }).connect(this.masterLimiter);
     }
-    return { channel: this.masterChannel, meter: this.masterMeter };
+    return { channel: this.masterChannel, limiter: this.masterLimiter, meter: this.masterMeter };
   }
 
   setMasterVolume(db: number): void {
@@ -200,6 +210,11 @@ class AudioEngine {
 
   setMasterPan(pan: number): void {
     this.ensureMaster().channel.pan.value = pan;
+  }
+
+  /** Ceiling the master limiter won't let the mix exceed, in dB (e.g. -1). */
+  setMasterLimiterThreshold(db: number): void {
+    this.ensureMaster().limiter.threshold.value = db;
   }
 
   /** Current master output level, 0-1. */
@@ -301,12 +316,20 @@ class AudioEngine {
 
   // --- Effects chain ---
 
-  addEffect(id: string, type: EffectType): { id: string; type: EffectType; params: Record<string, number> } | null {
+  /** `explicitId`, when given (restoring a saved project, or an undo/redo
+   * rebuild), keeps the effect's id stable across a full engine rebuild so
+   * the UI's existing references to it (remove/reorder/param-change) keep
+   * working without React state needing to learn a new id. */
+  addEffect(
+    id: string,
+    type: EffectType,
+    explicitId?: string
+  ): { id: string; type: EffectType; params: Record<string, number> } | null {
     const nodes = this.channels.get(id);
     if (!nodes) return null;
     const params = defaultParams(type);
     const node = createEffectNode(type, params);
-    const effectId = `fx-${++effectIdCounter}`;
+    const effectId = explicitId ?? `fx-${++effectIdCounter}`;
     nodes.effects.push({ id: effectId, type, node });
     this.rewireChannel(id);
     return { id: effectId, type, params };
@@ -349,6 +372,19 @@ class AudioEngine {
   setPan(id: string, pan: number): void {
     const nodes = this.channels.get(id);
     if (nodes) nodes.channel.pan.value = pan;
+  }
+
+  /** Tone.Channel has built-in mute/solo - soloing any one channel silences
+   * every other channel that isn't also soloed, all handled internally by
+   * Tone's shared Solo group. */
+  setMute(id: string, muted: boolean): void {
+    const nodes = this.channels.get(id);
+    if (nodes) nodes.channel.mute = muted;
+  }
+
+  setSolo(id: string, solo: boolean): void {
+    const nodes = this.channels.get(id);
+    if (nodes) nodes.channel.solo = solo;
   }
 
   /** Current output level for the channel's meter, 0-1. */
@@ -548,10 +584,43 @@ class AudioEngine {
     Tone.getTransport().seconds = Math.max(0, seconds);
   }
 
-  /** Arms a channel for recording and starts the transport (other channels' clips still play back). */
-  async startRecording(channelId: string): Promise<void> {
+  private countInSynth: Tone.Synth | null = null;
+
+  /** Plays `beats` audible clicks (accenting every downbeat) scheduled by
+   * wall-clock time rather than the transport - the transport isn't running
+   * yet at this point - then resolves once they've finished playing. */
+  private playCountIn(beats: number): Promise<void> {
+    if (!this.countInSynth) {
+      this.countInSynth = new Tone.Synth({
+        oscillator: { type: "square" },
+        envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 },
+      }).toDestination();
+      this.countInSynth.volume.value = -8;
+    }
+    const secPerBeat = 60 / Tone.getTransport().bpm.value;
+    const now = Tone.now();
+    for (let i = 0; i < beats; i++) {
+      const accent = i % this.metronomeBeatsPerBar === 0;
+      this.safe(() =>
+        this.countInSynth!.triggerAttackRelease(
+          accent ? "C6" : "C5",
+          0.03,
+          now + i * secPerBeat
+        )
+      );
+    }
+    return new Promise((resolve) => setTimeout(resolve, beats * secPerBeat * 1000));
+  }
+
+  /** Arms a channel for recording and starts the transport (other channels'
+   * clips still play back). `countInBeats` > 0 plays that many audible
+   * clicks first and only starts the transport/recording once they finish,
+   * like a real DAW's pre-roll. */
+  async startRecording(channelId: string, countInBeats = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
+    if (countInBeats > 0) await this.playCountIn(countInBeats);
+    if (!this.channels.has(channelId)) return; // channel could've been removed mid-count-in
     this.recording = { channelId, open: new Map(), events: [] };
     const transport = Tone.getTransport();
     transport.stop();
@@ -616,10 +685,12 @@ class AudioEngine {
    * arms a channel to capture the input as an audio clip, starting the
    * transport from the top like MIDI recording does.
    */
-  async startAudioRecording(channelId: string): Promise<void> {
+  async startAudioRecording(channelId: string, countInBeats = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
     const stream = await this.ensureMicStream();
+    if (countInBeats > 0) await this.playCountIn(countInBeats);
+    if (!this.channels.has(channelId)) return;
     const mimeType = this.pickRecorderMimeType();
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     const chunks: Blob[] = [];
@@ -667,6 +738,16 @@ class AudioEngine {
 
   getTransportSeconds(): number {
     return Tone.getTransport().seconds;
+  }
+
+  /** Sets (or clears) the transport's loop region. When enabled, playback
+   * that reaches `endSeconds` jumps back to `startSeconds` and keeps going
+   * instead of running off the end of the loop. */
+  setLoop(enabled: boolean, startSeconds: number, endSeconds: number): void {
+    const transport = Tone.getTransport();
+    transport.loopStart = startSeconds;
+    transport.loopEnd = Math.max(startSeconds + 0.05, endSeconds);
+    transport.loop = enabled;
   }
 
   getTransportState(): "started" | "stopped" | "paused" {

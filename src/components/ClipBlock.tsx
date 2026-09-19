@@ -3,7 +3,7 @@
 import { useMemo, useRef } from "react";
 import type { ClipType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
-import { TRACK_ROW_HEIGHT, secondsPerBar } from "@/lib/timeline";
+import { TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
 interface ClipBlockProps {
   clipType?: ClipType;
@@ -14,15 +14,20 @@ interface ClipBlockProps {
   color: TrackColor;
   offset: number;
   length: number;
-  bpm: number;
-  beatsPerBar: number;
   pxPerSecond: number;
+  /** Grid size (seconds) a drag snaps to; 0/undefined means free (no
+   * snapping) - drag position follows the pointer exactly. */
+  snapSeconds?: number;
   selected: boolean;
   onSelect: () => void;
   onEdit: () => void;
   onMove: (offsetSeconds: number) => void;
   onResize: (lengthSeconds: number) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  /** Fired once, right before the first actual move/resize of a drag
+   * gesture - never for a click that just selects or edits the clip - so a
+   * caller can push one undo checkpoint per drag instead of one per pixel. */
+  onDragStart?: () => void;
 }
 
 const MIN_MIDI = 36;
@@ -30,6 +35,7 @@ const MAX_MIDI = 96;
 const LANE_PADDING = 10;
 const DOUBLE_CLICK_MS = 350;
 const DRAG_THRESHOLD_PX = 3;
+const MIN_RESIZE_SECONDS = 0.15;
 
 function noteNameToMidi(name: string): number {
   const match = name.match(/^([A-G]#?)(-?\d+)$/);
@@ -47,21 +53,22 @@ export function ClipBlock({
   color,
   offset,
   length,
-  bpm,
-  beatsPerBar,
   pxPerSecond,
+  snapSeconds,
   selected,
   onSelect,
   onEdit,
   onMove,
   onResize,
   onContextMenu,
+  onDragStart,
 }: ClipBlockProps) {
   const laneHeight = TRACK_ROW_HEIGHT - LANE_PADDING * 2 - 18;
   const lastClickAt = useRef(0);
 
-  const bar = secondsPerBar(bpm, beatsPerBar);
-  const snap = (seconds: number) => Math.round(seconds / bar) * bar;
+  const grid = snapSeconds && snapSeconds > 0 ? snapSeconds : null;
+  const snap = (seconds: number) => (grid ? Math.round(seconds / grid) * grid : seconds);
+  const minLength = grid ?? MIN_RESIZE_SECONDS;
 
   const handleBodyPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -75,7 +82,10 @@ export function ClipBlock({
 
     const onMoveEvt = (ev: PointerEvent) => {
       const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
-      if (Math.abs(ev.clientX - startClientX) > DRAG_THRESHOLD_PX) moved = true;
+      if (Math.abs(ev.clientX - startClientX) > DRAG_THRESHOLD_PX) {
+        if (!moved) onDragStart?.();
+        moved = true;
+      }
       if (!moved) return;
       finalOffset = Math.max(0, snap(startOffset + deltaSeconds));
       onMove(finalOffset);
@@ -106,10 +116,15 @@ export function ClipBlock({
     target.setPointerCapture(e.pointerId);
     const startClientX = e.clientX;
     const startLength = length;
+    let started = false;
 
     const onMoveEvt = (ev: PointerEvent) => {
+      if (!started) {
+        started = true;
+        onDragStart?.();
+      }
       const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
-      const newLength = Math.max(bar, snap(startLength + deltaSeconds));
+      const newLength = Math.max(minLength, snap(startLength + deltaSeconds));
       onResize(newLength);
     };
     const onUp = () => {

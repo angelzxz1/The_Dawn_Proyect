@@ -118,3 +118,43 @@ export function snapUnitFor(bpm: number, pxPerSecond: number, beatsPerBar: numbe
   if (secondsPerBeat * pxPerSecond >= SHOW_BEATS_PX) return secondsPerBeat;
   return secondsPerBar(bpm, beatsPerBar);
 }
+
+/** User-facing grid resolution for dragging/placing clips - independent of
+ * zoom, unlike `snapUnitFor`. "off" means free positioning (no snapping). */
+export type SnapResolution = "off" | "bar" | "1/2" | "1/4" | "1/8" | "1/16";
+
+export const SNAP_RESOLUTIONS: SnapResolution[] = ["off", "bar", "1/2", "1/4", "1/8", "1/16"];
+
+export const SNAP_RESOLUTION_LABELS: Record<SnapResolution, string> = {
+  off: "Off",
+  bar: "1 Bar",
+  "1/2": "1/2",
+  "1/4": "1/4",
+  "1/8": "1/8",
+  "1/16": "1/16",
+};
+
+/** Grid size in seconds for a snap resolution - 0 means "off" (free). Note
+ * values are quarter-note-relative, independent of the time signature's
+ * numerator; "bar" uses the actual bar length for the current signature. */
+export function snapSecondsForResolution(
+  resolution: SnapResolution,
+  bpm: number,
+  beatsPerBar: number
+): number {
+  const quarter = 60 / bpm;
+  switch (resolution) {
+    case "off":
+      return 0;
+    case "bar":
+      return secondsPerBar(bpm, beatsPerBar);
+    case "1/2":
+      return quarter * 2;
+    case "1/4":
+      return quarter;
+    case "1/8":
+      return quarter / 2;
+    case "1/16":
+      return quarter / 4;
+  }
+}

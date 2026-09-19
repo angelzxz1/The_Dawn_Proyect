@@ -8,9 +8,25 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Clipboard, Copy, Download, FileAudio, FilePlus2, Pencil, Trash2, X, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Clipboard,
+  Copy,
+  Download,
+  FileAudio,
+  FilePlus2,
+  Loader2,
+  Pencil,
+  Redo2,
+  Repeat,
+  Trash2,
+  Undo2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { TrackHeader } from "./TrackHeader";
 import { TrackLane } from "./TrackLane";
+import { ValueBar } from "./ValueBar";
 import { TimelineRuler } from "./TimelineRuler";
 import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
@@ -20,13 +36,16 @@ import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FxWindow } from "./FxWindow";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine, bumpEffectIdCounter } from "@/lib/audioEngine";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
 import { trackColorForIndex, MASTER_COLOR } from "@/lib/colors";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
+import { hydrateEngine, type ProjectState } from "@/lib/project";
+import { loadProject, saveProject, type SerializedClip } from "@/lib/persistence";
+import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
 import type { EffectInstance, EffectType } from "@/lib/effects";
 import type { ScaleSetting } from "@/lib/scales";
 import {
@@ -35,11 +54,15 @@ import {
   MIN_PX_PER_SECOND,
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
+  SNAP_RESOLUTIONS,
+  SNAP_RESOLUTION_LABELS,
   TRACK_HEADER_WIDTH,
   TRACK_ROW_HEIGHT,
   quarterNotesPerBar,
   roundUpToBar,
   secondsPerBar,
+  snapSecondsForResolution,
+  type SnapResolution,
 } from "@/lib/timeline";
 import type {
   AudioClipInstance,
@@ -79,7 +102,19 @@ function createChannel(name: string, type: ChannelType): ChannelConfig {
     colorIndex: channelCounter - 1,
     type,
     instrument: null,
+    muted: false,
+    solo: false,
   };
+}
+
+/** After restoring ids from a saved project, makes sure the next
+ * auto-generated id (`ch-N` / `clip-N`) can't collide with a restored one. */
+function bumpCounterFromId(id: string, prefix: string): void {
+  const match = id.match(new RegExp(`^${prefix}-(\\d+)$`));
+  if (!match) return;
+  const n = parseInt(match[1], 10);
+  if (prefix === "ch") channelCounter = Math.max(channelCounter, n);
+  else if (prefix === "clip") clipIdCounter = Math.max(clipIdCounter, n);
 }
 
 let clipIdCounter = 0;
@@ -135,7 +170,31 @@ export function Daw() {
   const [masterName, setMasterName] = useState("Master");
   const [masterVolume, setMasterVolume] = useState(0);
   const [masterPan, setMasterPan] = useState(0);
+  const [masterLimiterThreshold, setMasterLimiterThreshold] = useState(-1);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+  // --- Snap-to-grid, loop region, count-in ---
+  const [snapResolution, setSnapResolution] = useState<SnapResolution>("bar");
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(0);
+  const [countInBars, setCountInBars] = useState(0);
+
+  // --- Undo/redo: a stack of full-project snapshots. Refs (not state) so
+  // pushing doesn't itself trigger a re-render - `historyTick` is bumped
+  // separately just to refresh the undo/redo buttons' enabled state. ---
+  const historyPast = useRef<ProjectState[]>([]);
+  const historyFuture = useRef<ProjectState[]>([]);
+  // Bumped after every push/undo/redo purely to trigger a re-render so the
+  // undo/redo buttons' disabled state (read from the refs above) refreshes.
+  const [, setHistoryTick] = useState(0);
+
+  // --- Save/load ---
+  const audioBlobsRef = useRef(new Map<string, Blob>());
+  const projectLoadedRef = useRef(false);
+  const [isLoadingProject, setIsLoadingProject] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [isExporting, setIsExporting] = useState(false);
   const samplesReady = useSyncExternalStore(
     useCallback((listener) => audioEngine.onReadyChange(listener), []),
     () => audioEngine.samplesReady,
@@ -146,6 +205,79 @@ export function Daw() {
     timeSignature.numerator,
     timeSignature.denominator
   );
+  const snapSeconds = snapSecondsForResolution(snapResolution, bpm, beatsPerBar);
+
+  const registeredChannelIds = useRef(new Set<string>());
+
+  // --- Undo/redo -------------------------------------------------------
+  // A snapshot covers the "document" - channels/clips/effects/tempo/master
+  // - not transport or view state like the playhead, zoom, or selection,
+  // matching what a DAW's undo stack usually covers. `liveProjectRef` is
+  // refreshed every render so `pushHistory` (called from inside other
+  // handlers, some with narrower dependency arrays) always snapshots the
+  // truly current state rather than a stale closure.
+  const liveProjectRef = useRef<ProjectState>({
+    channels,
+    clipsByChannel,
+    channelEffects,
+    bpm,
+    timeSignature,
+    masterVolume,
+    masterPan,
+    masterName,
+  });
+  liveProjectRef.current = {
+    channels,
+    clipsByChannel,
+    channelEffects,
+    bpm,
+    timeSignature,
+    masterVolume,
+    masterPan,
+    masterName,
+  };
+
+  const MAX_HISTORY = 100;
+
+  /** Pushes the CURRENT (pre-mutation) state onto the undo stack - call at
+   * the very top of a handler, before any setState, or right as a drag
+   * gesture starts, so the captured snapshot is genuinely "before". */
+  const pushHistory = useCallback(() => {
+    historyPast.current.push(liveProjectRef.current);
+    if (historyPast.current.length > MAX_HISTORY) historyPast.current.shift();
+    historyFuture.current = [];
+    setHistoryTick((t) => t + 1);
+  }, []);
+
+  const applySnapshot = useCallback((s: ProjectState) => {
+    setChannels(s.channels);
+    setClipsByChannel(s.clipsByChannel);
+    setChannelEffects(s.channelEffects);
+    setBpm(s.bpm);
+    setTimeSignature(s.timeSignature);
+    setMasterVolume(s.masterVolume);
+    setMasterPan(s.masterPan);
+    setMasterName(s.masterName);
+    setSelectedClip(null);
+    setEditingClip(null);
+    hydrateEngine(s, registeredChannelIds.current);
+  }, []);
+
+  const undo = useCallback(() => {
+    if (historyPast.current.length === 0) return;
+    const prev = historyPast.current.pop()!;
+    historyFuture.current.push(liveProjectRef.current);
+    applySnapshot(prev);
+    setHistoryTick((t) => t + 1);
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    if (historyFuture.current.length === 0) return;
+    const next = historyFuture.current.pop()!;
+    historyPast.current.push(liveProjectRef.current);
+    applySnapshot(next);
+    setHistoryTick((t) => t + 1);
+  }, [applySnapshot]);
 
   const clipsOf = useCallback(
     (channelId: string): ClipInstance[] => clipsByChannel[channelId] ?? [],
@@ -177,17 +309,24 @@ export function Daw() {
 
   const addMidiClip = useCallback(
     (channelId: string, offset: number, length: number, notes: NoteEvent[] = []): string => {
+      pushHistory();
       const clip: MidiClipInstance = { id: newClipId(), kind: "midi", offset, length, notes };
       const updated = [...clipsOf(channelId), clip];
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       rebuildMidiPart(channelId, updated.filter(isMidiClip));
       return clip.id;
     },
-    [clipsOf, rebuildMidiPart]
+    [clipsOf, rebuildMidiPart, pushHistory]
   );
 
+  /** `sourceBlob` is the clip's original file bytes (an imported File, a mic
+   * recording's Blob, or a re-fetched copy of another clip's audio when
+   * pasting) - kept around (keyed by clip id) purely so autosave can persist
+   * the clip's actual audio, not just its decoded object URL which won't
+   * survive a reload. */
   const addAudioClip = useCallback(
-    (channelId: string, decoded: DecodedAudioClip, offset: number, fileName: string): string => {
+    (channelId: string, decoded: DecodedAudioClip, offset: number, fileName: string, sourceBlob: Blob): string => {
+      pushHistory();
       const clip: AudioClipInstance = {
         id: newClipId(),
         kind: "audio",
@@ -198,11 +337,12 @@ export function Daw() {
         durationSeconds: decoded.durationSeconds,
         peaks: decoded.peaks,
       };
+      audioBlobsRef.current.set(clip.id, sourceBlob);
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [...clipsOf(channelId), clip] }));
       audioEngine.loadAudioClip(channelId, clip.id, decoded.url, offset);
       return clip.id;
     },
-    [clipsOf]
+    [clipsOf, pushHistory]
   );
 
   const handleDeleteClip = useCallback(
@@ -210,11 +350,13 @@ export function Daw() {
       const existing = clipsOf(channelId);
       const clip = existing.find((c) => c.id === clipId);
       if (!clip) return;
+      pushHistory();
       const updated = existing.filter((c) => c.id !== clipId);
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       if (clip.kind === "audio") {
         URL.revokeObjectURL(clip.url);
         audioEngine.removeAudioClip(channelId, clipId);
+        audioBlobsRef.current.delete(clipId);
       } else {
         rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
@@ -222,25 +364,29 @@ export function Daw() {
         prev?.channelId === channelId && prev.clipId === clipId ? null : prev
       );
     },
-    [clipsOf, rebuildMidiPart]
+    [clipsOf, rebuildMidiPart, pushHistory]
   );
 
   /** Empties a whole track - every clip on it, gone. */
   const handleClearTrack = useCallback(
     (channelId: string) => {
       const existing = clipsOf(channelId);
+      if (existing.length === 0) return;
+      pushHistory();
       existing.forEach((c) => {
-        if (c.kind === "audio") URL.revokeObjectURL(c.url);
+        if (c.kind === "audio") {
+          URL.revokeObjectURL(c.url);
+          audioBlobsRef.current.delete(c.id);
+        }
       });
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [] }));
       setSelectedClip((prev) => (prev?.channelId === channelId ? null : prev));
       if (channelTypeOf(channelId) === "audio") audioEngine.clearAllAudioClips(channelId);
       else audioEngine.setClip(channelId, [], 0);
     },
-    [clipsOf, channelTypeOf]
+    [clipsOf, channelTypeOf, pushHistory]
   );
 
-  const registeredChannelIds = useRef(new Set<string>());
   const rulerViewportRef = useRef<HTMLDivElement>(null);
   const lanesScrollRef = useRef<HTMLDivElement>(null);
 
@@ -267,6 +413,8 @@ export function Daw() {
         audioEngine.addChannel(c.id, c.type, c.instrument);
         audioEngine.setVolume(c.id, c.volume);
         audioEngine.setPan(c.id, c.pan);
+        audioEngine.setMute(c.id, c.muted);
+        audioEngine.setSolo(c.id, c.solo);
         registeredChannelIds.current.add(c.id);
       }
     });
@@ -297,6 +445,14 @@ export function Daw() {
   useEffect(() => {
     audioEngine.setMasterPan(masterPan);
   }, [masterPan]);
+
+  useEffect(() => {
+    audioEngine.setMasterLimiterThreshold(masterLimiterThreshold);
+  }, [masterLimiterThreshold]);
+
+  useEffect(() => {
+    audioEngine.setLoop(loopEnabled, loopStart, loopEnd);
+  }, [loopEnabled, loopStart, loopEnd]);
 
   const handleNoteOn = useCallback(
     async (note: string, velocity: number) => {
@@ -341,7 +497,7 @@ export function Daw() {
         if (blob && blob.size > 0) {
           const decoded = await decodeAudioFile(blob);
           const channelName = channels.find((c) => c.id === selectedChannelId)?.name ?? "take";
-          addAudioClip(selectedChannelId, decoded, 0, `${channelName} recording`);
+          addAudioClip(selectedChannelId, decoded, 0, `${channelName} recording`, blob);
         }
       } else {
         const events = audioEngine.finishRecording();
@@ -389,7 +545,7 @@ export function Daw() {
     }
     if (channelTypeOf(selectedChannelId) === "audio") {
       try {
-        await audioEngine.startAudioRecording(selectedChannelId);
+        await audioEngine.startAudioRecording(selectedChannelId, countInBars * beatsPerBar);
         setMicError(null);
         setTransportState("recording");
       } catch {
@@ -399,24 +555,32 @@ export function Daw() {
       }
       return;
     }
-    await audioEngine.startRecording(selectedChannelId);
     setTransportState("recording");
-  }, [transportState, selectedChannelId, handleStop, channelTypeOf]);
+    await audioEngine.startRecording(selectedChannelId, countInBars * beatsPerBar);
+  }, [transportState, selectedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar]);
 
-  const handleAddChannel = useCallback((type: ChannelType) => {
-    setChannels((prev) => {
-      const countOfType = prev.filter((c) => c.type === type).length;
-      const name = type === "midi" ? `MIDI ${countOfType + 1}` : `Audio ${countOfType + 1}`;
-      return [...prev, createChannel(name, type)];
-    });
-  }, []);
+  const handleAddChannel = useCallback(
+    (type: ChannelType) => {
+      pushHistory();
+      setChannels((prev) => {
+        const countOfType = prev.filter((c) => c.type === type).length;
+        const name = type === "midi" ? `MIDI ${countOfType + 1}` : `Audio ${countOfType + 1}`;
+        return [...prev, createChannel(name, type)];
+      });
+    },
+    [pushHistory]
+  );
 
   const handleRemoveChannel = useCallback(
     (id: string) => {
+      pushHistory();
       setChannels((prev) => prev.filter((c) => c.id !== id));
       setClipsByChannel((prev) => {
         (prev[id] ?? []).forEach((c) => {
-          if (c.kind === "audio") URL.revokeObjectURL(c.url);
+          if (c.kind === "audio") {
+            URL.revokeObjectURL(c.url);
+            audioBlobsRef.current.delete(c.id);
+          }
         });
         const next = { ...prev };
         delete next[id];
@@ -435,7 +599,7 @@ export function Daw() {
       if (editingClip?.channelId === id) setEditingClip(null);
       setSelectedClip((prev) => (prev?.channelId === id ? null : prev));
     },
-    [selectedChannelId, channels, editingClip, fxChannelId]
+    [selectedChannelId, channels, editingClip, fxChannelId, pushHistory]
   );
 
   const handleVolumeChange = useCallback((id: string, db: number) => {
@@ -452,12 +616,46 @@ export function Daw() {
     );
   }, []);
 
-  const handleInstrumentChange = useCallback((id: string, type: InstrumentType | null) => {
-    audioEngine.setInstrument(id, type);
-    setChannels((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, instrument: type } : c))
-    );
-  }, []);
+  const handleMuteToggle = useCallback(
+    (id: string) => {
+      pushHistory();
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          const muted = !c.muted;
+          audioEngine.setMute(id, muted);
+          return { ...c, muted };
+        })
+      );
+    },
+    [pushHistory]
+  );
+
+  const handleSoloToggle = useCallback(
+    (id: string) => {
+      pushHistory();
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          const solo = !c.solo;
+          audioEngine.setSolo(id, solo);
+          return { ...c, solo };
+        })
+      );
+    },
+    [pushHistory]
+  );
+
+  const handleInstrumentChange = useCallback(
+    (id: string, type: InstrumentType | null) => {
+      pushHistory();
+      audioEngine.setInstrument(id, type);
+      setChannels((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, instrument: type } : c))
+      );
+    },
+    [pushHistory]
+  );
 
   const handleImportMidi = useCallback(
     async (channelId: string, file: File) => {
@@ -473,7 +671,7 @@ export function Daw() {
       const decoded = await decodeAudioFile(file);
       const bar = secondsPerBar(bpm, beatsPerBar);
       const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-      addAudioClip(channelId, decoded, anchor, file.name);
+      addAudioClip(channelId, decoded, anchor, file.name, file);
     },
     [bpm, beatsPerBar, addAudioClip]
   );
@@ -557,9 +755,13 @@ export function Daw() {
     setCursorSeconds(seconds);
   }, []);
 
-  const handleRenameChannel = useCallback((id: string, name: string) => {
-    setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
-  }, []);
+  const handleRenameChannel = useCallback(
+    (id: string, name: string) => {
+      pushHistory();
+      setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+    },
+    [pushHistory]
+  );
 
   /** Copies one clip instance's content into the shared clipboard. */
   const copyClipInstance = useCallback((clip: ClipInstance) => {
@@ -596,16 +798,21 @@ export function Daw() {
   /** Pastes the clipboard's clip as a brand-new clip at `anchor`, alongside
    * whatever else is already on the track. */
   const pasteClipAt = useCallback(
-    (channelId: string, anchor: number) => {
+    async (channelId: string, anchor: number) => {
       const copied = getCopiedClip();
       if (!copied || copied.kind !== channelTypeOf(channelId)) return;
       const at = Math.max(0, anchor);
       if (copied.kind === "audio") {
+        // Re-fetch the source clip's own object URL to get an independent
+        // Blob for the pasted copy - needed so autosave can persist this
+        // clip's audio too, not just its (shared) decoded preview.
+        const blob = await fetch(copied.url).then((r) => r.blob());
         addAudioClip(
           channelId,
           { url: copied.url, durationSeconds: copied.durationSeconds, peaks: copied.peaks },
           at,
-          copied.fileName
+          copied.fileName,
+          blob
         );
       } else {
         addMidiClip(channelId, at, copied.length, copied.notes);
@@ -617,13 +824,16 @@ export function Daw() {
   /** Replaces one specific clip's content with the clipboard's clip,
    * keeping that clip's id and position. */
   const pasteReplaceClip = useCallback(
-    (channelId: string, clipId: string) => {
+    async (channelId: string, clipId: string) => {
       const copied = getCopiedClip();
       if (!copied || copied.kind !== channelTypeOf(channelId)) return;
       const existing = clipsOf(channelId);
       const target = existing.find((c) => c.id === clipId);
       if (!target) return;
+      pushHistory();
       if (copied.kind === "audio") {
+        const blob = await fetch(copied.url).then((r) => r.blob());
+        audioBlobsRef.current.set(clipId, blob);
         const updatedClip: AudioClipInstance = {
           id: clipId,
           kind: "audio",
@@ -652,7 +862,7 @@ export function Daw() {
         rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
     },
-    [channelTypeOf, clipsOf, rebuildMidiPart]
+    [channelTypeOf, clipsOf, rebuildMidiPart, pushHistory]
   );
 
   const handlePasteClip = useCallback(() => {
@@ -685,6 +895,7 @@ export function Daw() {
   const handleAddEffect = useCallback(
     (type: EffectType) => {
       if (!fxChannelId) return;
+      pushHistory();
       const created = audioEngine.addEffect(fxChannelId, type);
       if (created) {
         setChannelEffects((prev) => ({
@@ -693,24 +904,26 @@ export function Daw() {
         }));
       }
     },
-    [fxChannelId]
+    [fxChannelId, pushHistory]
   );
 
   const handleRemoveEffect = useCallback(
     (effectId: string) => {
       if (!fxChannelId) return;
+      pushHistory();
       audioEngine.removeEffect(fxChannelId, effectId);
       setChannelEffects((prev) => ({
         ...prev,
         [fxChannelId]: (prev[fxChannelId] ?? []).filter((e) => e.id !== effectId),
       }));
     },
-    [fxChannelId]
+    [fxChannelId, pushHistory]
   );
 
   const handleReorderEffect = useCallback(
     (effectId: string, direction: -1 | 1) => {
       if (!fxChannelId) return;
+      pushHistory();
       audioEngine.reorderEffect(fxChannelId, effectId, direction);
       setChannelEffects((prev) => {
         const list = [...(prev[fxChannelId] ?? [])];
@@ -722,7 +935,7 @@ export function Daw() {
         return { ...prev, [fxChannelId]: list };
       });
     },
-    [fxChannelId]
+    [fxChannelId, pushHistory]
   );
 
   const handleEffectParamChange = useCallback(
@@ -759,18 +972,39 @@ export function Daw() {
       } else if ((e.key === "Delete" || e.key === "Backspace") && selectedClip) {
         e.preventDefault();
         handleDeleteClip(selectedClip.channelId, selectedClip.clipId);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editingClip, handleTogglePlay, handleCopyAtPlayhead, handlePasteClip, selectedClip, handleDeleteClip]);
+  }, [
+    editingClip,
+    handleTogglePlay,
+    handleCopyAtPlayhead,
+    handlePasteClip,
+    selectedClip,
+    handleDeleteClip,
+    undo,
+    redo,
+  ]);
 
+  /** Opening the piano roll editor is the undo checkpoint for everything
+   * done inside it - note-by-note edits aren't pushed individually, so
+   * exiting the editor undoes as one step (its own shortcuts are suspended
+   * while it's open, so Ctrl+Z can't reach mid-session anyway). */
   const handleEditClip = useCallback(
     (channelId: string, clipId: string) => {
       if (channelTypeOf(channelId) === "audio") return; // no piano roll for an audio clip
+      pushHistory();
       setEditingClip({ channelId, clipId });
     },
-    [channelTypeOf]
+    [channelTypeOf, pushHistory]
   );
 
   const [audioImportTarget, setAudioImportTarget] = useState<
@@ -930,6 +1164,217 @@ export function Daw() {
     return Math.max(MIN_TIMELINE_SECONDS, Math.ceil(longest + 8));
   }, [channels, endOfContent]);
 
+  const handleBpmCommit = useCallback(
+    (value: number) => {
+      pushHistory();
+      setBpm(value);
+    },
+    [pushHistory]
+  );
+
+  const handleTimeSignatureCommit = useCallback(
+    (value: TimeSignature) => {
+      pushHistory();
+      setTimeSignature(value);
+    },
+    [pushHistory]
+  );
+
+  const handleExportWav = useCallback(async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      await audioEngine.ensureStarted();
+      const contentEnd = channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0);
+      const blob = await bounceProjectToWav({
+        channels,
+        clipsByChannel,
+        channelEffects,
+        masterVolume,
+        masterPan,
+        masterLimiterThreshold,
+        contentEndSeconds: contentEnd,
+      });
+      downloadWavBlob(blob, masterName);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [
+    isExporting,
+    channels,
+    endOfContent,
+    clipsByChannel,
+    channelEffects,
+    masterVolume,
+    masterPan,
+    masterLimiterThreshold,
+    masterName,
+  ]);
+
+  // --- Save/load: the whole project autosaves to IndexedDB a moment after
+  // any change, and is restored on mount if a saved project exists. ---
+  const persistNow = useCallback(async () => {
+    setSaveStatus("saving");
+    try {
+      const serializedClips: Record<string, SerializedClip[]> = {};
+      Object.entries(clipsByChannel).forEach(([chId, clips]) => {
+        serializedClips[chId] = clips.map((c) =>
+          c.kind === "audio"
+            ? {
+                id: c.id,
+                kind: "audio" as const,
+                offset: c.offset,
+                length: c.length,
+                fileName: c.fileName,
+                durationSeconds: c.durationSeconds,
+                peaks: c.peaks,
+              }
+            : {
+                id: c.id,
+                kind: "midi" as const,
+                offset: c.offset,
+                length: c.length,
+                notes: c.notes,
+              }
+        );
+      });
+      await saveProject(
+        {
+          version: 1,
+          savedAt: Date.now(),
+          channels,
+          clipsByChannel: serializedClips,
+          channelEffects,
+          bpm,
+          timeSignature,
+          masterVolume,
+          masterPan,
+          masterName,
+          masterLimiterThreshold,
+          scaleSetting,
+          snapResolution,
+          countInBars,
+          metronomeEnabled,
+        },
+        audioBlobsRef.current
+      );
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("error");
+    }
+  }, [
+    channels,
+    clipsByChannel,
+    channelEffects,
+    bpm,
+    timeSignature,
+    masterVolume,
+    masterPan,
+    masterName,
+    masterLimiterThreshold,
+    scaleSetting,
+    snapResolution,
+    countInBars,
+    metronomeEnabled,
+  ]);
+
+  // Restore a saved project on mount, before autosave is allowed to run (so
+  // a fresh page load never overwrites a real saved project with the
+  // starter 3-channel default before the load has even been tried).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await loadProject().catch(() => null);
+      if (cancelled) return;
+      if (result) {
+        const { project, blobs } = result;
+        const restoredClips: Record<string, ClipInstance[]> = {};
+        let maxEffectN = 0;
+        Object.entries(project.clipsByChannel).forEach(([chId, clips]) => {
+          restoredClips[chId] = clips.map((c) => {
+            bumpCounterFromId(c.id, "clip");
+            if (c.kind === "audio") {
+              const blob = blobs.get(c.id);
+              const url = blob ? URL.createObjectURL(blob) : "";
+              if (blob) audioBlobsRef.current.set(c.id, blob);
+              const restored: AudioClipInstance = {
+                id: c.id,
+                kind: "audio",
+                offset: c.offset,
+                length: c.length,
+                url,
+                fileName: c.fileName,
+                durationSeconds: c.durationSeconds,
+                peaks: c.peaks,
+              };
+              return restored;
+            }
+            const restored: MidiClipInstance = {
+              id: c.id,
+              kind: "midi",
+              offset: c.offset,
+              length: c.length,
+              notes: c.notes,
+            };
+            return restored;
+          });
+        });
+        project.channels.forEach((c) => bumpCounterFromId(c.id, "ch"));
+        Object.values(project.channelEffects)
+          .flat()
+          .forEach((fx) => {
+            const match = fx.id.match(/^fx-(\d+)$/);
+            if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
+          });
+        bumpEffectIdCounter(maxEffectN);
+
+        setChannels(project.channels);
+        setClipsByChannel(restoredClips);
+        setChannelEffects(project.channelEffects);
+        setBpm(project.bpm);
+        setTimeSignature(project.timeSignature);
+        setMasterVolume(project.masterVolume);
+        setMasterPan(project.masterPan);
+        setMasterName(project.masterName);
+        setMasterLimiterThreshold(project.masterLimiterThreshold);
+        setScaleSetting(project.scaleSetting);
+        setSnapResolution(project.snapResolution);
+        setCountInBars(project.countInBars);
+        setMetronomeEnabled(project.metronomeEnabled);
+        hydrateEngine(
+          {
+            channels: project.channels,
+            clipsByChannel: restoredClips,
+            channelEffects: project.channelEffects,
+            bpm: project.bpm,
+            timeSignature: project.timeSignature,
+            masterVolume: project.masterVolume,
+            masterPan: project.masterPan,
+            masterName: project.masterName,
+          },
+          registeredChannelIds.current
+        );
+      }
+      projectLoadedRef.current = true;
+      setIsLoadingProject(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave - fires a moment after the document settles, not on
+  // every keystroke/drag frame.
+  useEffect(() => {
+    if (!projectLoadedRef.current) return;
+    const timer = setTimeout(() => {
+      void persistNow();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [persistNow]);
+
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
   const editingChannel = channels.find((c) => c.id === editingClip?.channelId);
   const editingClipInstance = editingClip
@@ -940,6 +1385,14 @@ export function Daw() {
 
   return (
     <div className="flex h-screen flex-col gap-4 overflow-hidden p-4">
+      {isLoadingProject && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90">
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <Loader2 size={16} className="animate-spin" />
+            Loading project…
+          </div>
+        </div>
+      )}
       <header className="flex shrink-0 items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">
           The Dawn Project
@@ -956,9 +1409,9 @@ export function Daw() {
       <div className="shrink-0">
         <TransportBar
           bpm={bpm}
-          onBpmChange={setBpm}
+          onBpmChange={handleBpmCommit}
           timeSignature={timeSignature}
-          onTimeSignatureChange={setTimeSignature}
+          onTimeSignatureChange={handleTimeSignatureCommit}
           metronomeEnabled={metronomeEnabled}
           onToggleMetronome={() => setMetronomeEnabled((v) => !v)}
           isPlaying={transportState === "playing"}
@@ -966,6 +1419,10 @@ export function Daw() {
           isRecording={transportState === "recording"}
           recordingMode={selectedChannel?.type === "audio" ? "audio" : "midi"}
           selectedChannelName={selectedChannel?.name ?? ""}
+          loopEnabled={loopEnabled}
+          onToggleLoop={() => setLoopEnabled((v) => !v)}
+          countInBars={countInBars}
+          onCountInChange={setCountInBars}
           onPlay={handlePlay}
           onPause={handlePause}
           onStop={() => void handleStop()}
@@ -973,28 +1430,91 @@ export function Daw() {
         />
       </div>
 
-      <div className="flex shrink-0 items-center justify-between">
-        <div className="flex items-center gap-1 text-xs text-muted">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={undo}
+              disabled={historyPast.current.length === 0}
+              title="Undo (Ctrl/Cmd+Z)"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
+            >
+              <Undo2 size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={redo}
+              disabled={historyFuture.current.length === 0}
+              title="Redo (Ctrl/Cmd+Shift+Z)"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
+            >
+              <Redo2 size={12} />
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 20))
+              }
+              title="Zoom out"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+            >
+              <ZoomOut size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 20))
+              }
+              title="Zoom in"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+            >
+              <ZoomIn size={12} />
+            </button>
+          </div>
+          <label className="flex items-center gap-1.5">
+            Snap
+            <select
+              value={snapResolution}
+              onChange={(e) => setSnapResolution(e.target.value as SnapResolution)}
+              className="rounded border border-border bg-surface-raised px-1.5 py-1 font-mono text-foreground"
+            >
+              {SNAP_RESOLUTIONS.map((r) => (
+                <option key={r} value={r}>
+                  {SNAP_RESOLUTION_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
-            onClick={() =>
-              setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 20))
-            }
-            title="Zoom out"
-            className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+            onClick={() => setLoopEnabled((v) => !v)}
+            aria-pressed={loopEnabled}
+            title="Loop the region set by shift-dragging the ruler"
+            className={`flex h-6 items-center gap-1 rounded border px-1.5 ${
+              loopEnabled
+                ? "border-accent bg-accent/20 text-accent"
+                : "border-border text-muted hover:bg-surface-raised"
+            }`}
           >
-            <ZoomOut size={12} />
+            <Repeat size={12} />
+            Loop
           </button>
           <button
             type="button"
-            onClick={() =>
-              setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 20))
-            }
-            title="Zoom in"
-            className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+            onClick={() => void handleExportWav()}
+            disabled={isExporting}
+            title="Bounce the whole project to a WAV file"
+            className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-muted hover:bg-surface-raised disabled:opacity-40"
           >
-            <ZoomIn size={12} />
+            {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            {isExporting ? "Bouncing…" : "Export WAV"}
           </button>
+          <span className="text-muted/70">
+            {saveStatus === "saving" ? "saving…" : saveStatus === "saved" ? "saved" : saveStatus === "error" ? "save failed" : ""}
+          </span>
         </div>
         <ScaleSelector value={scaleSetting} onChange={setScaleSetting} />
       </div>
@@ -1016,6 +1536,13 @@ export function Daw() {
               pxPerSecond={pxPerSecond}
               beatsPerBar={beatsPerBar}
               onSeek={handleSeek}
+              loopStart={loopStart}
+              loopEnd={loopEnd}
+              onSetLoopRegion={(start, end) => {
+                setLoopStart(start);
+                setLoopEnd(end);
+                setLoopEnabled(true);
+              }}
             />
           </div>
         </div>
@@ -1043,6 +1570,9 @@ export function Daw() {
                 onRename={(name) => handleRenameChannel(channel.id, name)}
                 onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
                 onPanChange={(pan) => handlePanChange(channel.id, pan)}
+                onAdjustStart={pushHistory}
+                onMuteToggle={() => handleMuteToggle(channel.id)}
+                onSoloToggle={() => handleSoloToggle(channel.id)}
                 onOpenFx={() => openFx(channel.id)}
                 onImportMidi={(file) => void handleImportMidi(channel.id, file)}
                 onExportMidi={() => handleExportChannelMidi(channel.id)}
@@ -1084,6 +1614,7 @@ export function Daw() {
                 beatsPerBar={beatsPerBar}
                 totalSeconds={totalSeconds}
                 pxPerSecond={pxPerSecond}
+                snapSeconds={snapSeconds}
                 armed={channel.id === selectedChannelId}
                 selectedClipId={selectedClip?.channelId === channel.id ? selectedClip.clipId : null}
                 onSelectTrack={() => {
@@ -1099,8 +1630,15 @@ export function Daw() {
                 onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}
                 onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
                 onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
+                onClipDragStart={pushHistory}
               />
             ))}
+            {loopEnd > loopStart && (
+              <div
+                className="pointer-events-none absolute top-0 z-10 h-full border-x border-accent/60 bg-accent/10"
+                style={{ left: loopStart * pxPerSecond, width: (loopEnd - loopStart) * pxPerSecond }}
+              />
+            )}
             <Playhead pxPerSecond={pxPerSecond} height={lanesHeight} />
           </div>
         </div>
@@ -1131,6 +1669,8 @@ export function Daw() {
             colorIndex: -1,
             type: "midi",
             instrument: null,
+            muted: false,
+            solo: false,
           }}
           color={MASTER_COLOR}
           selected={false}
@@ -1142,9 +1682,22 @@ export function Daw() {
           onRename={setMasterName}
           onVolumeChange={setMasterVolume}
           onPanChange={setMasterPan}
+          onAdjustStart={pushHistory}
         />
-        <div className="flex flex-1 items-center px-3 text-xs text-muted">
-          Master output — every track routes through here before the speakers
+        <div className="flex flex-1 items-center gap-3 px-3 text-xs text-muted">
+          <span>Master output — every track routes through here before the speakers.</span>
+          <div className="flex items-center gap-1.5">
+            <ValueBar
+              label="Ceiling"
+              value={masterLimiterThreshold}
+              min={-24}
+              max={0}
+              defaultValue={-1}
+              onChange={setMasterLimiterThreshold}
+              formatValue={(v) => `${v.toFixed(1)}dB`}
+            />
+            <span className="text-[10px] text-muted/70">limiter</span>
+          </div>
         </div>
       </div>
 
@@ -1230,6 +1783,7 @@ export function Daw() {
           onAdd={handleAddEffect}
           onRemove={handleRemoveEffect}
           onReorder={handleReorderEffect}
+          onParamDragStart={pushHistory}
           onParamChange={handleEffectParamChange}
           onClose={() => setFxChannelId(null)}
         />

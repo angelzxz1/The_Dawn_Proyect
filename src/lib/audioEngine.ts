@@ -520,12 +520,13 @@ class AudioEngine {
     });
   }
 
-  /** Stops playback/recording, resets the playhead to the start, and
-   * releases any hanging notes. */
+  /** Stops playback/recording and releases any hanging notes. Leaves the
+   * playhead wherever it was - the caller decides where to rewind it to
+   * (e.g. back to a cursor/marker position), matching how Ableton's Stop
+   * returns to the last clicked point rather than always the very start. */
   stopAll(): void {
     const transport = Tone.getTransport();
     transport.stop();
-    transport.position = 0;
     this.channels.forEach((nodes) => {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();

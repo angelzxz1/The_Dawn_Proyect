@@ -100,6 +100,10 @@ export function Daw() {
   const [channelEffects, setChannelEffects] = useState<Record<string, EffectInstance[]>>({});
   const [fxChannelId, setFxChannelId] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+  // Ableton-style start marker: wherever you last clicked on the ruler.
+  // Play always resumes from the transport's current position (unchanged);
+  // Stop rewinds to this marker instead of always jumping back to 0.
+  const [cursorSeconds, setCursorSeconds] = useState(0);
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
@@ -236,6 +240,15 @@ export function Daw() {
     }
   }, []);
 
+  // Suppress the browser's native right-click menu everywhere in the app -
+  // only our own context menus (clip/lane/header, and any added later)
+  // should ever appear.
+  useEffect(() => {
+    const suppressContextMenu = (e: MouseEvent) => e.preventDefault();
+    window.addEventListener("contextmenu", suppressContextMenu);
+    return () => window.removeEventListener("contextmenu", suppressContextMenu);
+  }, []);
+
   // Keep the audio engine's channels in sync with React state.
   useEffect(() => {
     const currentIds = new Set(channels.map((c) => c.id));
@@ -333,8 +346,9 @@ export function Daw() {
     }
     setTransportState("stopped");
     audioEngine.stopAll();
+    audioEngine.seekTo(cursorSeconds);
     setActiveNotes(new Set());
-  }, [transportState, selectedChannelId, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip]);
+  }, [transportState, selectedChannelId, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip, cursorSeconds]);
 
   const handlePlay = useCallback(async () => {
     if (transportState === "recording") return;
@@ -525,6 +539,7 @@ export function Daw() {
 
   const handleSeek = useCallback((seconds: number) => {
     audioEngine.seekTo(seconds);
+    setCursorSeconds(seconds);
   }, []);
 
   const handleRenameChannel = useCallback((id: string, name: string) => {

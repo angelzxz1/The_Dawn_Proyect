@@ -700,7 +700,7 @@ export function Daw() {
 
   const handleImportMidi = useCallback(
     async (channelId: string, file: File) => {
-      const notes = await parseMidiFile(file);
+      const notes = await parseMidiFile(file, bpm);
       const lastEnd = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
       addMidiClip(channelId, endOfContent(channelId), roundUpToBar(lastEnd, bpm, beatsPerBar), notes);
     },
@@ -1205,12 +1205,46 @@ export function Daw() {
     return Math.max(MIN_TIMELINE_SECONDS, Math.ceil(longest + 8));
   }, [channels, endOfContent]);
 
+  // MIDI clip notes (and their clip boxes) are stored as absolute seconds
+  // at whatever tempo was in effect when they were written - nothing else
+  // in the engine treats them as beat-relative. Left alone, changing the
+  // project tempo would silently change every existing MIDI clip's
+  // playback speed relative to the new tempo and knock it off the beat
+  // grid instead of following the tempo change like a DAW clip should.
+  // Rescale every MIDI clip's timing by the ratio between the old and new
+  // tempo so each note stays on the same beat, then rebuild the engine's
+  // scheduled parts to match. Audio clips are left untouched - there's no
+  // time-stretching here, so (as in most DAWs for unwarped audio) they
+  // keep their absolute position rather than being resampled.
   const handleBpmCommit = useCallback(
     (value: number) => {
+      if (value === bpm) return;
       pushHistory();
+      const ratio = bpm / value;
+      const rescaled: Record<string, ClipInstance[]> = {};
+      Object.entries(clipsByChannel).forEach(([chId, clips]) => {
+        rescaled[chId] = clips.map((c) =>
+          c.kind === "midi"
+            ? {
+                ...c,
+                offset: c.offset * ratio,
+                length: c.length * ratio,
+                notes: c.notes.map((n) => ({
+                  ...n,
+                  time: n.time * ratio,
+                  duration: n.duration * ratio,
+                })),
+              }
+            : c
+        );
+      });
+      setClipsByChannel(rescaled);
+      channels.forEach((c) => {
+        if (c.type === "midi") rebuildMidiPart(c.id, (rescaled[c.id] ?? []).filter(isMidiClip));
+      });
       setBpm(value);
     },
-    [pushHistory]
+    [bpm, clipsByChannel, channels, rebuildMidiPart, pushHistory]
   );
 
   const handleTimeSignatureCommit = useCallback(

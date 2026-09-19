@@ -14,7 +14,9 @@ interface TrackLaneProps {
   pxPerSecond: number;
   /** Grid size (seconds) a clip drag snaps to; 0 means free positioning. */
   snapSeconds: number;
-  /** Whether this track is armed - tints the whole lane. */
+  /** Whether this track is the clicked/focused one - tints the whole lane. */
+  selected: boolean;
+  /** Whether this track is record-armed - shows a small indicator dot. */
   armed: boolean;
   /** Which one clip (if any) on this lane has the selection ring - Delete
    * removes this one. */
@@ -39,6 +41,7 @@ export function TrackLane({
   totalSeconds,
   pxPerSecond,
   snapSeconds,
+  selected,
   armed,
   selectedClipId,
   onSelectTrack,
@@ -61,10 +64,13 @@ export function TrackLane({
         onLaneContextMenu(e, Math.max(0, (e.clientX - rect.left) / pxPerSecond));
       }}
       className={`relative cursor-pointer border-b border-border ${
-        armed ? "bg-surface-raised/40" : ""
+        selected ? "bg-surface-raised/40" : ""
       }`}
       style={{ height: TRACK_ROW_HEIGHT, width: totalSeconds * pxPerSecond }}
     >
+      {armed && (
+        <div className="pointer-events-none absolute inset-0 z-0 border border-record/40" />
+      )}
       {marks.map((mark) => (
         <div
           key={mark.index}

@@ -69,7 +69,9 @@ export function PianoKeyboard({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat || isTypingTarget(e.target)) return;
+      // Ctrl/Cmd/Alt-held keys are chord shortcuts (Ctrl+C to copy, etc.),
+      // never note input - even though e.g. "c" is also a note key.
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
       const key = e.key.toLowerCase();
       const offset = KEYBOARD_KEY_OFFSETS[key];
       if (offset === undefined || pressedKeys.current.has(key)) return;

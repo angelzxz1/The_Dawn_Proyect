@@ -35,7 +35,8 @@ export function DrumPads({
       return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat || isTypingTarget(e.target)) return;
+      // Ctrl/Cmd/Alt-held keys are chord shortcuts, never pad input.
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
       const key = e.key.toLowerCase();
       const idx = PAD_KEYS.indexOf(key);
       if (idx === -1 || idx >= DRUM_PADS.length || pressedKeys.current.has(key)) return;

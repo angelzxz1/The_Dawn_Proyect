@@ -33,6 +33,12 @@ export interface ChannelConfig {
   muted: boolean;
   /** Soloing any one channel silences every non-soloed channel. */
   solo: boolean;
+  /** Record-armed - exactly one channel can be armed at a time. Only the
+   * armed channel is what Record captures, and only the armed channel's
+   * instrument sounds when a note comes in (computer keyboard, the
+   * on-screen piano/pads, or a MIDI controller) - so merely clicking a
+   * track to select it never makes noise. */
+  armed: boolean;
 }
 
 /** A clip's content type - "audio" clips hold an imported audio file instead

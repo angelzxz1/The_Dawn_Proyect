@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Download, FileAudio, Sliders, Trash2, Upload, X } from "lucide-react";
+import { Circle, Download, FileAudio, Sliders, Trash2, Upload, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import type { ChannelConfig } from "@/lib/types";
@@ -29,6 +29,10 @@ interface TrackHeaderProps {
   onAdjustStart?: () => void;
   onMuteToggle?: () => void;
   onSoloToggle?: () => void;
+  /** Toggles this channel's record-arm - exactly one channel is armed at a
+   * time. Only the armed channel is what Record captures and the only one
+   * that sounds for incoming notes. */
+  onArmToggle?: () => void;
   /** Opens the FX window (instrument slot + effects chain). */
   onOpenFx?: () => void;
   onImportMidi?: (file: File) => void;
@@ -99,6 +103,7 @@ export function TrackHeader({
   onAdjustStart,
   onMuteToggle,
   onSoloToggle,
+  onArmToggle,
   onOpenFx,
   onImportMidi,
   onExportMidi,
@@ -162,6 +167,28 @@ export function TrackHeader({
           >
             {channel.name}
           </span>
+        )}
+        {!isMaster && (
+          <button
+            type="button"
+            title={
+              channel.armed
+                ? "Record-armed - click to disarm"
+                : "Arm this channel for recording and note input"
+            }
+            aria-pressed={channel.armed}
+            onClick={(e) => {
+              e.stopPropagation();
+              onArmToggle?.();
+            }}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+              channel.armed
+                ? "animate-pulse-rec border-record bg-record text-white"
+                : "border-border text-record hover:bg-surface-raised"
+            }`}
+          >
+            <Circle size={9} fill="currentColor" />
+          </button>
         )}
         {recording && (
           <span className="h-2 w-2 shrink-0 animate-pulse-rec rounded-full bg-record" />

@@ -104,6 +104,7 @@ function createChannel(name: string, type: ChannelType): ChannelConfig {
     instrument: null,
     muted: false,
     solo: false,
+    armed: false,
   };
 }
 
@@ -206,6 +207,12 @@ export function Daw() {
     timeSignature.denominator
   );
   const snapSeconds = snapSecondsForResolution(snapResolution, bpm, beatsPerBar);
+
+  // Exactly one channel can be record-armed at a time - it's what Record
+  // captures and the only channel whose instrument sounds for incoming
+  // notes, independent of which track is merely clicked/selected.
+  const armedChannel = channels.find((c) => c.armed) ?? null;
+  const armedChannelId = armedChannel?.id ?? null;
 
   const registeredChannelIds = useRef(new Set<string>());
 
@@ -454,29 +461,34 @@ export function Daw() {
     audioEngine.setLoop(loopEnabled, loopStart, loopEnd);
   }, [loopEnabled, loopStart, loopEnd]);
 
+  // Notes (computer keyboard, the on-screen piano/pads, or a MIDI
+  // controller) only reach the armed channel - merely clicking a track to
+  // select it never makes it sound.
   const handleNoteOn = useCallback(
     async (note: string, velocity: number) => {
+      if (!armedChannelId) return;
       await audioEngine.ensureStarted();
-      audioEngine.noteOn(selectedChannelId, note, velocity);
+      audioEngine.noteOn(armedChannelId, note, velocity);
       setActiveNotes((prev) => {
         const next = new Set(prev);
         next.add(note);
         return next;
       });
     },
-    [selectedChannelId]
+    [armedChannelId]
   );
 
   const handleNoteOff = useCallback(
     (note: string) => {
-      audioEngine.noteOff(selectedChannelId, note);
+      if (!armedChannelId) return;
+      audioEngine.noteOff(armedChannelId, note);
       setActiveNotes((prev) => {
         const next = new Set(prev);
         next.delete(note);
         return next;
       });
     },
-    [selectedChannelId]
+    [armedChannelId]
   );
 
   useEffect(() => {
@@ -490,23 +502,33 @@ export function Daw() {
     });
   }, [handleNoteOn, handleNoteOff]);
 
+  // Which channel a recording-in-progress targets - captured once at
+  // Record time (not read live from `armedChannelId`) so re-arming a
+  // different track mid-take (blocked by the UI, but not by anything else)
+  // can never redirect where Stop files the result.
+  const recordingChannelRef = useRef<string | null>(null);
+
   const handleStop = useCallback(async () => {
     if (transportState === "recording") {
-      if (channelTypeOf(selectedChannelId) === "audio") {
-        const blob = await audioEngine.finishAudioRecording();
-        if (blob && blob.size > 0) {
-          const decoded = await decodeAudioFile(blob);
-          const channelName = channels.find((c) => c.id === selectedChannelId)?.name ?? "take";
-          addAudioClip(selectedChannelId, decoded, 0, `${channelName} recording`, blob);
-        }
-      } else {
-        const events = audioEngine.finishRecording();
-        if (events.length > 0) {
-          const lastEnd = events.reduce(
-            (m, n) => Math.max(m, n.time + n.duration),
-            0
-          );
-          addMidiClip(selectedChannelId, 0, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
+      const recChannelId = recordingChannelRef.current;
+      recordingChannelRef.current = null;
+      if (recChannelId) {
+        if (channelTypeOf(recChannelId) === "audio") {
+          const blob = await audioEngine.finishAudioRecording();
+          if (blob && blob.size > 0) {
+            const decoded = await decodeAudioFile(blob);
+            const channelName = channels.find((c) => c.id === recChannelId)?.name ?? "take";
+            addAudioClip(recChannelId, decoded, 0, `${channelName} recording`, blob);
+          }
+        } else {
+          const events = audioEngine.finishRecording();
+          if (events.length > 0) {
+            const lastEnd = events.reduce(
+              (m, n) => Math.max(m, n.time + n.duration),
+              0
+            );
+            addMidiClip(recChannelId, 0, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
+          }
         }
       }
     }
@@ -514,7 +536,7 @@ export function Daw() {
     audioEngine.stopAll();
     audioEngine.seekTo(cursorSeconds);
     setActiveNotes(new Set());
-  }, [transportState, selectedChannelId, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip, cursorSeconds]);
+  }, [transportState, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip, cursorSeconds]);
 
   // Play always starts from the marker (the last point you clicked on the
   // ruler) - pausing doesn't change where the next Play picks up from, it
@@ -543,12 +565,15 @@ export function Daw() {
       void handleStop();
       return;
     }
-    if (channelTypeOf(selectedChannelId) === "audio") {
+    if (!armedChannelId) return;
+    recordingChannelRef.current = armedChannelId;
+    if (channelTypeOf(armedChannelId) === "audio") {
       try {
-        await audioEngine.startAudioRecording(selectedChannelId, countInBars * beatsPerBar);
+        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar);
         setMicError(null);
         setTransportState("recording");
       } catch {
+        recordingChannelRef.current = null;
         setMicError(
           "Couldn't access the microphone - check the browser's permission prompt or site settings."
         );
@@ -556,8 +581,8 @@ export function Daw() {
       return;
     }
     setTransportState("recording");
-    await audioEngine.startRecording(selectedChannelId, countInBars * beatsPerBar);
-  }, [transportState, selectedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar]);
+    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar);
+  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar]);
 
   const handleAddChannel = useCallback(
     (type: ChannelType) => {
@@ -644,6 +669,22 @@ export function Daw() {
       );
     },
     [pushHistory]
+  );
+
+  /** Exclusive record-arm: arming a channel disarms every other one. Also
+   * selects it, so the copy/paste-at-playhead target and header highlight
+   * naturally follow whichever track you just armed. Refuses to change
+   * anything mid-recording, since the engine is already mid-take on
+   * whichever channel was armed when Record was pressed. */
+  const handleArmToggle = useCallback(
+    (id: string) => {
+      if (transportState === "recording") return;
+      pushHistory();
+      setChannels((prev) => prev.map((c) => ({ ...c, armed: c.id === id ? !c.armed : false })));
+      setSelectedChannelId(id);
+      setSelectedClip(null);
+    },
+    [transportState, pushHistory]
   );
 
   const handleInstrumentChange = useCallback(
@@ -1417,8 +1458,9 @@ export function Daw() {
           isPlaying={transportState === "playing"}
           isPaused={transportState === "paused"}
           isRecording={transportState === "recording"}
-          recordingMode={selectedChannel?.type === "audio" ? "audio" : "midi"}
-          selectedChannelName={selectedChannel?.name ?? ""}
+          canRecord={transportState === "recording" || !!armedChannelId}
+          recordingMode={armedChannel?.type === "audio" ? "audio" : "midi"}
+          armedChannelName={armedChannel?.name ?? null}
           loopEnabled={loopEnabled}
           onToggleLoop={() => setLoopEnabled((v) => !v)}
           countInBars={countInBars}
@@ -1557,7 +1599,7 @@ export function Daw() {
                 selected={channel.id === selectedChannelId}
                 recording={
                   transportState === "recording" &&
-                  channel.id === selectedChannelId
+                  channel.id === recordingChannelRef.current
                 }
                 hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
                 hasClipContent={clipsOf(channel.id).length > 0}
@@ -1573,6 +1615,7 @@ export function Daw() {
                 onAdjustStart={pushHistory}
                 onMuteToggle={() => handleMuteToggle(channel.id)}
                 onSoloToggle={() => handleSoloToggle(channel.id)}
+                onArmToggle={() => handleArmToggle(channel.id)}
                 onOpenFx={() => openFx(channel.id)}
                 onImportMidi={(file) => void handleImportMidi(channel.id, file)}
                 onExportMidi={() => handleExportChannelMidi(channel.id)}
@@ -1615,7 +1658,8 @@ export function Daw() {
                 totalSeconds={totalSeconds}
                 pxPerSecond={pxPerSecond}
                 snapSeconds={snapSeconds}
-                armed={channel.id === selectedChannelId}
+                selected={channel.id === selectedChannelId}
+                armed={channel.id === armedChannelId}
                 selectedClipId={selectedClip?.channelId === channel.id ? selectedClip.clipId : null}
                 onSelectTrack={() => {
                   setSelectedChannelId(channel.id);
@@ -1671,6 +1715,7 @@ export function Daw() {
             instrument: null,
             muted: false,
             solo: false,
+            armed: false,
           }}
           color={MASTER_COLOR}
           selected={false}
@@ -1702,23 +1747,27 @@ export function Daw() {
       </div>
 
       <div className="shrink-0 rounded-lg border border-border bg-surface p-3">
-        {selectedChannel && selectedChannel.type === "audio" ? (
+        {!armedChannel ? (
           <p className="py-3 text-center text-xs text-muted">
-            {selectedChannel.name} is an audio track — select a MIDI track to play an instrument.
+            No track armed — click a track&apos;s Record button to play or record it.
           </p>
-        ) : selectedChannel?.instrument === "drums" ? (
+        ) : armedChannel.type === "audio" ? (
+          <p className="py-3 text-center text-xs text-muted">
+            {armedChannel.name} is an audio track — arm a MIDI track to play an instrument.
+          </p>
+        ) : armedChannel.instrument === "drums" ? (
           <DrumPads
             activeNotes={activeNotes}
             onNoteOn={handleNoteOn}
             onNoteOff={handleNoteOff}
             keyboardShortcutsEnabled={!editingClip}
           />
-        ) : selectedChannel?.instrument === null ? (
+        ) : armedChannel.instrument === null ? (
           <div className="flex items-center justify-center gap-3 py-3 text-xs text-muted">
-            <span>{selectedChannel.name} has no instrument loaded.</span>
+            <span>{armedChannel.name} has no instrument loaded.</span>
             <button
               type="button"
-              onClick={() => openFx(selectedChannel.id)}
+              onClick={() => openFx(armedChannel.id)}
               className="rounded border border-border px-2 py-1 text-accent hover:bg-surface-raised"
             >
               Open FX to add one

@@ -20,9 +20,13 @@ interface TransportBarProps {
   isPlaying: boolean;
   isPaused: boolean;
   isRecording: boolean;
+  /** False disables the Record button - nothing is armed, so there's
+   * nothing for it to capture. */
+  canRecord: boolean;
   /** What the armed channel will capture when Record is pressed. */
   recordingMode?: "midi" | "audio";
-  selectedChannelName: string;
+  /** Name of the record-armed channel, or null if none is armed. */
+  armedChannelName: string | null;
   loopEnabled: boolean;
   onToggleLoop: () => void;
   /** Bars of audible pre-roll clicks played before recording actually
@@ -45,8 +49,9 @@ export function TransportBar({
   isPlaying,
   isPaused,
   isRecording,
+  canRecord,
   recordingMode = "midi",
-  selectedChannelName,
+  armedChannelName,
   loopEnabled,
   onToggleLoop,
   countInBars,
@@ -80,13 +85,16 @@ export function TransportBar({
         <button
           type="button"
           onClick={onRecord}
+          disabled={!canRecord}
           aria-pressed={isRecording}
           title={
-            recordingMode === "audio"
-              ? "Record microphone input onto the selected channel"
-              : "Record MIDI onto the selected channel"
+            !canRecord
+              ? "Arm a track (click its Record button) before you can record"
+              : recordingMode === "audio"
+                ? `Record microphone input onto ${armedChannelName}`
+                : `Record MIDI onto ${armedChannelName}`
           }
-          className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors ${
+          className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:opacity-30 ${
             isRecording
               ? "animate-pulse-rec border-record bg-record text-white"
               : "border-border text-record hover:bg-surface-raised"
@@ -214,12 +222,12 @@ export function TransportBar({
         {isPlaying
           ? "playing"
           : isRecording
-            ? `recording ${recordingMode === "audio" ? "audio" : "MIDI"} onto ${selectedChannelName}`
+            ? `recording ${recordingMode === "audio" ? "audio" : "MIDI"} onto ${armedChannelName}`
             : isPaused
               ? "paused"
               : "stopped"}{" "}
         · armed channel:{" "}
-        <span className="text-foreground">{selectedChannelName}</span>
+        <span className="text-foreground">{armedChannelName ?? "none"}</span>
       </div>
     </div>
   );

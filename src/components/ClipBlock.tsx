@@ -129,6 +129,7 @@ export function ClipBlock({
   return (
     <div
       onPointerDown={handleBodyPointerDown}
+      onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();

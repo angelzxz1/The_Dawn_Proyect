@@ -107,6 +107,12 @@ export function Daw() {
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
+  /** The one clip (if any) currently selected on the timeline - distinct
+   * from the armed/selected track - so Delete/Backspace knows what to
+   * remove. */
+  const [selectedClip, setSelectedClip] = useState<{ channelId: string; clipId: string } | null>(
+    null
+  );
   const [editingClip, setEditingClip] = useState<{ channelId: string; clipId: string } | null>(
     null
   );
@@ -212,6 +218,9 @@ export function Daw() {
       } else {
         rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
+      setSelectedClip((prev) =>
+        prev?.channelId === channelId && prev.clipId === clipId ? null : prev
+      );
     },
     [clipsOf, rebuildMidiPart]
   );
@@ -224,6 +233,7 @@ export function Daw() {
         if (c.kind === "audio") URL.revokeObjectURL(c.url);
       });
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [] }));
+      setSelectedClip((prev) => (prev?.channelId === channelId ? null : prev));
       if (channelTypeOf(channelId) === "audio") audioEngine.clearAllAudioClips(channelId);
       else audioEngine.setClip(channelId, [], 0);
     },
@@ -350,11 +360,15 @@ export function Daw() {
     setActiveNotes(new Set());
   }, [transportState, selectedChannelId, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip, cursorSeconds]);
 
+  // Play always starts from the marker (the last point you clicked on the
+  // ruler) - pausing doesn't change where the next Play picks up from, it
+  // always snaps back to that marker, the same spot Stop rewinds to.
   const handlePlay = useCallback(async () => {
     if (transportState === "recording") return;
+    audioEngine.seekTo(cursorSeconds);
     await audioEngine.startPlayback();
     setTransportState("playing");
-  }, [transportState]);
+  }, [transportState, cursorSeconds]);
 
   const handlePause = useCallback(() => {
     if (transportState !== "playing") return;
@@ -419,6 +433,7 @@ export function Daw() {
         if (fallback) setSelectedChannelId(fallback.id);
       }
       if (editingClip?.channelId === id) setEditingClip(null);
+      setSelectedClip((prev) => (prev?.channelId === id ? null : prev));
     },
     [selectedChannelId, channels, editingClip, fxChannelId]
   );
@@ -725,8 +740,9 @@ export function Daw() {
   );
 
   // Space to play/pause, Ctrl/Cmd+C/V to copy/paste whatever's under the
-  // playhead on the armed track - both suspended while the piano roll
-  // editor is open (it handles its own shortcuts) or while typing.
+  // playhead on the armed track, Delete/Backspace to remove the selected
+  // clip - all suspended while the piano roll editor is open (it handles
+  // its own shortcuts) or while typing.
   useEffect(() => {
     if (editingClip) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -740,11 +756,14 @@ export function Daw() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         e.preventDefault();
         handlePasteClip();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedClip) {
+        e.preventDefault();
+        handleDeleteClip(selectedClip.channelId, selectedClip.clipId);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editingClip, handleTogglePlay, handleCopyAtPlayhead, handlePasteClip]);
+  }, [editingClip, handleTogglePlay, handleCopyAtPlayhead, handlePasteClip, selectedClip, handleDeleteClip]);
 
   const handleEditClip = useCallback(
     (channelId: string, clipId: string) => {
@@ -1017,7 +1036,10 @@ export function Daw() {
                 hasClipContent={clipsOf(channel.id).length > 0}
                 effectsCount={(channelEffects[channel.id] ?? []).length}
                 canRemove={channels.length > 1}
-                onSelect={() => setSelectedChannelId(channel.id)}
+                onSelect={() => {
+                  setSelectedChannelId(channel.id);
+                  setSelectedClip(null);
+                }}
                 onRename={(name) => handleRenameChannel(channel.id, name)}
                 onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
                 onPanChange={(pan) => handlePanChange(channel.id, pan)}
@@ -1062,8 +1084,16 @@ export function Daw() {
                 beatsPerBar={beatsPerBar}
                 totalSeconds={totalSeconds}
                 pxPerSecond={pxPerSecond}
-                selected={channel.id === selectedChannelId}
-                onSelect={() => setSelectedChannelId(channel.id)}
+                armed={channel.id === selectedChannelId}
+                selectedClipId={selectedClip?.channelId === channel.id ? selectedClip.clipId : null}
+                onSelectTrack={() => {
+                  setSelectedChannelId(channel.id);
+                  setSelectedClip(null);
+                }}
+                onSelectClip={(clipId) => {
+                  setSelectedChannelId(channel.id);
+                  setSelectedClip({ channelId: channel.id, clipId });
+                }}
                 onEditClip={(clipId) => handleEditClip(channel.id, clipId)}
                 onMoveClip={(clipId, offset) => handleMoveClip(channel.id, clipId, offset)}
                 onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}

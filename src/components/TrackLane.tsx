@@ -12,9 +12,13 @@ interface TrackLaneProps {
   beatsPerBar: number;
   totalSeconds: number;
   pxPerSecond: number;
-  /** Whether this track is armed/selected - highlights every clip on it. */
-  selected: boolean;
-  onSelect: () => void;
+  /** Whether this track is armed - tints the whole lane. */
+  armed: boolean;
+  /** Which one clip (if any) on this lane has the selection ring - Delete
+   * removes this one. */
+  selectedClipId: string | null;
+  onSelectTrack: () => void;
+  onSelectClip: (clipId: string) => void;
   onEditClip: (clipId: string) => void;
   onMoveClip: (clipId: string, offsetSeconds: number) => void;
   onResizeClip: (clipId: string, lengthSeconds: number) => void;
@@ -29,8 +33,10 @@ export function TrackLane({
   beatsPerBar,
   totalSeconds,
   pxPerSecond,
-  selected,
-  onSelect,
+  armed,
+  selectedClipId,
+  onSelectTrack,
+  onSelectClip,
   onEditClip,
   onMoveClip,
   onResizeClip,
@@ -41,14 +47,14 @@ export function TrackLane({
 
   return (
     <div
-      onClick={onSelect}
+      onClick={onSelectTrack}
       onContextMenu={(e) => {
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
         onLaneContextMenu(e, Math.max(0, (e.clientX - rect.left) / pxPerSecond));
       }}
       className={`relative cursor-pointer border-b border-border ${
-        selected ? "bg-surface-raised/40" : ""
+        armed ? "bg-surface-raised/40" : ""
       }`}
       style={{ height: TRACK_ROW_HEIGHT, width: totalSeconds * pxPerSecond }}
     >
@@ -81,8 +87,8 @@ export function TrackLane({
           bpm={bpm}
           beatsPerBar={beatsPerBar}
           pxPerSecond={pxPerSecond}
-          selected={selected}
-          onSelect={onSelect}
+          selected={clip.id === selectedClipId}
+          onSelect={() => onSelectClip(clip.id)}
           onEdit={() => onEditClip(clip.id)}
           onMove={(offset) => onMoveClip(clip.id, offset)}
           onResize={(length) => onResizeClip(clip.id, length)}

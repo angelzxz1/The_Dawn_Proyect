@@ -43,7 +43,7 @@ import { listenToWebMidi } from "@/lib/webMidi";
 import { trackColorForIndex, MASTER_COLOR } from "@/lib/colors";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
-import { hydrateEngine, type ProjectState } from "@/lib/project";
+import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
 import { loadProject, saveProject, type SerializedClip } from "@/lib/persistence";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
 import type { EffectInstance, EffectType } from "@/lib/effects";
@@ -309,7 +309,7 @@ export function Daw() {
    * note list. Called after any add/remove/move/edit of a MIDI clip. */
   const rebuildMidiPart = useCallback((channelId: string, midiClips: MidiClipInstance[]) => {
     const flattened: NoteEvent[] = midiClips.flatMap((c) =>
-      c.notes.map((n) => ({ ...n, time: c.offset + n.time }))
+      notesWithinClip(c).map((n) => ({ ...n, time: c.offset + n.time }))
     );
     audioEngine.setClip(channelId, flattened, 0);
   }, []);
@@ -782,13 +782,19 @@ export function Daw() {
       );
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       const clip = updated.find((c) => c.id === clipId);
-      // A MIDI clip's length is purely the visual box - its scheduled notes
-      // don't depend on it. An audio clip's length also trims playback.
       if (clip?.kind === "audio") {
+        // An audio clip's length also trims playback.
         audioEngine.moveAudioClip(channelId, clipId, clip.offset, newLength);
+      } else {
+        // A MIDI clip's box hides any note at/after `length` (ClipBlock's
+        // own rendering already does this) - rebuild the engine's
+        // scheduled part so a shortened clip actually stops sounding the
+        // notes its new boundary now hides, instead of playing everything
+        // it ever had regardless of the box you're looking at.
+        rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
     },
-    [clipsOf]
+    [clipsOf, rebuildMidiPart]
   );
 
   const handleSeek = useCallback((seconds: number) => {
@@ -1220,6 +1226,15 @@ export function Daw() {
     (value: number) => {
       if (value === bpm) return;
       pushHistory();
+      // Tone.js converts a scheduled note's time to ticks at the moment
+      // it's scheduled, using whatever tempo is active right then - the
+      // separate effect that calls audioEngine.setBpm(bpm) only runs on
+      // the NEXT render, which is too late: rebuilding the (rescaled)
+      // parts below before the engine's tempo actually changes would
+      // schedule them against the OLD tempo, then have their real
+      // playback position silently shift again once the new tempo lands.
+      // Setting it here first, synchronously, avoids that double-shift.
+      audioEngine.setBpm(value);
       const ratio = bpm / value;
       const rescaled: Record<string, ClipInstance[]> = {};
       Object.entries(clipsByChannel).forEach(([chId, clips]) => {

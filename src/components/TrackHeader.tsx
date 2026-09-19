@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Download, Drum, Mic, Pencil, Piano, Sliders, Trash2, Upload, X } from "lucide-react";
+import { Download, FileAudio, Pencil, Sliders, Trash2, Upload, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
-import type { ChannelConfig, ClipType, InstrumentType } from "@/lib/types";
+import type { ChannelConfig } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
@@ -17,25 +17,19 @@ interface TrackHeaderProps {
   /** Whether there's anything to clear - MIDI notes, or an audio clip. */
   hasClipContent?: boolean;
   canRemove: boolean;
-  /** The master bus track: no MIDI clip, no import/export/clear/remove. */
+  /** The master bus track: no clip, no import/export/clear/remove. */
   isMaster?: boolean;
-  /** What this track's single clip currently holds - a MIDI instrument
-   * selector only makes sense while it's a MIDI clip. */
-  clipType?: ClipType;
   effectsCount?: number;
-  /** What hitting the transport's Record button will capture onto this
-   * track - MIDI played on the keyboard/pads, or live microphone input. */
-  recordMode?: "midi" | "audio";
   onSelect: () => void;
   onEdit?: () => void;
   onRename: (name: string) => void;
   onVolumeChange: (db: number) => void;
   onPanChange: (pan: number) => void;
-  onInstrumentChange?: (type: InstrumentType) => void;
-  onRecordModeChange?: (mode: "midi" | "audio") => void;
-  onOpenEffects?: (e: React.MouseEvent) => void;
+  /** Opens the FX window (instrument slot + effects chain). */
+  onOpenFx?: () => void;
   onImportMidi?: (file: File) => void;
   onExportMidi?: () => void;
+  onImportAudio?: (file: File) => void;
   onClearClip?: () => void;
   onRemove?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -48,6 +42,12 @@ function formatDb(db: number): string {
 function formatPan(pan: number): string {
   if (Math.abs(pan) < 0.02) return "C";
   return pan < 0 ? `${Math.round(-pan * 100)}L` : `${Math.round(pan * 100)}R`;
+}
+
+function instrumentLabel(instrument: ChannelConfig["instrument"]): string {
+  if (instrument === "piano") return "Piano";
+  if (instrument === "drums") return "Drums";
+  return "Empty";
 }
 
 function IconButton({
@@ -87,26 +87,25 @@ export function TrackHeader({
   hasClipContent,
   canRemove,
   isMaster = false,
-  clipType = "midi",
   effectsCount = 0,
-  recordMode = "midi",
   onSelect,
   onEdit,
   onRename,
   onVolumeChange,
   onPanChange,
-  onInstrumentChange,
-  onRecordModeChange,
-  onOpenEffects,
+  onOpenFx,
   onImportMidi,
   onExportMidi,
+  onImportAudio,
   onClearClip,
   onRemove,
   onContextMenu,
 }: TrackHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(channel.name);
+  const isMidi = channel.type === "midi";
 
   const commitRename = () => {
     const trimmed = draftName.trim();
@@ -161,7 +160,7 @@ export function TrackHeader({
         {recording && (
           <span className="h-2 w-2 shrink-0 animate-pulse-rec rounded-full bg-record" />
         )}
-        {!isMaster && onEdit && (
+        {!isMaster && isMidi && onEdit && (
           <button
             type="button"
             title="Open in piano roll editor"
@@ -211,72 +210,33 @@ export function TrackHeader({
           className="flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
         >
-          {clipType === "midi" ? (
-            <div className="flex overflow-hidden rounded border border-border">
-              <button
-                type="button"
-                title="Piano"
-                onClick={() => onInstrumentChange?.("piano")}
-                className={`flex h-6 w-6 items-center justify-center ${
-                  channel.instrument === "piano"
-                    ? "bg-accent/25 text-accent"
-                    : "text-muted hover:bg-surface-raised"
-                }`}
-              >
-                <Piano size={12} />
-              </button>
-              <button
-                type="button"
-                title="Drums"
-                onClick={() => onInstrumentChange?.("drums")}
-                className={`flex h-6 w-6 items-center justify-center border-l border-border ${
-                  channel.instrument === "drums"
-                    ? "bg-accent/25 text-accent"
-                    : "text-muted hover:bg-surface-raised"
-                }`}
-              >
-                <Drum size={12} />
-              </button>
-            </div>
-          ) : (
-            <span className="flex h-6 items-center rounded border border-border px-1.5 text-[10px] text-muted">
-              Audio
-            </span>
-          )}
-          <button
-            type="button"
-            title={
-              recordMode === "audio"
-                ? "Recording will capture microphone input - click to record MIDI instead"
-                : "Recording will capture MIDI - click to record microphone input instead"
-            }
-            onClick={() =>
-              onRecordModeChange?.(recordMode === "audio" ? "midi" : "audio")
-            }
-            className={`flex h-6 w-6 items-center justify-center rounded border ${
-              recordMode === "audio"
-                ? "border-record bg-record/20 text-record"
-                : "border-border text-muted hover:bg-surface-raised"
+          <span
+            title={isMidi ? "MIDI track" : "Audio track"}
+            className={`flex h-6 items-center rounded border px-1.5 text-[10px] ${
+              isMidi && channel.instrument === null
+                ? "border-record/50 text-record"
+                : "border-border text-muted"
             }`}
           >
-            <Mic size={12} />
-          </button>
+            {isMidi ? instrumentLabel(channel.instrument) : "Audio"}
+          </span>
+          <div className="flex-1" />
           <button
             type="button"
-            title={`Effects${effectsCount > 0 ? ` (${effectsCount})` : ""}`}
-            onClick={(e) => onOpenEffects?.(e)}
-            className={`relative flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised ${
+            title={`FX${effectsCount > 0 ? ` (${effectsCount})` : ""} — instrument & effects`}
+            onClick={() => onOpenFx?.()}
+            className={`relative flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
               effectsCount > 0 ? "text-accent" : "text-muted"
             }`}
           >
-            <Sliders size={12} />
+            <Sliders size={11} />
+            FX
             {effectsCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
+              <span className="flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
                 {effectsCount}
               </span>
             )}
           </button>
-          <div className="flex-1" />
         </div>
       )}
 
@@ -285,27 +245,48 @@ export function TrackHeader({
           className="flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
         >
-          <IconButton title="Import .mid" onClick={() => fileInputRef.current?.click()}>
-            <Upload size={12} />
-          </IconButton>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".mid,.midi,audio/midi"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onImportMidi?.(file);
-              e.target.value = "";
-            }}
-          />
-          <IconButton
-            title="Export .mid"
-            onClick={() => onExportMidi?.()}
-            disabled={clipType === "audio" || !hasNotes}
-          >
-            <Download size={12} />
-          </IconButton>
+          {isMidi ? (
+            <>
+              <IconButton title="Import .mid" onClick={() => fileInputRef.current?.click()}>
+                <Upload size={12} />
+              </IconButton>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".mid,.midi,audio/midi"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportMidi?.(file);
+                  e.target.value = "";
+                }}
+              />
+              <IconButton
+                title="Export .mid"
+                onClick={() => onExportMidi?.()}
+                disabled={!hasNotes}
+              >
+                <Download size={12} />
+              </IconButton>
+            </>
+          ) : (
+            <>
+              <IconButton title="Import audio file" onClick={() => audioInputRef.current?.click()}>
+                <FileAudio size={12} />
+              </IconButton>
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportAudio?.(file);
+                  e.target.value = "";
+                }}
+              />
+            </>
+          )}
           <IconButton
             title="Clear clip"
             onClick={() => onClearClip?.()}

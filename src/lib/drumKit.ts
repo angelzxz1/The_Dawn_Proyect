@@ -18,6 +18,34 @@ export interface Instrument {
   dispose(): void;
 }
 
+/**
+ * The instrument for a MIDI track with nothing loaded into it - a track
+ * doesn't have to have an instrument, so this plugs the same slot as a
+ * Sampler or DrumKit but simply produces no sound.
+ */
+export class NullInstrument implements Instrument {
+  private output = new Tone.Gain(0);
+
+  connect(node: Tone.InputNode): this {
+    this.output.connect(node);
+    return this;
+  }
+
+  disconnect(): this {
+    this.output.disconnect();
+    return this;
+  }
+
+  triggerAttack(): void {}
+  triggerRelease(): void {}
+  triggerAttackRelease(): void {}
+  releaseAll(): void {}
+
+  dispose(): void {
+    this.output.dispose();
+  }
+}
+
 const TOM_PITCH: Record<string, string> = {
   F1: "G2",
   G1: "A#2",

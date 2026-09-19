@@ -1,7 +1,7 @@
 import * as Tone from "tone";
-import type { NoteEvent, InstrumentType, ClipType } from "./types";
+import type { NoteEvent, InstrumentType, ChannelType } from "./types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
-import { DrumKit, type Instrument } from "./drumKit";
+import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
 import { type EffectType, defaultParams } from "./effects";
 
 interface EffectNode {
@@ -13,13 +13,15 @@ interface EffectNode {
 interface ChannelNodes {
   channel: Tone.Channel;
   meter: Tone.Meter;
-  instrumentType: InstrumentType;
+  /** Fixed for the channel's lifetime - decides whether the instrument or
+   * the audio player feeds the effects chain. */
+  channelType: ChannelType;
+  instrumentType: InstrumentType | null;
   instrument: Instrument;
   part: Tone.Part<NoteEvent> | null;
   /** Notes currently held down live (not yet released), keyed by note name. */
   heldNotes: Set<string>;
   effects: EffectNode[];
-  clipType: ClipType;
   audioPlayer: Tone.Player | null;
 }
 
@@ -34,9 +36,13 @@ const MIN_NOTE_DURATION = 0.05;
 let effectIdCounter = 0;
 
 function createInstrument(
-  type: InstrumentType,
+  type: InstrumentType | null,
   onSettled: () => void
 ): Instrument {
+  if (type === null) {
+    queueMicrotask(onSettled);
+    return new NullInstrument();
+  }
   if (type === "drums") {
     // Synth-built, so it's "ready" the instant it's constructed.
     queueMicrotask(onSettled);
@@ -201,7 +207,7 @@ class AudioEngine {
     return Number.isFinite(level) ? level : 0;
   }
 
-  addChannel(id: string, instrument: InstrumentType = "piano"): void {
+  addChannel(id: string, channelType: ChannelType, instrument: InstrumentType | null): void {
     if (this.channels.has(id)) return;
 
     const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
@@ -218,12 +224,12 @@ class AudioEngine {
     this.channels.set(id, {
       channel,
       meter,
-      instrumentType: instrument,
-      instrument: createInstrument(instrument, onSettled),
+      channelType,
+      instrumentType: channelType === "midi" ? instrument : null,
+      instrument: createInstrument(channelType === "midi" ? instrument : null, onSettled),
       part: null,
       heldNotes: new Set(),
       effects: [],
-      clipType: "midi",
       audioPlayer: null,
     });
     this.rewireChannel(id);
@@ -245,9 +251,10 @@ class AudioEngine {
   }
 
   /** Reconnects a channel's active sound source (its instrument for a MIDI
-   * clip, or its player for an audio clip) through the effects chain, in
-   * order, into the channel strip. Called whenever the instrument, the
-   * clip type, or the effects chain itself changes. */
+   * channel, or its player for an audio channel - the channel's `type` is
+   * fixed for its lifetime) through the effects chain, in order, into the
+   * channel strip. Called whenever the instrument, the audio player, or the
+   * effects chain itself changes. */
   private rewireChannel(id: string): void {
     const nodes = this.channels.get(id);
     if (!nodes) return;
@@ -260,8 +267,11 @@ class AudioEngine {
     nodes.effects.forEach((e) => e.node.disconnect());
 
     type Connectable = { connect: (n: Tone.InputNode) => unknown };
-    let current: Connectable =
-      nodes.clipType === "audio" && nodes.audioPlayer ? nodes.audioPlayer : nodes.instrument;
+    const source: Connectable | null =
+      nodes.channelType === "audio" ? nodes.audioPlayer : nodes.instrument;
+    if (!source) return; // audio channel with nothing loaded yet - nothing to wire up
+
+    let current = source;
     nodes.effects.forEach((e) => {
       current.connect(e.node);
       current = e.node;
@@ -269,11 +279,12 @@ class AudioEngine {
     current.connect(nodes.channel);
   }
 
-  /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums),
-   * disposing the old one and reconnecting the signal chain. */
-  setInstrument(id: string, type: InstrumentType): void {
+  /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums,
+   * or null to leave the track empty), disposing the old one and
+   * reconnecting the signal chain. No-op on an audio channel. */
+  setInstrument(id: string, type: InstrumentType | null): void {
     const nodes = this.channels.get(id);
-    if (!nodes || nodes.instrumentType === type) return;
+    if (!nodes || nodes.channelType !== "midi" || nodes.instrumentType === type) return;
     nodes.instrument.dispose();
     this.pendingLoads += 1;
     this.setReady(false);
@@ -418,9 +429,10 @@ class AudioEngine {
   // --- Audio clips ---
 
   /**
-   * Loads an audio file's object URL as this channel's clip, replacing any
-   * MIDI notes. `trimSeconds`, if given, caps playback to that much of the
-   * file (used when the clip block is resized shorter than the source).
+   * Loads an audio file's object URL as this (audio) channel's clip.
+   * `trimSeconds`, if given, caps playback to that much of the file (used
+   * when the clip block is resized shorter than the source). No-op on a
+   * MIDI channel.
    */
   setAudioClip(
     channelId: string,
@@ -429,11 +441,8 @@ class AudioEngine {
     trimSeconds?: number
   ): void {
     const nodes = this.channels.get(channelId);
-    if (!nodes) return;
-    nodes.part?.dispose();
-    nodes.part = null;
+    if (!nodes || nodes.channelType !== "audio") return;
     nodes.audioPlayer?.dispose();
-    nodes.clipType = "audio";
 
     this.pendingLoads += 1;
     this.setReady(false);
@@ -471,13 +480,12 @@ class AudioEngine {
     });
   }
 
-  /** Clears a channel's audio clip, reverting it back to a (empty) MIDI clip. */
+  /** Clears a channel's audio clip, leaving the (audio) channel empty. */
   clearAudioClip(channelId: string): void {
     const nodes = this.channels.get(channelId);
     if (!nodes) return;
     nodes.audioPlayer?.dispose();
     nodes.audioPlayer = null;
-    nodes.clipType = "midi";
     this.rewireChannel(channelId);
   }
 

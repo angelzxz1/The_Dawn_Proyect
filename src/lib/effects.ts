@@ -1,5 +1,5 @@
-// Effect type/param definitions shared by the audio engine and the
-// EffectsRack UI. Every effect's live params are plain numbers so a single
+// Effect type/param definitions shared by the audio engine and the FX
+// window UI. Every effect's live params are plain numbers so a single
 // generic ValueBar-driven UI can drive any of them.
 
 export type EffectType = "eq3" | "compressor" | "delay" | "reverb";

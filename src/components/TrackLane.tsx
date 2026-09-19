@@ -1,46 +1,37 @@
 "use client";
 
 import { ClipBlock } from "./ClipBlock";
-import type { ClipType, NoteEvent } from "@/lib/types";
+import type { ClipInstance } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
 interface TrackLaneProps {
-  clipType?: ClipType;
-  notes: NoteEvent[];
-  audioPeaks?: number[];
-  audioFileName?: string;
+  clips: ClipInstance[];
   color: TrackColor;
-  offset: number;
-  length: number;
   bpm: number;
   beatsPerBar: number;
   totalSeconds: number;
   pxPerSecond: number;
+  /** Whether this track is armed/selected - highlights every clip on it. */
   selected: boolean;
   onSelect: () => void;
-  onEdit: () => void;
-  onMoveClip: (offsetSeconds: number) => void;
-  onResizeClip: (lengthSeconds: number) => void;
-  onClipContextMenu: (e: React.MouseEvent) => void;
+  onEditClip: (clipId: string) => void;
+  onMoveClip: (clipId: string, offsetSeconds: number) => void;
+  onResizeClip: (clipId: string, lengthSeconds: number) => void;
+  onClipContextMenu: (clipId: string, e: React.MouseEvent) => void;
   onLaneContextMenu: (e: React.MouseEvent, atSeconds: number) => void;
 }
 
 export function TrackLane({
-  clipType = "midi",
-  notes,
-  audioPeaks,
-  audioFileName,
+  clips,
   color,
-  offset,
-  length,
   bpm,
   beatsPerBar,
   totalSeconds,
   pxPerSecond,
   selected,
   onSelect,
-  onEdit,
+  onEditClip,
   onMoveClip,
   onResizeClip,
   onClipContextMenu,
@@ -77,24 +68,27 @@ export function TrackLane({
           }}
         />
       ))}
-      <ClipBlock
-        clipType={clipType}
-        notes={notes}
-        audioPeaks={audioPeaks}
-        audioFileName={audioFileName}
-        color={color}
-        offset={offset}
-        length={length}
-        bpm={bpm}
-        beatsPerBar={beatsPerBar}
-        pxPerSecond={pxPerSecond}
-        selected={selected}
-        onSelect={onSelect}
-        onEdit={onEdit}
-        onMove={onMoveClip}
-        onResize={onResizeClip}
-        onContextMenu={onClipContextMenu}
-      />
+      {clips.map((clip) => (
+        <ClipBlock
+          key={clip.id}
+          clipType={clip.kind}
+          notes={clip.kind === "midi" ? clip.notes : []}
+          audioPeaks={clip.kind === "audio" ? clip.peaks : undefined}
+          audioFileName={clip.kind === "audio" ? clip.fileName : undefined}
+          color={color}
+          offset={clip.offset}
+          length={clip.length}
+          bpm={bpm}
+          beatsPerBar={beatsPerBar}
+          pxPerSecond={pxPerSecond}
+          selected={selected}
+          onSelect={onSelect}
+          onEdit={() => onEditClip(clip.id)}
+          onMove={(offset) => onMoveClip(clip.id, offset)}
+          onResize={(length) => onResizeClip(clip.id, length)}
+          onContextMenu={(e) => onClipContextMenu(clip.id, e)}
+        />
+      ))}
     </div>
   );
 }

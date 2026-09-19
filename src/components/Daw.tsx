@@ -32,7 +32,6 @@ import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
-  MIN_EMPTY_CLIP_SECONDS,
   MIN_PX_PER_SECOND,
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
@@ -43,10 +42,12 @@ import {
   secondsPerBar,
 } from "@/lib/timeline";
 import type {
-  AudioClipData,
+  AudioClipInstance,
   ChannelConfig,
   ChannelType,
+  ClipInstance,
   InstrumentType,
+  MidiClipInstance,
   NoteEvent,
   TimeSignature,
 } from "@/lib/types";
@@ -54,13 +55,17 @@ import type {
 type TransportState = "stopped" | "playing" | "paused" | "recording";
 
 type ContextMenuState =
-  | { kind: "clip"; channelId: string; x: number; y: number }
+  | { kind: "clip"; channelId: string; clipId: string; x: number; y: number }
   | { kind: "lane"; channelId: string; x: number; y: number; atSeconds: number }
   | { kind: "header"; channelId: string; x: number; y: number };
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
+}
+
+function isMidiClip(c: ClipInstance): c is MidiClipInstance {
+  return c.kind === "midi";
 }
 
 let channelCounter = 0;
@@ -77,23 +82,30 @@ function createChannel(name: string, type: ChannelType): ChannelConfig {
   };
 }
 
+let clipIdCounter = 0;
+function newClipId(): string {
+  clipIdCounter += 1;
+  return `clip-${clipIdCounter}`;
+}
+
 export function Daw() {
   const [channels, setChannels] = useState<ChannelConfig[]>(() => [
     createChannel("MIDI 1", "midi"),
     createChannel("MIDI 2", "midi"),
     createChannel("Audio 1", "audio"),
   ]);
-  const [clips, setClips] = useState<Record<string, NoteEvent[]>>({});
-  const [clipLengths, setClipLengths] = useState<Record<string, number>>({});
-  const [clipOffsets, setClipOffsets] = useState<Record<string, number>>({});
-  const [audioClips, setAudioClips] = useState<Record<string, AudioClipData>>({});
+  // Every track can hold any number of independent clips, each its own box
+  // on the timeline - not a single clip slot per track.
+  const [clipsByChannel, setClipsByChannel] = useState<Record<string, ClipInstance[]>>({});
   const [channelEffects, setChannelEffects] = useState<Record<string, EffectInstance[]>>({});
   const [fxChannelId, setFxChannelId] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
-  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
+  const [editingClip, setEditingClip] = useState<{ channelId: string; clipId: string } | null>(
+    null
+  );
   const [bpm, setBpm] = useState(120);
   const [timeSignature, setTimeSignature] = useState<TimeSignature>({
     numerator: 4,
@@ -125,57 +137,93 @@ export function Daw() {
     timeSignature.denominator
   );
 
-  const lengthOf = useCallback(
-    (id: string) => clipLengths[id] ?? MIN_EMPTY_CLIP_SECONDS,
-    [clipLengths]
-  );
-  const offsetOf = useCallback(
-    (id: string) => clipOffsets[id] ?? 0,
-    [clipOffsets]
+  const clipsOf = useCallback(
+    (channelId: string): ClipInstance[] => clipsByChannel[channelId] ?? [],
+    [clipsByChannel]
   );
   const channelTypeOf = useCallback(
     (id: string): ChannelType => channels.find((c) => c.id === id)?.type ?? "midi",
     [channels]
   );
-
-  /** Drops a channel's audio clip (revoking its object URL), leaving the
-   * (still audio-type) channel empty - shared by clearing and by starting a
-   * fresh recording/import that replaces the current take. */
-  const discardAudioClip = useCallback(
-    (id: string) => {
-      const existing = audioClips[id];
-      if (existing) URL.revokeObjectURL(existing.url);
-      audioEngine.clearAudioClip(id);
-      setAudioClips((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    },
-    [audioClips]
+  /** Where a new clip added from a track-header-level action (import, or
+   * the header's "add" menu item) should land - right after whatever's
+   * already there, so it doesn't silently overlap an existing clip. */
+  const endOfContent = useCallback(
+    (channelId: string) =>
+      clipsOf(channelId).reduce((max, c) => Math.max(max, c.offset + c.length), 0),
+    [clipsOf]
   );
 
-  /** Installs a decoded audio source (an imported file, or a finished mic
-   * recording) as a channel's clip, replacing whatever it held before -
-   * shared by file import and by finishing an audio recording. */
-  const applyAudioClip = useCallback(
-    (id: string, decoded: DecodedAudioClip, anchor: number, fileName: string) => {
-      const previous = audioClips[id];
-      if (previous) URL.revokeObjectURL(previous.url);
-      audioEngine.setAudioClip(id, decoded.url, anchor);
-      setAudioClips((prev) => ({
-        ...prev,
-        [id]: {
-          url: decoded.url,
-          fileName,
-          durationSeconds: decoded.durationSeconds,
-          peaks: decoded.peaks,
-        },
-      }));
-      setClipOffsets((prev) => ({ ...prev, [id]: anchor }));
-      setClipLengths((prev) => ({ ...prev, [id]: decoded.durationSeconds }));
+  /** Rebuilds a MIDI channel's single merged Tone.Part from every one of
+   * its clips' notes (each shifted by that clip's own offset) - the engine
+   * doesn't need to know about "clips", just the flattened absolute-time
+   * note list. Called after any add/remove/move/edit of a MIDI clip. */
+  const rebuildMidiPart = useCallback((channelId: string, midiClips: MidiClipInstance[]) => {
+    const flattened: NoteEvent[] = midiClips.flatMap((c) =>
+      c.notes.map((n) => ({ ...n, time: c.offset + n.time }))
+    );
+    audioEngine.setClip(channelId, flattened, 0);
+  }, []);
+
+  const addMidiClip = useCallback(
+    (channelId: string, offset: number, length: number, notes: NoteEvent[] = []): string => {
+      const clip: MidiClipInstance = { id: newClipId(), kind: "midi", offset, length, notes };
+      const updated = [...clipsOf(channelId), clip];
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      rebuildMidiPart(channelId, updated.filter(isMidiClip));
+      return clip.id;
     },
-    [audioClips]
+    [clipsOf, rebuildMidiPart]
+  );
+
+  const addAudioClip = useCallback(
+    (channelId: string, decoded: DecodedAudioClip, offset: number, fileName: string): string => {
+      const clip: AudioClipInstance = {
+        id: newClipId(),
+        kind: "audio",
+        offset,
+        length: decoded.durationSeconds,
+        url: decoded.url,
+        fileName,
+        durationSeconds: decoded.durationSeconds,
+        peaks: decoded.peaks,
+      };
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: [...clipsOf(channelId), clip] }));
+      audioEngine.loadAudioClip(channelId, clip.id, decoded.url, offset);
+      return clip.id;
+    },
+    [clipsOf]
+  );
+
+  const handleDeleteClip = useCallback(
+    (channelId: string, clipId: string) => {
+      const existing = clipsOf(channelId);
+      const clip = existing.find((c) => c.id === clipId);
+      if (!clip) return;
+      const updated = existing.filter((c) => c.id !== clipId);
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      if (clip.kind === "audio") {
+        URL.revokeObjectURL(clip.url);
+        audioEngine.removeAudioClip(channelId, clipId);
+      } else {
+        rebuildMidiPart(channelId, updated.filter(isMidiClip));
+      }
+    },
+    [clipsOf, rebuildMidiPart]
+  );
+
+  /** Empties a whole track - every clip on it, gone. */
+  const handleClearTrack = useCallback(
+    (channelId: string) => {
+      const existing = clipsOf(channelId);
+      existing.forEach((c) => {
+        if (c.kind === "audio") URL.revokeObjectURL(c.url);
+      });
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: [] }));
+      if (channelTypeOf(channelId) === "audio") audioEngine.clearAllAudioClips(channelId);
+      else audioEngine.setClip(channelId, [], 0);
+    },
+    [clipsOf, channelTypeOf]
   );
 
   const registeredChannelIds = useRef(new Set<string>());
@@ -270,35 +318,23 @@ export function Daw() {
         if (blob && blob.size > 0) {
           const decoded = await decodeAudioFile(blob);
           const channelName = channels.find((c) => c.id === selectedChannelId)?.name ?? "take";
-          applyAudioClip(
-            selectedChannelId,
-            decoded,
-            offsetOf(selectedChannelId),
-            `${channelName} recording`
-          );
+          addAudioClip(selectedChannelId, decoded, 0, `${channelName} recording`);
         }
       } else {
-        const events = audioEngine.finishRecording(offsetOf(selectedChannelId));
-        setClips((prev) => ({ ...prev, [selectedChannelId]: events }));
+        const events = audioEngine.finishRecording();
         if (events.length > 0) {
           const lastEnd = events.reduce(
             (m, n) => Math.max(m, n.time + n.duration),
             0
           );
-          setClipLengths((prev) => ({
-            ...prev,
-            [selectedChannelId]: Math.max(
-              prev[selectedChannelId] ?? 0,
-              roundUpToBar(lastEnd, bpm, beatsPerBar)
-            ),
-          }));
+          addMidiClip(selectedChannelId, 0, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
         }
       }
     }
     setTransportState("stopped");
     audioEngine.stopAll();
     setActiveNotes(new Set());
-  }, [transportState, selectedChannelId, bpm, beatsPerBar, offsetOf, channelTypeOf, channels, applyAudioClip]);
+  }, [transportState, selectedChannelId, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip]);
 
   const handlePlay = useCallback(async () => {
     if (transportState === "recording") return;
@@ -350,24 +386,10 @@ export function Daw() {
   const handleRemoveChannel = useCallback(
     (id: string) => {
       setChannels((prev) => prev.filter((c) => c.id !== id));
-      setClips((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setClipLengths((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setClipOffsets((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setAudioClips((prev) => {
-        const existing = prev[id];
-        if (existing) URL.revokeObjectURL(existing.url);
+      setClipsByChannel((prev) => {
+        (prev[id] ?? []).forEach((c) => {
+          if (c.kind === "audio") URL.revokeObjectURL(c.url);
+        });
         const next = { ...prev };
         delete next[id];
         return next;
@@ -382,9 +404,9 @@ export function Daw() {
         const fallback = channels.find((c) => c.id !== id);
         if (fallback) setSelectedChannelId(fallback.id);
       }
-      if (editingChannelId === id) setEditingChannelId(null);
+      if (editingClip?.channelId === id) setEditingClip(null);
     },
-    [selectedChannelId, channels, editingChannelId, fxChannelId]
+    [selectedChannelId, channels, editingClip, fxChannelId]
   );
 
   const handleVolumeChange = useCallback((id: string, db: number) => {
@@ -409,81 +431,96 @@ export function Daw() {
   }, []);
 
   const handleImportMidi = useCallback(
-    async (id: string, file: File) => {
+    async (channelId: string, file: File) => {
       const notes = await parseMidiFile(file);
-      const offset = offsetOf(id);
-      audioEngine.setClip(id, notes, offset);
-      setClips((prev) => ({ ...prev, [id]: notes }));
-      const lastEnd = notes.reduce(
-        (m, n) => Math.max(m, n.time + n.duration),
-        0
-      );
-      setClipLengths((prev) => ({
-        ...prev,
-        [id]: roundUpToBar(lastEnd, bpm, beatsPerBar),
-      }));
+      const lastEnd = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
+      addMidiClip(channelId, endOfContent(channelId), roundUpToBar(lastEnd, bpm, beatsPerBar), notes);
     },
-    [offsetOf, bpm, beatsPerBar]
+    [bpm, beatsPerBar, endOfContent, addMidiClip]
   );
 
   const handleImportAudioAt = useCallback(
-    async (id: string, file: File, atSeconds: number) => {
+    async (channelId: string, file: File, atSeconds: number) => {
       const decoded = await decodeAudioFile(file);
       const bar = secondsPerBar(bpm, beatsPerBar);
       const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-      applyAudioClip(id, decoded, anchor, file.name);
+      addAudioClip(channelId, decoded, anchor, file.name);
     },
-    [bpm, beatsPerBar, applyAudioClip]
+    [bpm, beatsPerBar, addAudioClip]
   );
 
-  const handleExportMidi = useCallback(
-    (id: string) => {
-      const channel = channels.find((c) => c.id === id);
-      downloadMidiFile(clips[id] ?? [], channel?.name ?? "clip", bpm);
+  const handleImportAudioAppend = useCallback(
+    async (channelId: string, file: File) => {
+      await handleImportAudioAt(channelId, file, endOfContent(channelId));
     },
-    [channels, clips, bpm]
+    [handleImportAudioAt, endOfContent]
   );
 
-  const handleClearClip = useCallback(
-    (id: string) => {
-      if (channelTypeOf(id) === "audio") {
-        discardAudioClip(id);
-        return;
-      }
-      audioEngine.setClip(id, [], offsetOf(id));
-      setClips((prev) => ({ ...prev, [id]: [] }));
+  /** Exports a track's whole content (every MIDI clip merged) as one .mid file. */
+  const handleExportChannelMidi = useCallback(
+    (channelId: string) => {
+      const channel = channels.find((c) => c.id === channelId);
+      const flattened = clipsOf(channelId)
+        .filter(isMidiClip)
+        .flatMap((c) => c.notes.map((n) => ({ ...n, time: c.offset + n.time })));
+      downloadMidiFile(flattened, channel?.name ?? "track", bpm);
     },
-    [offsetOf, channelTypeOf, discardAudioClip]
+    [channels, clipsOf, bpm]
+  );
+
+  /** Exports just one clip's notes as a .mid file. */
+  const handleExportClipMidi = useCallback(
+    (channelId: string, clipId: string) => {
+      const channel = channels.find((c) => c.id === channelId);
+      const clip = clipsOf(channelId).find((c) => c.id === clipId);
+      const notes = clip?.kind === "midi" ? clip.notes : [];
+      downloadMidiFile(notes, channel?.name ?? "clip", bpm);
+    },
+    [channels, clipsOf, bpm]
   );
 
   const handleEditorChange = useCallback(
-    (id: string, notes: NoteEvent[]) => {
-      audioEngine.setClip(id, notes, offsetOf(id));
-      setClips((prev) => ({ ...prev, [id]: notes }));
+    (channelId: string, clipId: string, notes: NoteEvent[]) => {
+      const updated = clipsOf(channelId).map((c) =>
+        c.id === clipId && c.kind === "midi" ? { ...c, notes } : c
+      );
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      rebuildMidiPart(channelId, updated.filter(isMidiClip));
     },
-    [offsetOf]
+    [clipsOf, rebuildMidiPart]
   );
 
   const handleMoveClip = useCallback(
-    (id: string, newOffset: number) => {
-      setClipOffsets((prev) => ({ ...prev, [id]: newOffset }));
-      if (channelTypeOf(id) === "audio") {
-        audioEngine.setAudioTrim(id, newOffset, lengthOf(id));
+    (channelId: string, clipId: string, newOffset: number) => {
+      const updated = clipsOf(channelId).map((c) =>
+        c.id === clipId ? { ...c, offset: newOffset } : c
+      );
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      const clip = updated.find((c) => c.id === clipId);
+      if (!clip) return;
+      if (clip.kind === "audio") {
+        audioEngine.moveAudioClip(channelId, clipId, newOffset, clip.length);
       } else {
-        audioEngine.setClip(id, clips[id] ?? [], newOffset);
+        rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
     },
-    [clips, channelTypeOf, lengthOf]
+    [clipsOf, rebuildMidiPart]
   );
 
   const handleResizeClip = useCallback(
-    (id: string, newLength: number) => {
-      setClipLengths((prev) => ({ ...prev, [id]: newLength }));
-      if (channelTypeOf(id) === "audio") {
-        audioEngine.setAudioTrim(id, offsetOf(id), newLength);
+    (channelId: string, clipId: string, newLength: number) => {
+      const updated = clipsOf(channelId).map((c) =>
+        c.id === clipId ? { ...c, length: newLength } : c
+      );
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      const clip = updated.find((c) => c.id === clipId);
+      // A MIDI clip's length is purely the visual box - its scheduled notes
+      // don't depend on it. An audio clip's length also trims playback.
+      if (clip?.kind === "audio") {
+        audioEngine.moveAudioClip(channelId, clipId, clip.offset, newLength);
       }
     },
-    [channelTypeOf, offsetOf]
+    [clipsOf]
   );
 
   const handleSeek = useCallback((seconds: number) => {
@@ -494,79 +531,121 @@ export function Daw() {
     setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
   }, []);
 
-  const pasteClipAt = useCallback(
-    (id: string, anchor: number) => {
-      const copied = getCopiedClip();
-      if (!copied || copied.kind !== channelTypeOf(id)) return;
-      const at = Math.max(0, anchor);
-      setClipOffsets((prev) => ({ ...prev, [id]: at }));
-      setClipLengths((prev) => ({ ...prev, [id]: copied.length }));
-      if (copied.kind === "audio") {
-        audioEngine.setAudioClip(id, copied.url, at, copied.length);
-        setAudioClips((prev) => ({
-          ...prev,
-          [id]: {
-            url: copied.url,
-            fileName: copied.fileName,
-            durationSeconds: copied.durationSeconds,
-            peaks: copied.peaks,
-          },
-        }));
-      } else {
-        setClips((prev) => ({ ...prev, [id]: copied.notes }));
-        audioEngine.setClip(id, copied.notes, at);
-      }
-    },
-    [channelTypeOf]
-  );
+  /** Copies one clip instance's content into the shared clipboard. */
+  const copyClipInstance = useCallback((clip: ClipInstance) => {
+    if (clip.kind === "audio") {
+      copyClip({
+        kind: "audio",
+        url: clip.url,
+        fileName: clip.fileName,
+        durationSeconds: clip.durationSeconds,
+        peaks: clip.peaks,
+        length: clip.length,
+      });
+    } else {
+      copyClip({ kind: "midi", notes: clip.notes, length: clip.length });
+    }
+  }, []);
 
   const handleCopyClip = useCallback(
-    (id: string = selectedChannelId) => {
-      if (channelTypeOf(id) === "audio") {
-        const audio = audioClips[id];
-        if (!audio) return;
-        copyClip({
-          kind: "audio",
-          url: audio.url,
-          fileName: audio.fileName,
-          durationSeconds: audio.durationSeconds,
-          peaks: audio.peaks,
-          length: lengthOf(id),
-        });
+    (channelId: string, clipId: string) => {
+      const clip = clipsOf(channelId).find((c) => c.id === clipId);
+      if (clip) copyClipInstance(clip);
+    },
+    [clipsOf, copyClipInstance]
+  );
+
+  /** Ctrl/Cmd+C: copies whichever clip on the armed track sits under the
+   * playhead right now, if any. */
+  const handleCopyAtPlayhead = useCallback(() => {
+    const t = audioEngine.getTransportSeconds();
+    const clip = clipsOf(selectedChannelId).find((c) => t >= c.offset && t < c.offset + c.length);
+    if (clip) copyClipInstance(clip);
+  }, [clipsOf, selectedChannelId, copyClipInstance]);
+
+  /** Pastes the clipboard's clip as a brand-new clip at `anchor`, alongside
+   * whatever else is already on the track. */
+  const pasteClipAt = useCallback(
+    (channelId: string, anchor: number) => {
+      const copied = getCopiedClip();
+      if (!copied || copied.kind !== channelTypeOf(channelId)) return;
+      const at = Math.max(0, anchor);
+      if (copied.kind === "audio") {
+        addAudioClip(
+          channelId,
+          { url: copied.url, durationSeconds: copied.durationSeconds, peaks: copied.peaks },
+          at,
+          copied.fileName
+        );
       } else {
-        copyClip({ kind: "midi", notes: clips[id] ?? [], length: lengthOf(id) });
+        addMidiClip(channelId, at, copied.length, copied.notes);
       }
     },
-    [clips, audioClips, selectedChannelId, lengthOf, channelTypeOf]
+    [channelTypeOf, addAudioClip, addMidiClip]
   );
 
-  const handlePasteClip = useCallback(
-    (id: string = selectedChannelId) => {
-      const bar = secondsPerBar(bpm, beatsPerBar);
-      const anchor = Math.round(audioEngine.getTransportSeconds() / bar) * bar;
-      pasteClipAt(id, anchor);
+  /** Replaces one specific clip's content with the clipboard's clip,
+   * keeping that clip's id and position. */
+  const pasteReplaceClip = useCallback(
+    (channelId: string, clipId: string) => {
+      const copied = getCopiedClip();
+      if (!copied || copied.kind !== channelTypeOf(channelId)) return;
+      const existing = clipsOf(channelId);
+      const target = existing.find((c) => c.id === clipId);
+      if (!target) return;
+      if (copied.kind === "audio") {
+        const updatedClip: AudioClipInstance = {
+          id: clipId,
+          kind: "audio",
+          offset: target.offset,
+          length: copied.length,
+          url: copied.url,
+          fileName: copied.fileName,
+          durationSeconds: copied.durationSeconds,
+          peaks: copied.peaks,
+        };
+        setClipsByChannel((prev) => ({
+          ...prev,
+          [channelId]: existing.map((c) => (c.id === clipId ? updatedClip : c)),
+        }));
+        audioEngine.loadAudioClip(channelId, clipId, copied.url, target.offset, copied.length);
+      } else {
+        const updatedClip: MidiClipInstance = {
+          id: clipId,
+          kind: "midi",
+          offset: target.offset,
+          length: copied.length,
+          notes: copied.notes,
+        };
+        const updated = existing.map((c) => (c.id === clipId ? updatedClip : c));
+        setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+        rebuildMidiPart(channelId, updated.filter(isMidiClip));
+      }
     },
-    [selectedChannelId, bpm, beatsPerBar, pasteClipAt]
+    [channelTypeOf, clipsOf, rebuildMidiPart]
   );
+
+  const handlePasteClip = useCallback(() => {
+    const bar = secondsPerBar(bpm, beatsPerBar);
+    const anchor = Math.round(audioEngine.getTransportSeconds() / bar) * bar;
+    pasteClipAt(selectedChannelId, anchor);
+  }, [selectedChannelId, bpm, beatsPerBar, pasteClipAt]);
 
   const handlePasteClipAtBar = useCallback(
-    (id: string, atSeconds: number) => {
+    (channelId: string, atSeconds: number) => {
       const bar = secondsPerBar(bpm, beatsPerBar);
-      pasteClipAt(id, Math.round(atSeconds / bar) * bar);
+      pasteClipAt(channelId, Math.round(atSeconds / bar) * bar);
     },
     [bpm, beatsPerBar, pasteClipAt]
   );
 
   const handleAddEmptyClipAt = useCallback(
-    (id: string, atSeconds: number) => {
+    (channelId: string, atSeconds: number) => {
       const bar = secondsPerBar(bpm, beatsPerBar);
       const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-      setClipOffsets((prev) => ({ ...prev, [id]: anchor }));
-      setClipLengths((prev) => ({ ...prev, [id]: bar }));
-      setClips((prev) => ({ ...prev, [id]: [] }));
-      audioEngine.setClip(id, [], anchor);
+      addMidiClip(channelId, anchor, bar, []);
     },
-    [bpm, beatsPerBar]
+    [bpm, beatsPerBar, addMidiClip]
   );
 
   const openFx = useCallback((channelId: string) => {
@@ -630,11 +709,11 @@ export function Daw() {
     [fxChannelId]
   );
 
-  // Space to play/pause, Ctrl/Cmd+C/V to copy/paste the selected channel's
-  // clip onto the bar nearest the playhead - both suspended while the piano
-  // roll editor is open (it handles its own shortcuts) or while typing.
+  // Space to play/pause, Ctrl/Cmd+C/V to copy/paste whatever's under the
+  // playhead on the armed track - both suspended while the piano roll
+  // editor is open (it handles its own shortcuts) or while typing.
   useEffect(() => {
-    if (editingChannelId) return;
+    if (editingClip) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       if (e.code === "Space") {
@@ -642,7 +721,7 @@ export function Daw() {
         handleTogglePlay();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
         e.preventDefault();
-        handleCopyClip();
+        handleCopyAtPlayhead();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         e.preventDefault();
         handlePasteClip();
@@ -650,12 +729,12 @@ export function Daw() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editingChannelId, handleTogglePlay, handleCopyClip, handlePasteClip]);
+  }, [editingClip, handleTogglePlay, handleCopyAtPlayhead, handlePasteClip]);
 
   const handleEditClip = useCallback(
-    (id: string) => {
-      if (channelTypeOf(id) === "audio") return; // no piano roll for an audio clip
-      setEditingChannelId(id);
+    (channelId: string, clipId: string) => {
+      if (channelTypeOf(channelId) === "audio") return; // no piano roll for an audio clip
+      setEditingClip({ channelId, clipId });
     },
     [channelTypeOf]
   );
@@ -676,8 +755,8 @@ export function Daw() {
     setAudioImportTarget({ channelId, atSeconds });
   }, []);
 
-  const openClipMenu = useCallback((channelId: string, e: React.MouseEvent) => {
-    setContextMenu({ kind: "clip", channelId, x: e.clientX, y: e.clientY });
+  const openClipMenu = useCallback((channelId: string, clipId: string, e: React.MouseEvent) => {
+    setContextMenu({ kind: "clip", channelId, clipId, x: e.clientX, y: e.clientY });
   }, []);
 
   const openLaneMenu = useCallback(
@@ -694,50 +773,51 @@ export function Daw() {
 
   const clipMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
     if (!contextMenu || contextMenu.kind !== "clip") return [];
-    const id = contextMenu.channelId;
-    const hasNotes = (clips[id] ?? []).length > 0;
+    const { channelId, clipId } = contextMenu;
+    const clip = clipsOf(channelId).find((c) => c.id === clipId);
+    if (!clip) return [];
+    const hasNotes = clip.kind === "midi" && clip.notes.length > 0;
     const copied = getCopiedClip();
-    const pasteDisabled = !copied || copied.kind !== channelTypeOf(id);
-    if (channelTypeOf(id) === "audio") {
+    const pasteDisabled = !copied || copied.kind !== channelTypeOf(channelId);
+    if (clip.kind === "audio") {
       return [
-        { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(id) },
+        { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(channelId, clipId) },
         {
           label: "Paste clip here",
           icon: <Clipboard size={13} />,
           disabled: pasteDisabled,
-          onSelect: () => handlePasteClip(id),
+          onSelect: () => pasteReplaceClip(channelId, clipId),
         },
         "separator",
         {
-          label: "Clear clip",
+          label: "Delete clip",
           icon: <Trash2 size={13} />,
           danger: true,
-          onSelect: () => handleClearClip(id),
+          onSelect: () => handleDeleteClip(channelId, clipId),
         },
       ];
     }
     return [
-      { label: "Edit in piano roll", icon: <Pencil size={13} />, onSelect: () => setEditingChannelId(id) },
+      { label: "Edit in piano roll", icon: <Pencil size={13} />, onSelect: () => handleEditClip(channelId, clipId) },
       "separator",
-      { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(id) },
+      { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(channelId, clipId) },
       {
         label: "Paste clip here",
         icon: <Clipboard size={13} />,
         disabled: pasteDisabled,
-        onSelect: () => handlePasteClip(id),
+        onSelect: () => pasteReplaceClip(channelId, clipId),
       },
       "separator",
-      { label: "Export .mid", icon: <Download size={13} />, disabled: !hasNotes, onSelect: () => handleExportMidi(id) },
+      { label: "Export .mid", icon: <Download size={13} />, disabled: !hasNotes, onSelect: () => handleExportClipMidi(channelId, clipId) },
       {
-        label: "Clear clip",
+        label: "Delete clip",
         icon: <Trash2 size={13} />,
-        disabled: !hasNotes,
         danger: true,
-        onSelect: () => handleClearClip(id),
+        onSelect: () => handleDeleteClip(channelId, clipId),
       },
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, clips, channelTypeOf]);
+  }, [contextMenu, clipsOf, channelTypeOf]);
 
   const laneMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
     if (!contextMenu || contextMenu.kind !== "lane") return [];
@@ -779,14 +859,14 @@ export function Daw() {
             {
               label: "Add empty MIDI clip",
               icon: <FilePlus2 size={13} />,
-              onSelect: () => handleAddEmptyClipAt(id, 0),
+              onSelect: () => handleAddEmptyClipAt(id, endOfContent(id)),
             },
           ]
         : [
             {
               label: "Import audio clip…",
               icon: <FileAudio size={13} />,
-              onSelect: () => triggerAudioImport(id, 0),
+              onSelect: () => triggerAudioImport(id, endOfContent(id)),
             },
           ];
     if (channels.length > 1) {
@@ -799,7 +879,7 @@ export function Daw() {
     }
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, channels.length, channelTypeOf]);
+  }, [contextMenu, channels.length, channelTypeOf, endOfContent]);
 
   const handlePreviewNote = useCallback(
     (channelId: string, note: string) => {
@@ -812,15 +892,15 @@ export function Daw() {
   );
 
   const totalSeconds = useMemo(() => {
-    const longest = channels.reduce(
-      (max, c) => Math.max(max, offsetOf(c.id) + lengthOf(c.id)),
-      0
-    );
+    const longest = channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0);
     return Math.max(MIN_TIMELINE_SECONDS, Math.ceil(longest + 8));
-  }, [channels, offsetOf, lengthOf]);
+  }, [channels, endOfContent]);
 
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
-  const editingChannel = channels.find((c) => c.id === editingChannelId);
+  const editingChannel = channels.find((c) => c.id === editingClip?.channelId);
+  const editingClipInstance = editingClip
+    ? clipsOf(editingClip.channelId).find((c) => c.id === editingClip.clipId)
+    : undefined;
   const fxChannel = channels.find((c) => c.id === fxChannelId);
   const lanesHeight = channels.length * TRACK_ROW_HEIGHT;
 
@@ -834,7 +914,7 @@ export function Daw() {
           {micError
             ? micError
             : samplesReady
-              ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste a clip"
+              ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
               : "loading piano sounds…"}
         </p>
       </header>
@@ -918,24 +998,19 @@ export function Daw() {
                   transportState === "recording" &&
                   channel.id === selectedChannelId
                 }
-                hasNotes={(clips[channel.id] ?? []).length > 0}
-                hasClipContent={
-                  channel.type === "audio"
-                    ? !!audioClips[channel.id]
-                    : (clips[channel.id] ?? []).length > 0
-                }
+                hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
+                hasClipContent={clipsOf(channel.id).length > 0}
                 effectsCount={(channelEffects[channel.id] ?? []).length}
                 canRemove={channels.length > 1}
                 onSelect={() => setSelectedChannelId(channel.id)}
-                onEdit={() => handleEditClip(channel.id)}
                 onRename={(name) => handleRenameChannel(channel.id, name)}
                 onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
                 onPanChange={(pan) => handlePanChange(channel.id, pan)}
                 onOpenFx={() => openFx(channel.id)}
                 onImportMidi={(file) => void handleImportMidi(channel.id, file)}
-                onExportMidi={() => handleExportMidi(channel.id)}
-                onImportAudio={(file) => void handleImportAudioAt(channel.id, file, 0)}
-                onClearClip={() => handleClearClip(channel.id)}
+                onExportMidi={() => handleExportChannelMidi(channel.id)}
+                onImportAudio={(file) => void handleImportAudioAppend(channel.id, file)}
+                onClearClip={() => handleClearTrack(channel.id)}
                 onRemove={() => handleRemoveChannel(channel.id)}
                 onContextMenu={(e) => openHeaderMenu(channel.id, e)}
               />
@@ -966,23 +1041,18 @@ export function Daw() {
             {channels.map((channel) => (
               <TrackLane
                 key={channel.id}
-                clipType={channel.type}
-                notes={clips[channel.id] ?? []}
-                audioPeaks={audioClips[channel.id]?.peaks}
-                audioFileName={audioClips[channel.id]?.fileName}
+                clips={clipsOf(channel.id)}
                 color={trackColorForIndex(channel.colorIndex)}
-                offset={offsetOf(channel.id)}
-                length={lengthOf(channel.id)}
                 bpm={bpm}
                 beatsPerBar={beatsPerBar}
                 totalSeconds={totalSeconds}
                 pxPerSecond={pxPerSecond}
                 selected={channel.id === selectedChannelId}
                 onSelect={() => setSelectedChannelId(channel.id)}
-                onEdit={() => handleEditClip(channel.id)}
-                onMoveClip={(offset) => handleMoveClip(channel.id, offset)}
-                onResizeClip={(length) => handleResizeClip(channel.id, length)}
-                onClipContextMenu={(e) => openClipMenu(channel.id, e)}
+                onEditClip={(clipId) => handleEditClip(channel.id, clipId)}
+                onMoveClip={(clipId, offset) => handleMoveClip(channel.id, clipId, offset)}
+                onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}
+                onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
                 onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
               />
             ))}
@@ -1043,7 +1113,7 @@ export function Daw() {
             activeNotes={activeNotes}
             onNoteOn={handleNoteOn}
             onNoteOff={handleNoteOff}
-            keyboardShortcutsEnabled={!editingChannelId}
+            keyboardShortcutsEnabled={!editingClip}
           />
         ) : selectedChannel?.instrument === null ? (
           <div className="flex items-center justify-center gap-3 py-3 text-xs text-muted">
@@ -1062,26 +1132,26 @@ export function Daw() {
             onNoteOn={handleNoteOn}
             onNoteOff={handleNoteOff}
             scaleSetting={scaleSetting}
-            keyboardShortcutsEnabled={!editingChannelId}
+            keyboardShortcutsEnabled={!editingClip}
           />
         )}
       </div>
 
-      {editingChannel && (
+      {editingChannel && editingClipInstance && editingClipInstance.kind === "midi" && (
         <PianoRollEditor
-          key={editingChannel.id}
+          key={editingClipInstance.id}
           channelName={editingChannel.name}
           color={trackColorForIndex(editingChannel.colorIndex)}
           instrument={editingChannel.instrument ?? "piano"}
-          notes={clips[editingChannel.id] ?? []}
-          length={lengthOf(editingChannel.id)}
+          notes={editingClipInstance.notes}
+          length={editingClipInstance.length}
           bpm={bpm}
           beatsPerBar={beatsPerBar}
-          offset={offsetOf(editingChannel.id)}
+          offset={editingClipInstance.offset}
           scaleSetting={scaleSetting}
           onScaleChange={setScaleSetting}
-          onChange={(notes) => handleEditorChange(editingChannel.id, notes)}
-          onClose={() => setEditingChannelId(null)}
+          onChange={(notes) => handleEditorChange(editingChannel.id, editingClipInstance.id, notes)}
+          onClose={() => setEditingClip(null)}
           onPreviewNote={(note) => handlePreviewNote(editingChannel.id, note)}
           isPlaying={transportState === "playing"}
           onPlay={handlePlay}

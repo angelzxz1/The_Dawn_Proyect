@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Download, FileAudio, Pencil, Sliders, Trash2, Upload, X } from "lucide-react";
+import { Download, FileAudio, Sliders, Trash2, Upload, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import type { ChannelConfig } from "@/lib/types";
@@ -21,7 +21,6 @@ interface TrackHeaderProps {
   isMaster?: boolean;
   effectsCount?: number;
   onSelect: () => void;
-  onEdit?: () => void;
   onRename: (name: string) => void;
   onVolumeChange: (db: number) => void;
   onPanChange: (pan: number) => void;
@@ -89,7 +88,6 @@ export function TrackHeader({
   isMaster = false,
   effectsCount = 0,
   onSelect,
-  onEdit,
   onRename,
   onVolumeChange,
   onPanChange,
@@ -159,19 +157,6 @@ export function TrackHeader({
         )}
         {recording && (
           <span className="h-2 w-2 shrink-0 animate-pulse-rec rounded-full bg-record" />
-        )}
-        {!isMaster && isMidi && onEdit && (
-          <button
-            type="button"
-            title="Open in piano roll editor"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border text-muted hover:bg-surface hover:text-accent"
-          >
-            <Pencil size={12} />
-          </button>
         )}
       </div>
 
@@ -288,7 +273,7 @@ export function TrackHeader({
             </>
           )}
           <IconButton
-            title="Clear clip"
+            title="Clear all clips on this track"
             onClick={() => onClearClip?.()}
             disabled={!(hasClipContent ?? hasNotes)}
           >

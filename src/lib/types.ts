@@ -37,14 +37,37 @@ export interface ChannelConfig {
  * fixed `type`. */
 export type ClipType = "midi" | "audio";
 
-export interface AudioClipData {
+interface ClipBase {
+  /** Unique across the whole project - identifies one clip box on the
+   * timeline, independent of any other clip on the same (or any) track. */
+  id: string;
+  /** Where the clip starts on the arrangement timeline, in seconds. */
+  offset: number;
+  /** The clip box's length, in seconds. */
+  length: number;
+}
+
+export interface MidiClipInstance extends ClipBase {
+  kind: "midi";
+  /** Clip-relative (0 = the start of this clip, not the timeline). */
+  notes: NoteEvent[];
+}
+
+export interface AudioClipInstance extends ClipBase {
+  kind: "audio";
   url: string;
   fileName: string;
-  /** Full duration of the decoded audio file, in seconds. */
+  /** Full duration of the decoded source audio file, in seconds - may be
+   * longer than `length` if the clip has been trimmed. */
   durationSeconds: number;
   /** Downsampled |amplitude| peaks (0..1) for drawing a waveform. */
   peaks: number[];
 }
+
+/** One clip box placed on a track - a track can hold any number of these,
+ * at any position, as long as their `kind` matches the track's fixed
+ * `ChannelType`. */
+export type ClipInstance = MidiClipInstance | AudioClipInstance;
 
 export interface TimeSignature {
   numerator: number;

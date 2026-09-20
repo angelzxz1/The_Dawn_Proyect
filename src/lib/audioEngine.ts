@@ -22,9 +22,28 @@ interface ChannelNodes {
   /** Notes currently held down live (not yet released), keyed by note name. */
   heldNotes: Set<string>;
   effects: EffectNode[];
-  /** An audio channel can hold several independent clips at once, each its
-   * own Tone.Player keyed by clip instance id. */
-  audioPlayers: Map<string, Tone.Player>;
+  /** An audio channel can hold several independent clips at once - each
+   * clip gets its own Player (the decoded source plus its playback window)
+   * and a Volume node for its per-clip gain, permanently wired in series
+   * (player -> gain) and keyed by clip instance id. */
+  audioClips: Map<string, { player: Tone.Player; gain: Tone.Volume }>;
+}
+
+export interface AudioClipTiming {
+  /** Where the clip starts on the arrangement timeline, in seconds. */
+  offsetSeconds: number;
+  /** Where within the source buffer this clip's content starts, in
+   * seconds - lets a clip play a sub-region of a longer source file (e.g.
+   * after splitting a clip in two). Defaults to 0. */
+  bufferOffsetSeconds?: number;
+  /** How long the clip plays for, in seconds (the box's length). */
+  trimSeconds?: number;
+  /** When set and > 0, the [bufferOffsetSeconds, bufferOffsetSeconds +
+   * loopLength) region repeats to fill `trimSeconds`, instead of playing
+   * through once and stopping. */
+  loopLength?: number | null;
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 interface RecordingState {
@@ -247,7 +266,7 @@ class AudioEngine {
       part: null,
       heldNotes: new Set(),
       effects: [],
-      audioPlayers: new Map(),
+      audioClips: new Map(),
     });
     this.rewireChannel(id);
   }
@@ -257,7 +276,10 @@ class AudioEngine {
     if (!nodes) return;
     nodes.part?.dispose();
     nodes.instrument.dispose();
-    nodes.audioPlayers.forEach((p) => p.dispose());
+    nodes.audioClips.forEach(({ player, gain }) => {
+      player.dispose();
+      gain.dispose();
+    });
     nodes.effects.forEach((e) => e.node.dispose());
     nodes.channel.dispose();
     nodes.meter.dispose();
@@ -268,10 +290,13 @@ class AudioEngine {
   }
 
   /** Reconnects a channel's active sound source(s) - its instrument for a
-   * MIDI channel, or every one of its clips' players for an audio channel
-   * (the channel's `type` is fixed for its lifetime) - through the effects
-   * chain, in order, into the channel strip. Called whenever the
-   * instrument, an audio player, or the effects chain itself changes. */
+   * MIDI channel, or every one of its clips' (post-gain) outputs for an
+   * audio channel (the channel's `type` is fixed for its lifetime) -
+   * through the effects chain, in order, into the channel strip. Called
+   * whenever the instrument, an audio clip, or the effects chain itself
+   * changes. Each clip's player stays permanently wired into its own gain
+   * node (set up once in loadAudioClip) - only the gain's downstream
+   * connection is touched here. */
   private rewireChannel(id: string): void {
     const nodes = this.channels.get(id);
     if (!nodes) return;
@@ -280,12 +305,14 @@ class AudioEngine {
     // possible sources can be safely detached here regardless of which one
     // is currently active.
     nodes.instrument.disconnect();
-    nodes.audioPlayers.forEach((p) => p.disconnect());
+    nodes.audioClips.forEach(({ gain }) => gain.disconnect());
     nodes.effects.forEach((e) => e.node.disconnect());
 
     type Connectable = { connect: (n: Tone.InputNode) => unknown };
     const sources: Connectable[] =
-      nodes.channelType === "audio" ? [...nodes.audioPlayers.values()] : [nodes.instrument];
+      nodes.channelType === "audio"
+        ? [...nodes.audioClips.values()].map((c) => c.gain)
+        : [nodes.instrument];
     if (sources.length === 0) return; // audio channel with nothing loaded yet
 
     const firstEffect = nodes.effects[0]?.node ?? nodes.channel;
@@ -468,22 +495,38 @@ class AudioEngine {
   // An audio channel can hold several independent clips at once, each
   // addressed by its own `clipId` (the arrangement-level clip instance id).
 
+  /** Applies a clip's timing (position, source offset, trim, loop) to an
+   * already-loaded, already-synced player. Shared by the initial load and
+   * by re-timing after a move/resize/loop-toggle. */
+  private applyAudioClipTiming(player: Tone.Player, timing: AudioClipTiming): void {
+    const bufferOffset = timing.bufferOffsetSeconds ?? 0;
+    if (timing.loopLength && timing.loopLength > 0) {
+      player.loop = true;
+      player.loopStart = bufferOffset;
+      player.loopEnd = bufferOffset + timing.loopLength;
+    } else {
+      player.loop = false;
+    }
+    player.fadeIn = timing.fadeIn ?? 0;
+    player.fadeOut = timing.fadeOut ?? 0;
+    if (timing.trimSeconds !== undefined) {
+      player.start(timing.offsetSeconds, bufferOffset, timing.trimSeconds);
+    } else {
+      player.start(timing.offsetSeconds, bufferOffset);
+    }
+  }
+
   /**
    * Loads an audio file's object URL as one clip on this (audio) channel,
-   * replacing any earlier player for the same `clipId`. `trimSeconds`, if
-   * given, caps playback to that much of the file (used when the clip
-   * block is resized shorter than the source). No-op on a MIDI channel.
+   * replacing any earlier player for the same `clipId`. No-op on a MIDI
+   * channel.
    */
-  loadAudioClip(
-    channelId: string,
-    clipId: string,
-    url: string,
-    offsetSeconds: number,
-    trimSeconds?: number
-  ): void {
+  loadAudioClip(channelId: string, clipId: string, url: string, timing: AudioClipTiming, gainDb = 0): void {
     const nodes = this.channels.get(channelId);
     if (!nodes || nodes.channelType !== "audio") return;
-    nodes.audioPlayers.get(clipId)?.dispose();
+    const existing = nodes.audioClips.get(clipId);
+    existing?.player.dispose();
+    existing?.gain.dispose();
 
     this.pendingLoads += 1;
     this.setReady(false);
@@ -491,41 +534,51 @@ class AudioEngine {
       this.pendingLoads = Math.max(0, this.pendingLoads - 1);
       if (this.pendingLoads === 0) this.setReady(true);
     };
+    const gain = new Tone.Volume(gainDb);
     const player = new Tone.Player({
       url,
+      fadeIn: timing.fadeIn ?? 0,
+      fadeOut: timing.fadeOut ?? 0,
       onload: () => {
         onSettled();
         this.safe(() => {
           player.sync();
-          if (trimSeconds !== undefined) player.start(offsetSeconds, 0, trimSeconds);
-          else player.start(offsetSeconds);
+          this.applyAudioClipTiming(player, timing);
         });
       },
       onerror: onSettled,
     });
-    nodes.audioPlayers.set(clipId, player);
+    player.connect(gain);
+    nodes.audioClips.set(clipId, { player, gain });
     this.rewireChannel(channelId);
   }
 
-  /** Re-times an already-loaded audio clip after it's moved or resized on
-   * the timeline, without re-decoding the file. */
-  moveAudioClip(channelId: string, clipId: string, offsetSeconds: number, trimSeconds?: number): void {
-    const player = this.channels.get(channelId)?.audioPlayers.get(clipId);
-    if (!player || !player.loaded) return;
+  /** Re-times an already-loaded audio clip after it's moved, resized, or
+   * has its loop/fades toggled, without re-decoding the file. */
+  moveAudioClip(channelId: string, clipId: string, timing: AudioClipTiming): void {
+    const entry = this.channels.get(channelId)?.audioClips.get(clipId);
+    if (!entry || !entry.player.loaded) return;
     this.safe(() => {
-      player.unsync();
-      player.sync();
-      if (trimSeconds !== undefined) player.start(offsetSeconds, 0, trimSeconds);
-      else player.start(offsetSeconds);
+      entry.player.unsync();
+      entry.player.sync();
+      this.applyAudioClipTiming(entry.player, timing);
     });
+  }
+
+  /** Sets a clip's own gain, independent of the channel fader. */
+  setAudioClipGain(channelId: string, clipId: string, gainDb: number): void {
+    const entry = this.channels.get(channelId)?.audioClips.get(clipId);
+    if (entry) entry.gain.volume.value = gainDb;
   }
 
   /** Removes one clip from an audio channel. */
   removeAudioClip(channelId: string, clipId: string): void {
     const nodes = this.channels.get(channelId);
     if (!nodes) return;
-    nodes.audioPlayers.get(clipId)?.dispose();
-    nodes.audioPlayers.delete(clipId);
+    const entry = nodes.audioClips.get(clipId);
+    entry?.player.dispose();
+    entry?.gain.dispose();
+    nodes.audioClips.delete(clipId);
     this.rewireChannel(channelId);
   }
 
@@ -533,8 +586,11 @@ class AudioEngine {
   clearAllAudioClips(channelId: string): void {
     const nodes = this.channels.get(channelId);
     if (!nodes) return;
-    nodes.audioPlayers.forEach((p) => p.dispose());
-    nodes.audioPlayers.clear();
+    nodes.audioClips.forEach(({ player, gain }) => {
+      player.dispose();
+      gain.dispose();
+    });
+    nodes.audioClips.clear();
     this.rewireChannel(channelId);
   }
 

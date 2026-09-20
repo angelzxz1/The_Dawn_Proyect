@@ -18,7 +18,7 @@ export function getCopiedNotes(): NoteEvent[] | null {
  * file - the arrangement view's clipboard handles both, branching the same
  * way the clip context menu already does. */
 export type ClipboardClip =
-  | { kind: "midi"; notes: NoteEvent[]; length: number }
+  | { kind: "midi"; notes: NoteEvent[]; length: number; loopLength?: number | null }
   | {
       kind: "audio";
       url: string;
@@ -26,6 +26,11 @@ export type ClipboardClip =
       durationSeconds: number;
       peaks: number[];
       length: number;
+      sourceOffset: number;
+      fadeIn: number;
+      fadeOut: number;
+      gainDb: number;
+      loopLength?: number | null;
     };
 
 let clipClipboard: ClipboardClip | null = null;

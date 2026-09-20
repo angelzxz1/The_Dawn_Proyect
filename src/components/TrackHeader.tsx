@@ -1,11 +1,21 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Circle, Download, FileAudio, Sliders, Trash2, Upload, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Circle,
+  Download,
+  FileAudio,
+  Sliders,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import type { ChannelConfig } from "@/lib/types";
-import type { TrackColor } from "@/lib/colors";
+import { TRACK_COLOR_PALETTE, type TrackColor } from "@/lib/colors";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/lib/timeline";
 
 interface TrackHeaderProps {
@@ -41,6 +51,11 @@ interface TrackHeaderProps {
   onClearClip?: () => void;
   onRemove?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  onRecolor?: (colorIndex: number) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
 function formatDb(db: number): string {
@@ -111,11 +126,17 @@ export function TrackHeader({
   onClearClip,
   onRemove,
   onContextMenu,
+  onRecolor,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
 }: TrackHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(channel.name);
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const isMidi = channel.type === "midi";
 
   const commitRename = () => {
@@ -133,11 +154,54 @@ export function TrackHeader({
         selected ? "bg-surface-raised" : "bg-surface hover:bg-surface-raised/60"
       }`}
     >
-      <div className="flex items-center gap-1.5">
-        <span
-          className="h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{ background: color.accent }}
-        />
+      <div className="relative flex items-center gap-1.5">
+        {isMaster ? (
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: color.accent }}
+          />
+        ) : (
+          <button
+            type="button"
+            title="Change track color"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowColorPicker((v) => !v);
+            }}
+            className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-white/20"
+            style={{ background: color.accent }}
+          />
+        )}
+        {showColorPicker && (
+          <>
+            <div
+              className="fixed inset-0 z-20"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowColorPicker(false);
+              }}
+            />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="absolute left-0 top-4 z-30 flex flex-wrap gap-1 rounded border border-border bg-surface-raised p-1.5 shadow-lg"
+              style={{ width: 92 }}
+            >
+            {TRACK_COLOR_PALETTE.map((swatch, i) => (
+              <button
+                key={i}
+                type="button"
+                title={`Color ${i + 1}`}
+                onClick={() => {
+                  onRecolor?.(i);
+                  setShowColorPicker(false);
+                }}
+                className="h-4 w-4 rounded-full ring-1 ring-black/30 hover:ring-white/60"
+                style={{ background: swatch.accent }}
+              />
+            ))}
+            </div>
+          </>
+        )}
         {editingName ? (
           <input
             autoFocus
@@ -341,6 +405,12 @@ export function TrackHeader({
             disabled={!(hasClipContent ?? hasNotes)}
           >
             <Trash2 size={12} />
+          </IconButton>
+          <IconButton title="Move track up" onClick={() => onMoveUp?.()} disabled={!canMoveUp}>
+            <ChevronUp size={12} />
+          </IconButton>
+          <IconButton title="Move track down" onClick={() => onMoveDown?.()} disabled={!canMoveDown}>
+            <ChevronDown size={12} />
           </IconButton>
           <div className="flex-1" />
           {canRemove && (

@@ -32,12 +32,31 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
 /** A MIDI clip's notes clamped to its own length - matches what the clip
  * box visually shows (ClipBlock hides anything at/after `length`), so
  * playback never sounds a note the clip's boundary already hides it
- * behind. Shared by the engine sync below and by Daw.tsx's own rebuild
- * after a live move/resize/edit. */
+ * behind. When the clip is looping (`loopLength` set and shorter than
+ * `length`), the note pattern within that first `loopLength` window tiles
+ * to fill the rest of the box instead. Shared by the engine sync below and
+ * by Daw.tsx's own rebuild after a live move/resize/edit/loop-toggle. */
 export function notesWithinClip(clip: MidiClipInstance): NoteEvent[] {
-  return clip.notes
-    .filter((n) => n.time < clip.length)
-    .map((n) => ({ ...n, duration: Math.min(n.duration, clip.length - n.time) }));
+  const unit = clip.loopLength && clip.loopLength > 0 ? clip.loopLength : clip.length;
+  const clampToUnit = (n: NoteEvent) => ({ ...n, duration: Math.min(n.duration, unit - n.time) });
+  const unitNotes = clip.notes.filter((n) => n.time < unit).map(clampToUnit);
+
+  if (unit >= clip.length) {
+    return unitNotes
+      .filter((n) => n.time < clip.length)
+      .map((n) => ({ ...n, duration: Math.min(n.duration, clip.length - n.time) }));
+  }
+
+  const tiled: NoteEvent[] = [];
+  for (let start = 0; start < clip.length; start += unit) {
+    unitNotes.forEach((n) => {
+      const time = start + n.time;
+      if (time < clip.length) {
+        tiled.push({ ...n, time, duration: Math.min(n.duration, clip.length - time) });
+      }
+    });
+  }
+  return tiled;
 }
 
 /**
@@ -89,7 +108,20 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
     } else {
       clips.forEach((clip) => {
         if (clip.kind === "audio") {
-          audioEngine.loadAudioClip(channel.id, clip.id, clip.url, clip.offset, clip.length);
+          audioEngine.loadAudioClip(
+            channel.id,
+            clip.id,
+            clip.url,
+            {
+              offsetSeconds: clip.offset,
+              bufferOffsetSeconds: clip.sourceOffset,
+              trimSeconds: clip.length,
+              loopLength: clip.loopLength,
+              fadeIn: clip.fadeIn,
+              fadeOut: clip.fadeOut,
+            },
+            clip.gainDb
+          );
         }
       });
     }

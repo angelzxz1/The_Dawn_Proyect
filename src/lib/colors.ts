@@ -20,6 +20,10 @@ export function trackColorForIndex(index: number): TrackColor {
   return PALETTE[index % PALETTE.length];
 }
 
+/** The full palette, in order - for a color-swatch picker letting a track
+ * be explicitly recolored rather than just cycling by creation order. */
+export const TRACK_COLOR_PALETTE: TrackColor[] = PALETTE;
+
 /** Neutral color for the Master bus row, distinct from any track's color. */
 export const MASTER_COLOR: TrackColor = {
   accent: "#c7c9d1",

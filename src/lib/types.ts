@@ -54,6 +54,12 @@ interface ClipBase {
   offset: number;
   /** The clip box's length, in seconds. */
   length: number;
+  /** When set and > 0, the clip's content (its notes, or its audio source
+   * region) repeats every `loopLength` seconds to fill the box's full
+   * `length` - lets you drag the clip's right edge out past its natural
+   * content and have it tile instead of trailing into silence. Undefined
+   * or null means "play through once, no looping". */
+  loopLength?: number | null;
 }
 
 export interface MidiClipInstance extends ClipBase {
@@ -69,8 +75,22 @@ export interface AudioClipInstance extends ClipBase {
   /** Full duration of the decoded source audio file, in seconds - may be
    * longer than `length` if the clip has been trimmed. */
   durationSeconds: number;
-  /** Downsampled |amplitude| peaks (0..1) for drawing a waveform. */
+  /** Downsampled |amplitude| peaks (0..1) covering the FULL source file
+   * (not just this clip's current trim/length) - a clip's waveform is
+   * drawn by slicing the range of this array that `sourceOffset`/`length`
+   * cover, so a clip split off from another still shows the right piece
+   * of the source's waveform. */
   peaks: number[];
+  /** Where within the source buffer this clip's content starts, in
+   * seconds. 0 for a freshly imported/recorded clip; nonzero for a clip
+   * produced by splitting another one further into the source. */
+  sourceOffset: number;
+  /** Seconds of fade-in/out applied at the start/end of this clip's
+   * audible region. */
+  fadeIn: number;
+  fadeOut: number;
+  /** This clip's own gain, in dB, independent of the channel fader. */
+  gainDb: number;
 }
 
 /** One clip box placed on a track - a track can hold any number of these,

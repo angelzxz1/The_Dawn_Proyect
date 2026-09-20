@@ -11,6 +11,7 @@ import {
 import {
   Clipboard,
   Copy,
+  CopyPlus,
   Download,
   FileAudio,
   FilePlus2,
@@ -18,6 +19,7 @@ import {
   Pencil,
   Redo2,
   Repeat,
+  Scissors,
   Trash2,
   Undo2,
   X,
@@ -36,7 +38,7 @@ import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FxWindow } from "./FxWindow";
-import { audioEngine, bumpEffectIdCounter } from "@/lib/audioEngine";
+import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
@@ -91,6 +93,24 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
   return c.kind === "midi";
 }
 
+function isAudioClip(c: ClipInstance): c is AudioClipInstance {
+  return c.kind === "audio";
+}
+
+/** Builds the engine's timing options from an audio clip's own fields -
+ * shared by every call site that (re)schedules an audio clip's player, so
+ * they can't drift out of sync with each other. */
+function audioClipTiming(clip: AudioClipInstance): AudioClipTiming {
+  return {
+    offsetSeconds: clip.offset,
+    bufferOffsetSeconds: clip.sourceOffset,
+    trimSeconds: clip.length,
+    loopLength: clip.loopLength,
+    fadeIn: clip.fadeIn,
+    fadeOut: clip.fadeOut,
+  };
+}
+
 let channelCounter = 0;
 function createChannel(name: string, type: ChannelType): ChannelConfig {
   channelCounter += 1;
@@ -143,12 +163,12 @@ export function Daw() {
   const [selectedChannelId, setSelectedChannelId] = useState(
     () => channels[0].id
   );
-  /** The one clip (if any) currently selected on the timeline - distinct
-   * from the armed/selected track - so Delete/Backspace knows what to
-   * remove. */
-  const [selectedClip, setSelectedClip] = useState<{ channelId: string; clipId: string } | null>(
-    null
-  );
+  /** Which clips (if any) are currently selected on the timeline - by clip
+   * id, since ids are unique across the whole project - distinct from the
+   * armed/selected track. Plain click replaces the selection; Ctrl/Cmd+click
+   * toggles a clip in or out of it. Delete/duplicate/drag-move all operate
+   * on the whole selection at once. */
+  const [selectedClipIds, setSelectedClipIds] = useState<Set<string>>(new Set());
   const [editingClip, setEditingClip] = useState<{ channelId: string; clipId: string } | null>(
     null
   );
@@ -265,7 +285,7 @@ export function Daw() {
     setMasterVolume(s.masterVolume);
     setMasterPan(s.masterPan);
     setMasterName(s.masterName);
-    setSelectedClip(null);
+    setSelectedClipIds(new Set());
     setEditingClip(null);
     hydrateEngine(s, registeredChannelIds.current);
   }, []);
@@ -315,9 +335,15 @@ export function Daw() {
   }, []);
 
   const addMidiClip = useCallback(
-    (channelId: string, offset: number, length: number, notes: NoteEvent[] = []): string => {
+    (
+      channelId: string,
+      offset: number,
+      length: number,
+      notes: NoteEvent[] = [],
+      loopLength: number | null = null
+    ): string => {
       pushHistory();
-      const clip: MidiClipInstance = { id: newClipId(), kind: "midi", offset, length, notes };
+      const clip: MidiClipInstance = { id: newClipId(), kind: "midi", offset, length, notes, loopLength };
       const updated = [...clipsOf(channelId), clip];
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       rebuildMidiPart(channelId, updated.filter(isMidiClip));
@@ -332,44 +358,198 @@ export function Daw() {
    * the clip's actual audio, not just its decoded object URL which won't
    * survive a reload. */
   const addAudioClip = useCallback(
-    (channelId: string, decoded: DecodedAudioClip, offset: number, fileName: string, sourceBlob: Blob): string => {
+    (
+      channelId: string,
+      decoded: DecodedAudioClip,
+      offset: number,
+      fileName: string,
+      sourceBlob: Blob,
+      extra?: Partial<
+        Pick<AudioClipInstance, "length" | "sourceOffset" | "fadeIn" | "fadeOut" | "gainDb" | "loopLength">
+      >
+    ): string => {
       pushHistory();
       const clip: AudioClipInstance = {
         id: newClipId(),
         kind: "audio",
         offset,
-        length: decoded.durationSeconds,
+        length: extra?.length ?? decoded.durationSeconds,
         url: decoded.url,
         fileName,
         durationSeconds: decoded.durationSeconds,
         peaks: decoded.peaks,
+        sourceOffset: extra?.sourceOffset ?? 0,
+        fadeIn: extra?.fadeIn ?? 0,
+        fadeOut: extra?.fadeOut ?? 0,
+        gainDb: extra?.gainDb ?? 0,
+        loopLength: extra?.loopLength ?? null,
       };
       audioBlobsRef.current.set(clip.id, sourceBlob);
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [...clipsOf(channelId), clip] }));
-      audioEngine.loadAudioClip(channelId, clip.id, decoded.url, offset);
+      audioEngine.loadAudioClip(channelId, clip.id, decoded.url, audioClipTiming(clip), clip.gainDb);
       return clip.id;
     },
     [clipsOf, pushHistory]
   );
 
-  const handleDeleteClip = useCallback(
+  /** Deletes every currently-selected clip, across however many tracks
+   * they're on, as a single undo step. A right-click's "Delete clip" menu
+   * item and the Delete/Backspace shortcut both route through this - by
+   * the time either fires, the right-clicked/only clip is guaranteed to be
+   * part of the selection (see openClipMenu). */
+  const handleDeleteSelectedClips = useCallback(() => {
+    if (selectedClipIds.size === 0) return;
+    pushHistory();
+    const next: Record<string, ClipInstance[]> = { ...clipsByChannel };
+    Object.entries(clipsByChannel).forEach(([chId, clips]) => {
+      const toDelete = clips.filter((c) => selectedClipIds.has(c.id));
+      if (toDelete.length === 0) return;
+      toDelete.forEach((c) => {
+        if (c.kind === "audio") {
+          URL.revokeObjectURL(c.url);
+          audioBlobsRef.current.delete(c.id);
+          audioEngine.removeAudioClip(chId, c.id);
+        }
+      });
+      const remaining = clips.filter((c) => !selectedClipIds.has(c.id));
+      next[chId] = remaining;
+      if (channelTypeOf(chId) === "midi") {
+        rebuildMidiPart(chId, remaining.filter(isMidiClip));
+      }
+    });
+    setClipsByChannel(next);
+    setSelectedClipIds(new Set());
+  }, [selectedClipIds, clipsByChannel, channelTypeOf, rebuildMidiPart, pushHistory]);
+
+  /** Duplicates every selected clip, each placed right after itself on its
+   * own track, and selects the new copies. */
+  const handleDuplicateSelectedClips = useCallback(() => {
+    if (selectedClipIds.size === 0) return;
+    pushHistory();
+    const next: Record<string, ClipInstance[]> = { ...clipsByChannel };
+    const newlySelected = new Set<string>();
+    Object.entries(clipsByChannel).forEach(([chId, clips]) => {
+      const toDuplicate = clips.filter((c) => selectedClipIds.has(c.id));
+      if (toDuplicate.length === 0) return;
+      const additions: ClipInstance[] = toDuplicate.map((c) => {
+        const id = newClipId();
+        const dupOffset = c.offset + c.length;
+        newlySelected.add(id);
+        if (c.kind === "audio") {
+          const dup: AudioClipInstance = { ...c, id, offset: dupOffset };
+          const blob = audioBlobsRef.current.get(c.id);
+          if (blob) audioBlobsRef.current.set(id, blob);
+          audioEngine.loadAudioClip(chId, id, dup.url, audioClipTiming(dup), dup.gainDb);
+          return dup;
+        }
+        const dup: MidiClipInstance = { ...c, id, offset: dupOffset, notes: c.notes.map((n) => ({ ...n })) };
+        return dup;
+      });
+      next[chId] = [...clips, ...additions];
+      if (channelTypeOf(chId) === "midi") {
+        rebuildMidiPart(chId, next[chId].filter(isMidiClip));
+      }
+    });
+    setClipsByChannel(next);
+    setSelectedClipIds(newlySelected);
+  }, [selectedClipIds, clipsByChannel, channelTypeOf, rebuildMidiPart, pushHistory]);
+
+  /** Splits one clip into two at the current playhead position - only
+   * meaningful (and only enabled in the context menu) when the playhead
+   * sits strictly inside the clip. */
+  const handleSplitClipAtPlayhead = useCallback(
     (channelId: string, clipId: string) => {
-      const existing = clipsOf(channelId);
-      const clip = existing.find((c) => c.id === clipId);
+      const clip = clipsOf(channelId).find((c) => c.id === clipId);
       if (!clip) return;
+      const splitAt = audioEngine.getTransportSeconds() - clip.offset;
+      if (splitAt <= 0 || splitAt >= clip.length) return;
       pushHistory();
-      const updated = existing.filter((c) => c.id !== clipId);
+      const firstId = newClipId();
+      const secondId = newClipId();
+      let first: ClipInstance;
+      let second: ClipInstance;
+      if (clip.kind === "audio") {
+        // A split falls in the interior, so the outgoing fade of the first
+        // half and the incoming fade of the second half no longer make
+        // sense at what's now a hard edge - only the original clip's own
+        // outer fades (fade-in on the first half, fade-out on the second)
+        // carry over. Looping doesn't carry across a split either.
+        const firstAudio: AudioClipInstance = {
+          ...clip,
+          id: firstId,
+          length: splitAt,
+          fadeOut: 0,
+          loopLength: null,
+        };
+        const secondAudio: AudioClipInstance = {
+          ...clip,
+          id: secondId,
+          offset: clip.offset + splitAt,
+          length: clip.length - splitAt,
+          sourceOffset: clip.sourceOffset + splitAt,
+          fadeIn: 0,
+          loopLength: null,
+        };
+        const blob = audioBlobsRef.current.get(clip.id);
+        if (blob) {
+          audioBlobsRef.current.set(firstId, blob);
+          audioBlobsRef.current.set(secondId, blob);
+        }
+        audioEngine.loadAudioClip(channelId, firstId, clip.url, audioClipTiming(firstAudio), firstAudio.gainDb);
+        audioEngine.loadAudioClip(channelId, secondId, clip.url, audioClipTiming(secondAudio), secondAudio.gainDb);
+        first = firstAudio;
+        second = secondAudio;
+      } else {
+        const firstNotes = clip.notes
+          .filter((n) => n.time < splitAt)
+          .map((n) => ({ ...n, duration: Math.min(n.duration, splitAt - n.time) }));
+        const secondNotes = clip.notes
+          .filter((n) => n.time >= splitAt)
+          .map((n) => ({ ...n, time: n.time - splitAt }));
+        first = { ...clip, id: firstId, length: splitAt, notes: firstNotes, loopLength: null };
+        second = {
+          ...clip,
+          id: secondId,
+          offset: clip.offset + splitAt,
+          length: clip.length - splitAt,
+          notes: secondNotes,
+          loopLength: null,
+        };
+      }
+      const updated = clipsOf(channelId).filter((c) => c.id !== clipId).concat([first, second]);
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       if (clip.kind === "audio") {
-        URL.revokeObjectURL(clip.url);
         audioEngine.removeAudioClip(channelId, clipId);
-        audioBlobsRef.current.delete(clipId);
+        audioBlobsRef.current.delete(clip.id);
       } else {
         rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
-      setSelectedClip((prev) =>
-        prev?.channelId === channelId && prev.clipId === clipId ? null : prev
+      setSelectedClipIds(new Set([firstId, secondId]));
+    },
+    [clipsOf, rebuildMidiPart, pushHistory]
+  );
+
+  /** Toggles looping for one clip. Turning it on snapshots the clip's
+   * CURRENT length as the repeat unit - nothing audibly changes until you
+   * then drag the clip's right edge out past that length, at which point
+   * the content tiles to fill the extra space instead of trailing into
+   * silence. */
+  const handleToggleLoopClip = useCallback(
+    (channelId: string, clipId: string) => {
+      const clip = clipsOf(channelId).find((c) => c.id === clipId);
+      if (!clip) return;
+      pushHistory();
+      const newLoopLength = clip.loopLength ? null : clip.length;
+      const updated = clipsOf(channelId).map((c) =>
+        c.id === clipId ? { ...c, loopLength: newLoopLength } : c
       );
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      const updatedClip = updated.find((c) => c.id === clipId)!;
+      if (updatedClip.kind === "midi") {
+        rebuildMidiPart(channelId, updated.filter(isMidiClip));
+      } else {
+        audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(updatedClip));
+      }
     },
     [clipsOf, rebuildMidiPart, pushHistory]
   );
@@ -387,7 +567,11 @@ export function Daw() {
         }
       });
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [] }));
-      setSelectedClip((prev) => (prev?.channelId === channelId ? null : prev));
+      setSelectedClipIds((prev) => {
+        const next = new Set(prev);
+        existing.forEach((c) => next.delete(c.id));
+        return next;
+      });
       if (channelTypeOf(channelId) === "audio") audioEngine.clearAllAudioClips(channelId);
       else audioEngine.setClip(channelId, [], 0);
     },
@@ -622,9 +806,15 @@ export function Daw() {
         if (fallback) setSelectedChannelId(fallback.id);
       }
       if (editingClip?.channelId === id) setEditingClip(null);
-      setSelectedClip((prev) => (prev?.channelId === id ? null : prev));
+      const removedClipIds = new Set((clipsByChannel[id] ?? []).map((c) => c.id));
+      setSelectedClipIds((prev) => {
+        if (![...prev].some((cid) => removedClipIds.has(cid))) return prev;
+        const next = new Set(prev);
+        removedClipIds.forEach((cid) => next.delete(cid));
+        return next;
+      });
     },
-    [selectedChannelId, channels, editingClip, fxChannelId, pushHistory]
+    [selectedChannelId, channels, clipsByChannel, editingClip, fxChannelId, pushHistory]
   );
 
   const handleVolumeChange = useCallback((id: string, db: number) => {
@@ -682,7 +872,7 @@ export function Daw() {
       pushHistory();
       setChannels((prev) => prev.map((c) => ({ ...c, armed: c.id === id ? !c.armed : false })));
       setSelectedChannelId(id);
-      setSelectedClip(null);
+      setSelectedClipIds(new Set());
     },
     [transportState, pushHistory]
   );
@@ -758,21 +948,44 @@ export function Daw() {
     [clipsOf, rebuildMidiPart]
   );
 
+  /** Moving a clip that's part of a multi-selection drags the whole group
+   * together, applying the same offset delta to every selected clip across
+   * however many tracks they're on. */
   const handleMoveClip = useCallback(
     (channelId: string, clipId: string, newOffset: number) => {
-      const updated = clipsOf(channelId).map((c) =>
-        c.id === clipId ? { ...c, offset: newOffset } : c
-      );
-      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
-      const clip = updated.find((c) => c.id === clipId);
-      if (!clip) return;
-      if (clip.kind === "audio") {
-        audioEngine.moveAudioClip(channelId, clipId, newOffset, clip.length);
-      } else {
-        rebuildMidiPart(channelId, updated.filter(isMidiClip));
-      }
+      const draggedBefore = clipsOf(channelId).find((c) => c.id === clipId);
+      if (!draggedBefore) return;
+      const isGroupMove = selectedClipIds.size > 1 && selectedClipIds.has(clipId);
+      const delta = newOffset - draggedBefore.offset;
+      const movedIds = isGroupMove ? selectedClipIds : new Set([clipId]);
+
+      const nextByChannel: Record<string, ClipInstance[]> = { ...clipsByChannel };
+      const touchedChannels = new Set<string>();
+      Object.entries(clipsByChannel).forEach(([chId, clips]) => {
+        if (!clips.some((c) => movedIds.has(c.id))) return;
+        touchedChannels.add(chId);
+        nextByChannel[chId] = clips.map((c) => {
+          if (!movedIds.has(c.id)) return c;
+          const offset = c.id === clipId ? newOffset : Math.max(0, c.offset + delta);
+          return { ...c, offset };
+        });
+      });
+
+      setClipsByChannel(nextByChannel);
+      touchedChannels.forEach((chId) => {
+        const clips = nextByChannel[chId];
+        if (channelTypeOf(chId) === "midi") {
+          rebuildMidiPart(chId, clips.filter(isMidiClip));
+        } else {
+          clips.forEach((c) => {
+            if (movedIds.has(c.id) && c.kind === "audio") {
+              audioEngine.moveAudioClip(chId, c.id, audioClipTiming(c));
+            }
+          });
+        }
+      });
     },
-    [clipsOf, rebuildMidiPart]
+    [clipsOf, clipsByChannel, channelTypeOf, rebuildMidiPart, selectedClipIds]
   );
 
   const handleResizeClip = useCallback(
@@ -784,7 +997,7 @@ export function Daw() {
       const clip = updated.find((c) => c.id === clipId);
       if (clip?.kind === "audio") {
         // An audio clip's length also trims playback.
-        audioEngine.moveAudioClip(channelId, clipId, clip.offset, newLength);
+        audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(clip));
       } else {
         // A MIDI clip's box hides any note at/after `length` (ClipBlock's
         // own rendering already does this) - rebuild the engine's
@@ -795,6 +1008,29 @@ export function Daw() {
       }
     },
     [clipsOf, rebuildMidiPart]
+  );
+
+  const handleFadeChange = useCallback(
+    (channelId: string, clipId: string, fadeIn: number, fadeOut: number) => {
+      const updated = clipsOf(channelId).map((c) =>
+        c.id === clipId && c.kind === "audio" ? { ...c, fadeIn, fadeOut } : c
+      );
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      const clip = updated.find((c) => c.id === clipId);
+      if (clip?.kind === "audio") audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(clip));
+    },
+    [clipsOf]
+  );
+
+  const handleGainChange = useCallback(
+    (channelId: string, clipId: string, gainDb: number) => {
+      const updated = clipsOf(channelId).map((c) =>
+        c.id === clipId && c.kind === "audio" ? { ...c, gainDb } : c
+      );
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      audioEngine.setAudioClipGain(channelId, clipId, gainDb);
+    },
+    [clipsOf]
   );
 
   const handleSeek = useCallback((seconds: number) => {
@@ -810,6 +1046,32 @@ export function Daw() {
     [pushHistory]
   );
 
+  /** Swaps a channel one slot earlier (-1) or later (+1) in the track
+   * order - a channel keeps its own color when it moves, since color is
+   * tied to the channel itself, not its position. */
+  const handleReorderChannel = useCallback(
+    (id: string, direction: -1 | 1) => {
+      pushHistory();
+      setChannels((prev) => {
+        const idx = prev.findIndex((c) => c.id === id);
+        const target = idx + direction;
+        if (idx === -1 || target < 0 || target >= prev.length) return prev;
+        const next = [...prev];
+        [next[idx], next[target]] = [next[target], next[idx]];
+        return next;
+      });
+    },
+    [pushHistory]
+  );
+
+  const handleRecolorChannel = useCallback(
+    (id: string, colorIndex: number) => {
+      pushHistory();
+      setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, colorIndex } : c)));
+    },
+    [pushHistory]
+  );
+
   /** Copies one clip instance's content into the shared clipboard. */
   const copyClipInstance = useCallback((clip: ClipInstance) => {
     if (clip.kind === "audio") {
@@ -820,9 +1082,14 @@ export function Daw() {
         durationSeconds: clip.durationSeconds,
         peaks: clip.peaks,
         length: clip.length,
+        sourceOffset: clip.sourceOffset,
+        fadeIn: clip.fadeIn,
+        fadeOut: clip.fadeOut,
+        gainDb: clip.gainDb,
+        loopLength: clip.loopLength,
       });
     } else {
-      copyClip({ kind: "midi", notes: clip.notes, length: clip.length });
+      copyClip({ kind: "midi", notes: clip.notes, length: clip.length, loopLength: clip.loopLength });
     }
   }, []);
 
@@ -859,10 +1126,18 @@ export function Daw() {
           { url: copied.url, durationSeconds: copied.durationSeconds, peaks: copied.peaks },
           at,
           copied.fileName,
-          blob
+          blob,
+          {
+            length: copied.length,
+            sourceOffset: copied.sourceOffset,
+            fadeIn: copied.fadeIn,
+            fadeOut: copied.fadeOut,
+            gainDb: copied.gainDb,
+            loopLength: copied.loopLength,
+          }
         );
       } else {
-        addMidiClip(channelId, at, copied.length, copied.notes);
+        addMidiClip(channelId, at, copied.length, copied.notes, copied.loopLength ?? null);
       }
     },
     [channelTypeOf, addAudioClip, addMidiClip]
@@ -890,12 +1165,17 @@ export function Daw() {
           fileName: copied.fileName,
           durationSeconds: copied.durationSeconds,
           peaks: copied.peaks,
+          sourceOffset: copied.sourceOffset,
+          fadeIn: copied.fadeIn,
+          fadeOut: copied.fadeOut,
+          gainDb: copied.gainDb,
+          loopLength: copied.loopLength,
         };
         setClipsByChannel((prev) => ({
           ...prev,
           [channelId]: existing.map((c) => (c.id === clipId ? updatedClip : c)),
         }));
-        audioEngine.loadAudioClip(channelId, clipId, copied.url, target.offset, copied.length);
+        audioEngine.loadAudioClip(channelId, clipId, copied.url, audioClipTiming(updatedClip), updatedClip.gainDb);
       } else {
         const updatedClip: MidiClipInstance = {
           id: clipId,
@@ -903,6 +1183,7 @@ export function Daw() {
           offset: target.offset,
           length: copied.length,
           notes: copied.notes,
+          loopLength: copied.loopLength,
         };
         const updated = existing.map((c) => (c.id === clipId ? updatedClip : c));
         setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
@@ -1016,9 +1297,12 @@ export function Daw() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         e.preventDefault();
         handlePasteClip();
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedClip) {
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedClipIds.size > 0) {
         e.preventDefault();
-        handleDeleteClip(selectedClip.channelId, selectedClip.clipId);
+        handleDeleteSelectedClips();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d" && selectedClipIds.size > 0) {
+        e.preventDefault();
+        handleDuplicateSelectedClips();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -1035,8 +1319,9 @@ export function Daw() {
     handleTogglePlay,
     handleCopyAtPlayhead,
     handlePasteClip,
-    selectedClip,
-    handleDeleteClip,
+    selectedClipIds,
+    handleDeleteSelectedClips,
+    handleDuplicateSelectedClips,
     undo,
     redo,
   ]);
@@ -1070,9 +1355,18 @@ export function Daw() {
     setAudioImportTarget({ channelId, atSeconds });
   }, []);
 
-  const openClipMenu = useCallback((channelId: string, clipId: string, e: React.MouseEvent) => {
-    setContextMenu({ kind: "clip", channelId, clipId, x: e.clientX, y: e.clientY });
-  }, []);
+  /** Right-clicking a clip that's already part of the current multi-
+   * selection keeps the whole selection (so the menu's actions apply to
+   * the group); right-clicking outside it replaces the selection with
+   * just this clip, matching how most apps handle right-click on a list. */
+  const openClipMenu = useCallback(
+    (channelId: string, clipId: string, e: React.MouseEvent) => {
+      setSelectedClipIds((prev) => (prev.has(clipId) ? prev : new Set([clipId])));
+      setSelectedChannelId(channelId);
+      setContextMenu({ kind: "clip", channelId, clipId, x: e.clientX, y: e.clientY });
+    },
+    []
+  );
 
   const openLaneMenu = useCallback(
     (channelId: string, e: React.MouseEvent, atSeconds: number) => {
@@ -1094,6 +1388,38 @@ export function Daw() {
     const hasNotes = clip.kind === "midi" && clip.notes.length > 0;
     const copied = getCopiedClip();
     const pasteDisabled = !copied || copied.kind !== channelTypeOf(channelId);
+    const t = audioEngine.getTransportSeconds();
+    const canSplit = t > clip.offset && t < clip.offset + clip.length;
+    const groupSize = selectedClipIds.size;
+    const deleteLabel = groupSize > 1 ? `Delete ${groupSize} clips` : "Delete clip";
+    const duplicateLabel = groupSize > 1 ? `Duplicate ${groupSize} clips` : "Duplicate clip";
+
+    const commonTail: (ContextMenuItem | "separator")[] = [
+      {
+        label: "Split at playhead",
+        icon: <Scissors size={13} />,
+        disabled: !canSplit,
+        onSelect: () => handleSplitClipAtPlayhead(channelId, clipId),
+      },
+      {
+        label: duplicateLabel,
+        icon: <CopyPlus size={13} />,
+        onSelect: () => handleDuplicateSelectedClips(),
+      },
+      {
+        label: clip.loopLength ? "Stop looping clip" : "Loop clip",
+        icon: <Repeat size={13} />,
+        onSelect: () => handleToggleLoopClip(channelId, clipId),
+      },
+      "separator",
+      {
+        label: deleteLabel,
+        icon: <Trash2 size={13} />,
+        danger: true,
+        onSelect: () => handleDeleteSelectedClips(),
+      },
+    ];
+
     if (clip.kind === "audio") {
       return [
         { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(channelId, clipId) },
@@ -1104,12 +1430,7 @@ export function Daw() {
           onSelect: () => pasteReplaceClip(channelId, clipId),
         },
         "separator",
-        {
-          label: "Delete clip",
-          icon: <Trash2 size={13} />,
-          danger: true,
-          onSelect: () => handleDeleteClip(channelId, clipId),
-        },
+        ...commonTail,
       ];
     }
     return [
@@ -1124,15 +1445,10 @@ export function Daw() {
       },
       "separator",
       { label: "Export .mid", icon: <Download size={13} />, disabled: !hasNotes, onSelect: () => handleExportClipMidi(channelId, clipId) },
-      {
-        label: "Delete clip",
-        icon: <Trash2 size={13} />,
-        danger: true,
-        onSelect: () => handleDeleteClip(channelId, clipId),
-      },
+      ...commonTail,
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, clipsOf, channelTypeOf]);
+  }, [contextMenu, clipsOf, channelTypeOf, selectedClipIds]);
 
   const laneMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
     if (!contextMenu || contextMenu.kind !== "lane") return [];
@@ -1318,6 +1634,11 @@ export function Daw() {
                 fileName: c.fileName,
                 durationSeconds: c.durationSeconds,
                 peaks: c.peaks,
+                sourceOffset: c.sourceOffset,
+                fadeIn: c.fadeIn,
+                fadeOut: c.fadeOut,
+                gainDb: c.gainDb,
+                loopLength: c.loopLength,
               }
             : {
                 id: c.id,
@@ -1325,6 +1646,7 @@ export function Daw() {
                 offset: c.offset,
                 length: c.length,
                 notes: c.notes,
+                loopLength: c.loopLength,
               }
         );
       });
@@ -1396,6 +1718,11 @@ export function Daw() {
                 fileName: c.fileName,
                 durationSeconds: c.durationSeconds,
                 peaks: c.peaks,
+                sourceOffset: c.sourceOffset,
+                fadeIn: c.fadeIn,
+                fadeOut: c.fadeOut,
+                gainDb: c.gainDb,
+                loopLength: c.loopLength,
               };
               return restored;
             }
@@ -1405,6 +1732,7 @@ export function Daw() {
               offset: c.offset,
               length: c.length,
               notes: c.notes,
+              loopLength: c.loopLength,
             };
             return restored;
           });
@@ -1640,7 +1968,7 @@ export function Daw() {
 
         <div className="flex">
           <div className="flex shrink-0 flex-col">
-            {channels.map((channel) => (
+            {channels.map((channel, idx) => (
               <TrackHeader
                 key={channel.id}
                 channel={channel}
@@ -1654,11 +1982,16 @@ export function Daw() {
                 hasClipContent={clipsOf(channel.id).length > 0}
                 effectsCount={(channelEffects[channel.id] ?? []).length}
                 canRemove={channels.length > 1}
+                canMoveUp={idx > 0}
+                canMoveDown={idx < channels.length - 1}
                 onSelect={() => {
                   setSelectedChannelId(channel.id);
-                  setSelectedClip(null);
+                  setSelectedClipIds(new Set());
                 }}
                 onRename={(name) => handleRenameChannel(channel.id, name)}
+                onRecolor={(colorIndex) => handleRecolorChannel(channel.id, colorIndex)}
+                onMoveUp={() => handleReorderChannel(channel.id, -1)}
+                onMoveDown={() => handleReorderChannel(channel.id, 1)}
                 onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
                 onPanChange={(pan) => handlePanChange(channel.id, pan)}
                 onAdjustStart={pushHistory}
@@ -1709,18 +2042,28 @@ export function Daw() {
                 snapSeconds={snapSeconds}
                 selected={channel.id === selectedChannelId}
                 armed={channel.id === armedChannelId}
-                selectedClipId={selectedClip?.channelId === channel.id ? selectedClip.clipId : null}
+                selectedClipIds={selectedClipIds}
                 onSelectTrack={() => {
                   setSelectedChannelId(channel.id);
-                  setSelectedClip(null);
+                  setSelectedClipIds(new Set());
                 }}
-                onSelectClip={(clipId) => {
+                onSelectClip={(clipId, additive) => {
                   setSelectedChannelId(channel.id);
-                  setSelectedClip({ channelId: channel.id, clipId });
+                  setSelectedClipIds((prev) => {
+                    if (additive) {
+                      const next = new Set(prev);
+                      if (next.has(clipId)) next.delete(clipId);
+                      else next.add(clipId);
+                      return next;
+                    }
+                    return new Set([clipId]);
+                  });
                 }}
                 onEditClip={(clipId) => handleEditClip(channel.id, clipId)}
                 onMoveClip={(clipId, offset) => handleMoveClip(channel.id, clipId, offset)}
                 onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}
+                onFadeChange={(clipId, fadeIn, fadeOut) => handleFadeChange(channel.id, clipId, fadeIn, fadeOut)}
+                onGainChange={(clipId, gainDb) => handleGainChange(channel.id, clipId, gainDb)}
                 onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
                 onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
                 onClipDragStart={pushHistory}

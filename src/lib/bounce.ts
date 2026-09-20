@@ -5,6 +5,7 @@
 
 import * as Tone from "tone";
 import { createInstrument, createEffectNode, applyEffectParam } from "./audioEngine";
+import { notesWithinClip } from "./project";
 import type { ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
 
@@ -69,7 +70,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
         instrument.connect(firstEffect);
         const flattened = clips
           .filter(isMidiClip)
-          .flatMap((clip) => clip.notes.map((n) => ({ ...n, time: clip.offset + n.time })));
+          .flatMap((clip) => notesWithinClip(clip).map((n) => ({ ...n, time: clip.offset + n.time })));
         // Notes are scheduled once the instrument's samples (if any) have
         // loaded - Tone.Offline awaits every promise pushed here before it
         // starts rendering.
@@ -100,12 +101,18 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       } else {
         clips.forEach((clip) => {
           if (clip.kind !== "audio") return;
-          const player = new Tone.Player();
-          player.connect(firstEffect);
+          const gain = new Tone.Volume(clip.gainDb).connect(firstEffect);
+          const player = new Tone.Player({ fadeIn: clip.fadeIn, fadeOut: clip.fadeOut });
+          player.connect(gain);
+          if (clip.loopLength && clip.loopLength > 0) {
+            player.loop = true;
+            player.loopStart = clip.sourceOffset;
+            player.loopEnd = clip.sourceOffset + clip.loopLength;
+          }
           loadPromises.push(
             player.load(clip.url).then(() => {
               try {
-                player.start(clip.offset, 0, clip.length);
+                player.start(clip.offset, clip.sourceOffset, clip.length);
               } catch {
                 // clip runs past the render window or similar - skip it
               }

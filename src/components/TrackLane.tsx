@@ -18,18 +18,21 @@ interface TrackLaneProps {
   selected: boolean;
   /** Whether this track is record-armed - shows a small indicator dot. */
   armed: boolean;
-  /** Which one clip (if any) on this lane has the selection ring - Delete
-   * removes this one. */
-  selectedClipId: string | null;
+  /** Which clips (by id) on this lane are selected - Delete/duplicate/drag
+   * operate on all of them together. */
+  selectedClipIds: Set<string>;
   onSelectTrack: () => void;
-  onSelectClip: (clipId: string) => void;
+  /** `additive` is true for a Ctrl/Cmd-click. */
+  onSelectClip: (clipId: string, additive: boolean) => void;
   onEditClip: (clipId: string) => void;
   onMoveClip: (clipId: string, offsetSeconds: number) => void;
   onResizeClip: (clipId: string, lengthSeconds: number) => void;
+  onFadeChange: (clipId: string, fadeIn: number, fadeOut: number) => void;
+  onGainChange: (clipId: string, gainDb: number) => void;
   onClipContextMenu: (clipId: string, e: React.MouseEvent) => void;
   onLaneContextMenu: (e: React.MouseEvent, atSeconds: number) => void;
-  /** Fired once at the start of a clip move/resize drag - lets the caller
-   * push one undo checkpoint per drag instead of one per pixel. */
+  /** Fired once at the start of a clip move/resize/fade/gain drag - lets
+   * the caller push one undo checkpoint per drag instead of one per pixel. */
   onClipDragStart: () => void;
 }
 
@@ -43,12 +46,14 @@ export function TrackLane({
   snapSeconds,
   selected,
   armed,
-  selectedClipId,
+  selectedClipIds,
   onSelectTrack,
   onSelectClip,
   onEditClip,
   onMoveClip,
   onResizeClip,
+  onFadeChange,
+  onGainChange,
   onClipContextMenu,
   onLaneContextMenu,
   onClipDragStart,
@@ -94,13 +99,21 @@ export function TrackLane({
           notes={clip.kind === "midi" ? clip.notes : []}
           audioPeaks={clip.kind === "audio" ? clip.peaks : undefined}
           audioFileName={clip.kind === "audio" ? clip.fileName : undefined}
+          durationSeconds={clip.kind === "audio" ? clip.durationSeconds : undefined}
+          sourceOffset={clip.kind === "audio" ? clip.sourceOffset : undefined}
+          fadeIn={clip.kind === "audio" ? clip.fadeIn : undefined}
+          fadeOut={clip.kind === "audio" ? clip.fadeOut : undefined}
+          gainDb={clip.kind === "audio" ? clip.gainDb : undefined}
+          onFadeChange={(fadeIn, fadeOut) => onFadeChange(clip.id, fadeIn, fadeOut)}
+          onGainChange={(gainDb) => onGainChange(clip.id, gainDb)}
+          loop={!!clip.loopLength && clip.loopLength > 0 && clip.loopLength < clip.length}
           color={color}
           offset={clip.offset}
           length={clip.length}
           pxPerSecond={pxPerSecond}
           snapSeconds={snapSeconds}
-          selected={clip.id === selectedClipId}
-          onSelect={() => onSelectClip(clip.id)}
+          selected={selectedClipIds.has(clip.id)}
+          onSelect={(additive) => onSelectClip(clip.id, additive)}
           onEdit={() => onEditClip(clip.id)}
           onMove={(offset) => onMoveClip(clip.id, offset)}
           onResize={(length) => onResizeClip(clip.id, length)}

@@ -21,6 +21,7 @@ interface SerializedMidiClip {
   offset: number;
   length: number;
   notes: NoteEvent[];
+  loopLength?: number | null;
 }
 
 interface SerializedAudioClip {
@@ -31,6 +32,11 @@ interface SerializedAudioClip {
   fileName: string;
   durationSeconds: number;
   peaks: number[];
+  sourceOffset: number;
+  fadeIn: number;
+  fadeOut: number;
+  gainDb: number;
+  loopLength?: number | null;
 }
 
 export type SerializedClip = SerializedMidiClip | SerializedAudioClip;

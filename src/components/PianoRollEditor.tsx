@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
+import { AlignHorizontalJustifyStart, Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/lib/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
 import { DRUM_PADS, drumLabelForNote } from "@/lib/drums";
@@ -62,6 +62,12 @@ const MIN_PX_PER_SECOND = 40;
 const MAX_PX_PER_SECOND = 500;
 const DEFAULT_NOTE_BEATS = 1; // default drawn-note length, in beats
 const DRAG_THRESHOLD_PX = 3;
+const QUANTIZE_OPTIONS: { label: string; beats: number }[] = [
+  { label: "1/4", beats: 1 },
+  { label: "1/8", beats: 0.5 },
+  { label: "1/16", beats: 0.25 },
+  { label: "1/32", beats: 0.125 },
+];
 
 function noteNameToMidi(name: string): number {
   const match = name.match(/^([A-G]#?)(-?\d+)$/);
@@ -120,6 +126,7 @@ export function PianoRollEditor({
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
     null
   );
+  const [quantizeBeats, setQuantizeBeats] = useState(0.25); // 1/16 note by default
 
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const keysViewportRef = useRef<HTMLDivElement>(null);
@@ -141,6 +148,20 @@ export function PianoRollEditor({
   const commit = (next: EditableNote[]) => {
     setNotes(next);
     onChange(stripIds(next));
+  };
+
+  /** Snaps the start time of the selected notes (or every note, if none
+   * are selected) to the nearest multiple of the chosen grid resolution. */
+  const handleQuantize = () => {
+    const unit = secondsPerBeat * quantizeBeats;
+    const targetIds = selectedIds.size > 0 ? selectedIds : new Set(notes.map((n) => n.id));
+    commit(
+      notes.map((n) =>
+        targetIds.has(n.id)
+          ? { ...n, time: Math.min(length, Math.max(0, Math.round(n.time / unit) * unit)) }
+          : n
+      )
+    );
   };
 
   // Center the initial vertical scroll on the notes (or middle C - or the
@@ -185,6 +206,9 @@ export function PianoRollEditor({
         }
       } else if (e.key.toLowerCase() === "b") {
         setMode((m) => (m === "draw" ? "select" : "draw"));
+      } else if (e.key.toLowerCase() === "q" && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleQuantize();
       } else if (e.code === "Space") {
         e.preventDefault();
         if (isPlaying) onPause();
@@ -228,7 +252,7 @@ export function PianoRollEditor({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, notes, isPlaying, onPlay, onPause, secondsPer16th, length, offset]);
+  }, [selectedIds, notes, isPlaying, onPlay, onPause, secondsPer16th, length, offset, quantizeBeats, secondsPerBeat]);
 
   // Playhead line, driven by rAF so it doesn't cause React re-renders.
   useEffect(() => {
@@ -651,6 +675,33 @@ export function PianoRollEditor({
                 <ZoomIn size={13} />
               </button>
             </div>
+            <div className="flex items-center gap-1">
+              <select
+                value={quantizeBeats}
+                onChange={(e) => setQuantizeBeats(Number(e.target.value))}
+                title="Quantize resolution"
+                className="rounded border border-border bg-surface px-1 py-1 text-[11px] text-foreground"
+              >
+                {QUANTIZE_OPTIONS.map((opt) => (
+                  <option key={opt.label} value={opt.beats}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleQuantize}
+                title={
+                  selectedIds.size > 0
+                    ? "Quantize the selected notes to this grid"
+                    : "Quantize every note to this grid"
+                }
+                className="flex h-7 items-center gap-1 rounded border border-border px-2 text-[11px] text-muted hover:bg-surface hover:text-accent"
+              >
+                <AlignHorizontalJustifyStart size={13} />
+                Quantize
+              </button>
+            </div>
             <ScaleSelector value={scaleSetting} onChange={onScaleChange} />
             <button
               type="button"
@@ -667,7 +718,7 @@ export function PianoRollEditor({
           {mode === "draw"
             ? "drag on empty space to draw a note · shift-click or drag a selection to move it · drag its right edge to resize · right-click a note to delete it"
             : "drag on empty space to box-select notes · shift-click to add/remove a note · drag a selection to move it · Delete to remove"}
-          {" · press B to toggle mode · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste notes at the playhead"}
+          {" · press B to toggle mode · Q to quantize · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste notes at the playhead"}
         </div>
 
         <div

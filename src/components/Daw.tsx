@@ -34,11 +34,14 @@ import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
 import { DrumPads } from "./DrumPads";
+import { ExpressionControls } from "./ExpressionControls";
 import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FxWindow } from "./FxWindow";
+import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
+import { defaultSynthParams } from "@/lib/synth";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
@@ -48,7 +51,7 @@ import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
 import { loadProject, saveProject, type SerializedClip } from "@/lib/persistence";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
-import type { EffectInstance, EffectType } from "@/lib/effects";
+import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
@@ -68,16 +71,71 @@ import {
 } from "@/lib/timeline";
 import type {
   AudioClipInstance,
+  AutomationLane,
+  AutomationPoint,
+  AutomationTarget,
+  BusConfig,
   ChannelConfig,
   ChannelType,
   ClipInstance,
   InstrumentType,
   MidiClipInstance,
   NoteEvent,
+  SynthParams,
   TimeSignature,
 } from "@/lib/types";
 
 type TransportState = "stopped" | "playing" | "paused" | "recording";
+
+/** How many semitones a full pitch-bend deflection (wheel or hardware
+ * controller at its extreme) shifts a note by - the usual default range on
+ * most synths/keyboards. */
+const PITCH_BEND_RANGE_SEMITONES = 2;
+
+const AUTOMATION_LANE_HEIGHT = 56;
+
+/** The value range and display format an automation target's curve should
+ * be edited in - matches the same range each target's own live control
+ * (the volume/pan ValueBars, or the effect's own param knob) uses. */
+function automationRange(
+  target: AutomationTarget,
+  channelEffects: EffectInstance[]
+): { min: number; max: number; format: (v: number) => string } {
+  if (target.kind === "volume") {
+    return { min: -60, max: 6, format: (v) => (v <= -60 ? "-∞" : `${v.toFixed(1)}dB`) };
+  }
+  if (target.kind === "pan") {
+    return {
+      min: -1,
+      max: 1,
+      format: (v) => (Math.abs(v) < 0.02 ? "C" : v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`),
+    };
+  }
+  const fx = channelEffects.find((e) => e.id === target.effectId);
+  const spec = fx && paramSpecs(fx.type).find((s) => s.key === target.paramKey);
+  if (spec) return { min: spec.min, max: spec.max, format: spec.format };
+  return { min: 0, max: 1, format: (v) => v.toFixed(2) };
+}
+
+/** All targets a channel's automation dropdown can offer: its own
+ * volume/pan, plus one entry per param of each of its active effects. */
+function automationTargetOptions(
+  channelEffects: EffectInstance[]
+): { target: AutomationTarget; label: string }[] {
+  const options: { target: AutomationTarget; label: string }[] = [
+    { target: { kind: "volume" }, label: "Volume" },
+    { target: { kind: "pan" }, label: "Pan" },
+  ];
+  channelEffects.forEach((fx) => {
+    paramSpecs(fx.type).forEach((spec) => {
+      options.push({
+        target: { kind: "effect", effectId: fx.id, paramKey: spec.key },
+        label: `${EFFECT_LABELS[fx.type]}: ${spec.label}`,
+      });
+    });
+  });
+  return options;
+}
 
 type ContextMenuState =
   | { kind: "clip"; channelId: string; clipId: string; x: number; y: number }
@@ -144,6 +202,25 @@ function newClipId(): string {
   return `clip-${clipIdCounter}`;
 }
 
+let busCounter = 0;
+function newBusId(): string {
+  busCounter += 1;
+  return `bus-${busCounter}`;
+}
+
+let automationLaneCounter = 0;
+function newAutomationLaneId(): string {
+  automationLaneCounter += 1;
+  return `auto-${automationLaneCounter}`;
+}
+
+/** A stable string key for an automation target, so two targets can be
+ * compared for equality (e.g. "does this channel already have a lane for
+ * Pan?") without a deep-equal check. */
+function automationTargetKey(target: AutomationTarget): string {
+  return target.kind === "effect" ? `effect:${target.effectId}:${target.paramKey}` : target.kind;
+}
+
 export function Daw() {
   const [channels, setChannels] = useState<ChannelConfig[]>(() => [
     createChannel("MIDI 1", "midi"),
@@ -154,8 +231,18 @@ export function Daw() {
   // on the timeline - not a single clip slot per track.
   const [clipsByChannel, setClipsByChannel] = useState<Record<string, ClipInstance[]>>({});
   const [channelEffects, setChannelEffects] = useState<Record<string, EffectInstance[]>>({});
+  const [buses, setBuses] = useState<BusConfig[]>([]);
+  const [busEffects, setBusEffects] = useState<Record<string, EffectInstance[]>>({});
   const [fxChannelId, setFxChannelId] = useState<string | null>(null);
+  const [fxBusId, setFxBusId] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+  /** Which channel (if any) currently has its automation lane expanded
+   * under its track in the arrangement - a view-only toggle, not part of
+   * the undo-tracked document. */
+  const [automationChannelId, setAutomationChannelId] = useState<string | null>(null);
+  /** Which of that channel's targets (volume/pan/an effect param) the
+   * expanded lane is currently showing/editing. */
+  const [automationTarget, setAutomationTarget] = useState<AutomationTarget>({ kind: "volume" });
   // Ableton-style start marker: wherever you last clicked on the ruler.
   // Play always resumes from the transport's current position (unchanged);
   // Stop rewinds to this marker instead of always jumping back to 0.
@@ -235,6 +322,7 @@ export function Daw() {
   const armedChannelId = armedChannel?.id ?? null;
 
   const registeredChannelIds = useRef(new Set<string>());
+  const registeredBusIds = useRef(new Set<string>());
 
   // --- Undo/redo -------------------------------------------------------
   // A snapshot covers the "document" - channels/clips/effects/tempo/master
@@ -247,6 +335,8 @@ export function Daw() {
     channels,
     clipsByChannel,
     channelEffects,
+    buses,
+    busEffects,
     bpm,
     timeSignature,
     masterVolume,
@@ -257,6 +347,8 @@ export function Daw() {
     channels,
     clipsByChannel,
     channelEffects,
+    buses,
+    busEffects,
     bpm,
     timeSignature,
     masterVolume,
@@ -280,6 +372,8 @@ export function Daw() {
     setChannels(s.channels);
     setClipsByChannel(s.clipsByChannel);
     setChannelEffects(s.channelEffects);
+    setBuses(s.buses);
+    setBusEffects(s.busEffects);
     setBpm(s.bpm);
     setTimeSignature(s.timeSignature);
     setMasterVolume(s.masterVolume);
@@ -601,11 +695,13 @@ export function Daw() {
     const currentIds = new Set(channels.map((c) => c.id));
     channels.forEach((c) => {
       if (!registeredChannelIds.current.has(c.id)) {
-        audioEngine.addChannel(c.id, c.type, c.instrument);
+        audioEngine.addChannel(c.id, c.type, c.instrument, c.synthParams);
         audioEngine.setVolume(c.id, c.volume);
         audioEngine.setPan(c.id, c.pan);
         audioEngine.setMute(c.id, c.muted);
         audioEngine.setSolo(c.id, c.solo);
+        Object.entries(c.sends ?? {}).forEach(([busId, db]) => audioEngine.setSend(c.id, busId, db));
+        audioEngine.setAutomation(c.id, c.automationLanes ?? []);
         registeredChannelIds.current.add(c.id);
       }
     });
@@ -616,6 +712,23 @@ export function Daw() {
       }
     });
   }, [channels]);
+
+  // Keep the audio engine's buses in sync with React state too.
+  useEffect(() => {
+    const currentIds = new Set(buses.map((b) => b.id));
+    buses.forEach((b) => {
+      if (!registeredBusIds.current.has(b.id)) {
+        audioEngine.addBus(b.id);
+        registeredBusIds.current.add(b.id);
+      }
+    });
+    registeredBusIds.current.forEach((id) => {
+      if (!currentIds.has(id)) {
+        audioEngine.removeBus(id);
+        registeredBusIds.current.delete(id);
+      }
+    });
+  }, [buses]);
 
   useEffect(() => {
     audioEngine.setBpm(bpm);
@@ -675,16 +788,25 @@ export function Daw() {
     [armedChannelId]
   );
 
+  // Sustain pedal (CC64), mod wheel (CC1), and pitch bend from a hardware
+  // MIDI controller all target the armed channel, exactly like note input.
   useEffect(() => {
     return listenToWebMidi((event) => {
-      const note = midiToNoteName(event.midi);
       if (event.type === "noteon") {
-        void handleNoteOn(note, event.velocity || 0.8);
-      } else {
-        handleNoteOff(note);
+        void handleNoteOn(midiToNoteName(event.midi), event.velocity || 0.8);
+      } else if (event.type === "noteoff") {
+        handleNoteOff(midiToNoteName(event.midi));
+      } else if (!armedChannelId) {
+        return;
+      } else if (event.type === "cc" && event.controller === 64) {
+        audioEngine.setSustain(armedChannelId, event.value >= 0.5);
+      } else if (event.type === "cc" && event.controller === 1) {
+        audioEngine.setModWheel(armedChannelId, event.value);
+      } else if (event.type === "pitchbend") {
+        audioEngine.setPitchBend(armedChannelId, event.value * PITCH_BEND_RANGE_SEMITONES);
       }
     });
-  }, [handleNoteOn, handleNoteOff]);
+  }, [handleNoteOn, handleNoteOff, armedChannelId]);
 
   // Which channel a recording-in-progress targets - captured once at
   // Record time (not read live from `armedChannelId`) so re-arming a
@@ -879,13 +1001,21 @@ export function Daw() {
 
   const handleInstrumentChange = useCallback(
     (id: string, type: InstrumentType | null) => {
+      const current = channels.find((c) => c.id === id);
+      if (!current) return;
       pushHistory();
-      audioEngine.setInstrument(id, type);
+      // Picking "synth" for the first time seeds it with the first preset's
+      // params so there's always something to hear and edit, not a bank of
+      // zeros; switching away and back keeps whatever was last dialed in
+      // instead of resetting it.
+      const synthParams =
+        type === "synth" ? current.synthParams ?? defaultSynthParams() : current.synthParams;
+      audioEngine.setInstrument(id, type, synthParams);
       setChannels((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, instrument: type } : c))
+        prev.map((c) => (c.id === id ? { ...c, instrument: type, synthParams } : c))
       );
     },
-    [pushHistory]
+    [channels, pushHistory]
   );
 
   const handleImportMidi = useCallback(
@@ -1220,6 +1350,11 @@ export function Daw() {
     setFxChannelId(channelId);
   }, []);
 
+  const handleToggleAutomation = useCallback((channelId: string) => {
+    setAutomationChannelId((prev) => (prev === channelId ? null : channelId));
+    setAutomationTarget({ kind: "volume" });
+  }, []);
+
   const handleAddEffect = useCallback(
     (type: EffectType) => {
       if (!fxChannelId) return;
@@ -1278,6 +1413,204 @@ export function Daw() {
       }));
     },
     [fxChannelId]
+  );
+
+  const handleEffectBypassToggle = useCallback(
+    (effectId: string) => {
+      if (!fxChannelId) return;
+      pushHistory();
+      setChannelEffects((prev) => {
+        const list = prev[fxChannelId] ?? [];
+        const effect = list.find((e) => e.id === effectId);
+        if (!effect) return prev;
+        const bypass = !effect.bypass;
+        audioEngine.setEffectBypass(fxChannelId, effectId, bypass);
+        return {
+          ...prev,
+          [fxChannelId]: list.map((e) => (e.id === effectId ? { ...e, bypass } : e)),
+        };
+      });
+    },
+    [fxChannelId, pushHistory]
+  );
+
+  const handleSynthParamsChange = useCallback(
+    (params: SynthParams) => {
+      if (!fxChannelId) return;
+      audioEngine.setSynthParams(fxChannelId, params);
+      setChannels((prev) =>
+        prev.map((c) => (c.id === fxChannelId ? { ...c, synthParams: params } : c))
+      );
+    },
+    [fxChannelId]
+  );
+
+  const handleSendChange = useCallback(
+    (busId: string, db: number | null) => {
+      if (!fxChannelId) return;
+      audioEngine.setSend(fxChannelId, busId, db);
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (c.id !== fxChannelId) return c;
+          const sends = { ...(c.sends ?? {}) };
+          if (db === null) delete sends[busId];
+          else sends[busId] = db;
+          return { ...c, sends };
+        })
+      );
+    },
+    [fxChannelId]
+  );
+
+  // --- Send/return buses ---
+
+  const handleAddBus = useCallback(() => {
+    pushHistory();
+    const id = newBusId();
+    setBuses((prev) => [...prev, { id, name: `Bus ${prev.length + 1}`, colorIndex: prev.length }]);
+  }, [pushHistory]);
+
+  const handleRemoveBus = useCallback(
+    (id: string) => {
+      pushHistory();
+      audioEngine.removeBus(id);
+      setBuses((prev) => prev.filter((b) => b.id !== id));
+      setBusEffects((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (!c.sends || !(id in c.sends)) return c;
+          const sends = { ...c.sends };
+          delete sends[id];
+          return { ...c, sends };
+        })
+      );
+      if (fxBusId === id) setFxBusId(null);
+    },
+    [pushHistory, fxBusId]
+  );
+
+  const handleRenameBus = useCallback(
+    (id: string, name: string) => {
+      pushHistory();
+      setBuses((prev) => prev.map((b) => (b.id === id ? { ...b, name } : b)));
+    },
+    [pushHistory]
+  );
+
+  const openBusFx = useCallback((busId: string) => {
+    setFxBusId(busId);
+  }, []);
+
+  const handleBusAddEffect = useCallback(
+    (type: EffectType) => {
+      if (!fxBusId) return;
+      pushHistory();
+      const created = audioEngine.addEffect(fxBusId, type);
+      if (created) {
+        setBusEffects((prev) => ({
+          ...prev,
+          [fxBusId]: [...(prev[fxBusId] ?? []), created],
+        }));
+      }
+    },
+    [fxBusId, pushHistory]
+  );
+
+  const handleBusRemoveEffect = useCallback(
+    (effectId: string) => {
+      if (!fxBusId) return;
+      pushHistory();
+      audioEngine.removeEffect(fxBusId, effectId);
+      setBusEffects((prev) => ({
+        ...prev,
+        [fxBusId]: (prev[fxBusId] ?? []).filter((e) => e.id !== effectId),
+      }));
+    },
+    [fxBusId, pushHistory]
+  );
+
+  const handleBusReorderEffect = useCallback(
+    (effectId: string, direction: -1 | 1) => {
+      if (!fxBusId) return;
+      pushHistory();
+      audioEngine.reorderEffect(fxBusId, effectId, direction);
+      setBusEffects((prev) => {
+        const list = [...(prev[fxBusId] ?? [])];
+        const idx = list.findIndex((e) => e.id === effectId);
+        const target = idx + direction;
+        if (idx === -1 || target < 0 || target >= list.length) return prev;
+        const [entry] = list.splice(idx, 1);
+        list.splice(target, 0, entry);
+        return { ...prev, [fxBusId]: list };
+      });
+    },
+    [fxBusId, pushHistory]
+  );
+
+  const handleBusEffectParamChange = useCallback(
+    (effectId: string, key: string, value: number) => {
+      if (!fxBusId) return;
+      audioEngine.setEffectParam(fxBusId, effectId, key, value);
+      setBusEffects((prev) => ({
+        ...prev,
+        [fxBusId]: (prev[fxBusId] ?? []).map((e) =>
+          e.id === effectId ? { ...e, params: { ...e.params, [key]: value } } : e
+        ),
+      }));
+    },
+    [fxBusId]
+  );
+
+  const handleBusEffectBypassToggle = useCallback(
+    (effectId: string) => {
+      if (!fxBusId) return;
+      pushHistory();
+      setBusEffects((prev) => {
+        const list = prev[fxBusId] ?? [];
+        const effect = list.find((e) => e.id === effectId);
+        if (!effect) return prev;
+        const bypass = !effect.bypass;
+        audioEngine.setEffectBypass(fxBusId, effectId, bypass);
+        return {
+          ...prev,
+          [fxBusId]: list.map((e) => (e.id === effectId ? { ...e, bypass } : e)),
+        };
+      });
+    },
+    [fxBusId, pushHistory]
+  );
+
+  // --- Automation lanes ---
+
+  const setChannelAutomationLanes = useCallback(
+    (channelId: string, updater: (lanes: AutomationLane[]) => AutomationLane[]) => {
+      const current = channels.find((c) => c.id === channelId);
+      if (!current) return;
+      const lanes = updater(current.automationLanes ?? []);
+      audioEngine.setAutomation(channelId, lanes);
+      setChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, automationLanes: lanes } : c)));
+    },
+    [channels]
+  );
+
+  /** Gets (creating an empty one first if needed) the lane for a target. */
+  const handleAutomationPointsChange = useCallback(
+    (channelId: string, target: AutomationTarget, points: AutomationPoint[]) => {
+      setChannelAutomationLanes(channelId, (lanes) => {
+        const idx = lanes.findIndex((l) => automationTargetKey(l.target) === automationTargetKey(target));
+        if (idx === -1) {
+          return [...lanes, { id: newAutomationLaneId(), target, points }];
+        }
+        const next = [...lanes];
+        next[idx] = { ...next[idx], points };
+        return next;
+      });
+    },
+    [setChannelAutomationLanes]
   );
 
   // Space to play/pause, Ctrl/Cmd+C/V to copy/paste whatever's under the
@@ -1596,6 +1929,8 @@ export function Daw() {
         channels,
         clipsByChannel,
         channelEffects,
+        buses,
+        busEffects,
         masterVolume,
         masterPan,
         masterLimiterThreshold,
@@ -1611,6 +1946,8 @@ export function Daw() {
     endOfContent,
     clipsByChannel,
     channelEffects,
+    buses,
+    busEffects,
     masterVolume,
     masterPan,
     masterLimiterThreshold,
@@ -1657,6 +1994,8 @@ export function Daw() {
           channels,
           clipsByChannel: serializedClips,
           channelEffects,
+          buses,
+          busEffects,
           bpm,
           timeSignature,
           masterVolume,
@@ -1678,6 +2017,8 @@ export function Daw() {
     channels,
     clipsByChannel,
     channelEffects,
+    buses,
+    busEffects,
     bpm,
     timeSignature,
     masterVolume,
@@ -1738,17 +2079,31 @@ export function Daw() {
           });
         });
         project.channels.forEach((c) => bumpCounterFromId(c.id, "ch"));
-        Object.values(project.channelEffects)
-          .flat()
-          .forEach((fx) => {
+        const buses = project.buses ?? [];
+        const busEffects = project.busEffects ?? {};
+        buses.forEach((b) => {
+          const match = b.id.match(/^bus-(\d+)$/);
+          if (match) busCounter = Math.max(busCounter, parseInt(match[1], 10));
+        });
+        project.channels.forEach((c) =>
+          (c.automationLanes ?? []).forEach((lane) => {
+            const match = lane.id.match(/^auto-(\d+)$/);
+            if (match) automationLaneCounter = Math.max(automationLaneCounter, parseInt(match[1], 10));
+          })
+        );
+        [...Object.values(project.channelEffects).flat(), ...Object.values(busEffects).flat()].forEach(
+          (fx) => {
             const match = fx.id.match(/^fx-(\d+)$/);
             if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
-          });
+          }
+        );
         bumpEffectIdCounter(maxEffectN);
 
         setChannels(project.channels);
         setClipsByChannel(restoredClips);
         setChannelEffects(project.channelEffects);
+        setBuses(buses);
+        setBusEffects(busEffects);
         setBpm(project.bpm);
         setTimeSignature(project.timeSignature);
         setMasterVolume(project.masterVolume);
@@ -1764,6 +2119,8 @@ export function Daw() {
             channels: project.channels,
             clipsByChannel: restoredClips,
             channelEffects: project.channelEffects,
+            buses,
+            busEffects,
             bpm: project.bpm,
             timeSignature: project.timeSignature,
             masterVolume: project.masterVolume,
@@ -1799,7 +2156,9 @@ export function Daw() {
     ? clipsOf(editingClip.channelId).find((c) => c.id === editingClip.clipId)
     : undefined;
   const fxChannel = channels.find((c) => c.id === fxChannelId);
-  const lanesHeight = channels.length * TRACK_ROW_HEIGHT;
+  const fxBus = buses.find((b) => b.id === fxBusId);
+  const lanesHeight =
+    channels.length * TRACK_ROW_HEIGHT + (automationChannelId ? AUTOMATION_LANE_HEIGHT : 0);
 
   return (
     <div className="flex h-screen flex-col gap-4 overflow-hidden p-4">
@@ -1969,43 +2328,69 @@ export function Daw() {
         <div className="flex">
           <div className="flex shrink-0 flex-col">
             {channels.map((channel, idx) => (
-              <TrackHeader
-                key={channel.id}
-                channel={channel}
-                color={trackColorForIndex(channel.colorIndex)}
-                selected={channel.id === selectedChannelId}
-                recording={
-                  transportState === "recording" &&
-                  channel.id === recordingChannelRef.current
-                }
-                hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
-                hasClipContent={clipsOf(channel.id).length > 0}
-                effectsCount={(channelEffects[channel.id] ?? []).length}
-                canRemove={channels.length > 1}
-                canMoveUp={idx > 0}
-                canMoveDown={idx < channels.length - 1}
-                onSelect={() => {
-                  setSelectedChannelId(channel.id);
-                  setSelectedClipIds(new Set());
-                }}
-                onRename={(name) => handleRenameChannel(channel.id, name)}
-                onRecolor={(colorIndex) => handleRecolorChannel(channel.id, colorIndex)}
-                onMoveUp={() => handleReorderChannel(channel.id, -1)}
-                onMoveDown={() => handleReorderChannel(channel.id, 1)}
-                onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
-                onPanChange={(pan) => handlePanChange(channel.id, pan)}
-                onAdjustStart={pushHistory}
-                onMuteToggle={() => handleMuteToggle(channel.id)}
-                onSoloToggle={() => handleSoloToggle(channel.id)}
-                onArmToggle={() => handleArmToggle(channel.id)}
-                onOpenFx={() => openFx(channel.id)}
-                onImportMidi={(file) => void handleImportMidi(channel.id, file)}
-                onExportMidi={() => handleExportChannelMidi(channel.id)}
-                onImportAudio={(file) => void handleImportAudioAppend(channel.id, file)}
-                onClearClip={() => handleClearTrack(channel.id)}
-                onRemove={() => handleRemoveChannel(channel.id)}
-                onContextMenu={(e) => openHeaderMenu(channel.id, e)}
-              />
+              <div key={channel.id}>
+                <TrackHeader
+                  channel={channel}
+                  color={trackColorForIndex(channel.colorIndex)}
+                  selected={channel.id === selectedChannelId}
+                  recording={
+                    transportState === "recording" &&
+                    channel.id === recordingChannelRef.current
+                  }
+                  hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
+                  hasClipContent={clipsOf(channel.id).length > 0}
+                  effectsCount={(channelEffects[channel.id] ?? []).length}
+                  canRemove={channels.length > 1}
+                  canMoveUp={idx > 0}
+                  canMoveDown={idx < channels.length - 1}
+                  showAutomation={automationChannelId === channel.id}
+                  onToggleAutomation={() => handleToggleAutomation(channel.id)}
+                  onSelect={() => {
+                    setSelectedChannelId(channel.id);
+                    setSelectedClipIds(new Set());
+                  }}
+                  onRename={(name) => handleRenameChannel(channel.id, name)}
+                  onRecolor={(colorIndex) => handleRecolorChannel(channel.id, colorIndex)}
+                  onMoveUp={() => handleReorderChannel(channel.id, -1)}
+                  onMoveDown={() => handleReorderChannel(channel.id, 1)}
+                  onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
+                  onPanChange={(pan) => handlePanChange(channel.id, pan)}
+                  onAdjustStart={pushHistory}
+                  onMuteToggle={() => handleMuteToggle(channel.id)}
+                  onSoloToggle={() => handleSoloToggle(channel.id)}
+                  onArmToggle={() => handleArmToggle(channel.id)}
+                  onOpenFx={() => openFx(channel.id)}
+                  onImportMidi={(file) => void handleImportMidi(channel.id, file)}
+                  onExportMidi={() => handleExportChannelMidi(channel.id)}
+                  onImportAudio={(file) => void handleImportAudioAppend(channel.id, file)}
+                  onClearClip={() => handleClearTrack(channel.id)}
+                  onRemove={() => handleRemoveChannel(channel.id)}
+                  onContextMenu={(e) => openHeaderMenu(channel.id, e)}
+                />
+                {automationChannelId === channel.id && (
+                  <div
+                    className="flex shrink-0 items-center border-b border-r border-border bg-surface px-2"
+                    style={{ width: TRACK_HEADER_WIDTH, height: AUTOMATION_LANE_HEIGHT }}
+                  >
+                    <select
+                      value={automationTargetKey(automationTarget)}
+                      onChange={(e) => {
+                        const opt = automationTargetOptions(channelEffects[channel.id] ?? []).find(
+                          (o) => automationTargetKey(o.target) === e.target.value
+                        );
+                        if (opt) setAutomationTarget(opt.target);
+                      }}
+                      className="w-full rounded border border-border bg-surface-raised px-1.5 py-1 text-[11px]"
+                    >
+                      {automationTargetOptions(channelEffects[channel.id] ?? []).map((opt) => (
+                        <option key={automationTargetKey(opt.target)} value={automationTargetKey(opt.target)}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             ))}
             <div className="flex shrink-0" style={{ width: TRACK_HEADER_WIDTH }}>
               <button
@@ -2031,43 +2416,64 @@ export function Daw() {
             className="relative flex-1 overflow-x-auto"
           >
             {channels.map((channel) => (
-              <TrackLane
-                key={channel.id}
-                clips={clipsOf(channel.id)}
-                color={trackColorForIndex(channel.colorIndex)}
-                bpm={bpm}
-                beatsPerBar={beatsPerBar}
-                totalSeconds={totalSeconds}
-                pxPerSecond={pxPerSecond}
-                snapSeconds={snapSeconds}
-                selected={channel.id === selectedChannelId}
-                armed={channel.id === armedChannelId}
-                selectedClipIds={selectedClipIds}
-                onSelectTrack={() => {
-                  setSelectedChannelId(channel.id);
-                  setSelectedClipIds(new Set());
-                }}
-                onSelectClip={(clipId, additive) => {
-                  setSelectedChannelId(channel.id);
-                  setSelectedClipIds((prev) => {
-                    if (additive) {
-                      const next = new Set(prev);
-                      if (next.has(clipId)) next.delete(clipId);
-                      else next.add(clipId);
-                      return next;
-                    }
-                    return new Set([clipId]);
-                  });
-                }}
-                onEditClip={(clipId) => handleEditClip(channel.id, clipId)}
-                onMoveClip={(clipId, offset) => handleMoveClip(channel.id, clipId, offset)}
-                onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}
-                onFadeChange={(clipId, fadeIn, fadeOut) => handleFadeChange(channel.id, clipId, fadeIn, fadeOut)}
-                onGainChange={(clipId, gainDb) => handleGainChange(channel.id, clipId, gainDb)}
-                onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
-                onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
-                onClipDragStart={pushHistory}
-              />
+              <div key={channel.id}>
+                <TrackLane
+                  clips={clipsOf(channel.id)}
+                  color={trackColorForIndex(channel.colorIndex)}
+                  bpm={bpm}
+                  beatsPerBar={beatsPerBar}
+                  totalSeconds={totalSeconds}
+                  pxPerSecond={pxPerSecond}
+                  snapSeconds={snapSeconds}
+                  selected={channel.id === selectedChannelId}
+                  armed={channel.id === armedChannelId}
+                  selectedClipIds={selectedClipIds}
+                  onSelectTrack={() => {
+                    setSelectedChannelId(channel.id);
+                    setSelectedClipIds(new Set());
+                  }}
+                  onSelectClip={(clipId, additive) => {
+                    setSelectedChannelId(channel.id);
+                    setSelectedClipIds((prev) => {
+                      if (additive) {
+                        const next = new Set(prev);
+                        if (next.has(clipId)) next.delete(clipId);
+                        else next.add(clipId);
+                        return next;
+                      }
+                      return new Set([clipId]);
+                    });
+                  }}
+                  onEditClip={(clipId) => handleEditClip(channel.id, clipId)}
+                  onMoveClip={(clipId, offset) => handleMoveClip(channel.id, clipId, offset)}
+                  onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}
+                  onFadeChange={(clipId, fadeIn, fadeOut) => handleFadeChange(channel.id, clipId, fadeIn, fadeOut)}
+                  onGainChange={(clipId, gainDb) => handleGainChange(channel.id, clipId, gainDb)}
+                  onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
+                  onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
+                  onClipDragStart={pushHistory}
+                />
+                {automationChannelId === channel.id && (
+                  <div className="border-b border-border bg-surface-raised/30">
+                    <AutomationLaneEditor
+                      points={
+                        (channel.automationLanes ?? []).find(
+                          (l) => automationTargetKey(l.target) === automationTargetKey(automationTarget)
+                        )?.points ?? []
+                      }
+                      valueMin={automationRange(automationTarget, channelEffects[channel.id] ?? []).min}
+                      valueMax={automationRange(automationTarget, channelEffects[channel.id] ?? []).max}
+                      formatValue={automationRange(automationTarget, channelEffects[channel.id] ?? []).format}
+                      totalSeconds={totalSeconds}
+                      pxPerSecond={pxPerSecond}
+                      height={AUTOMATION_LANE_HEIGHT}
+                      color={trackColorForIndex(channel.colorIndex)}
+                      onChange={(points) => handleAutomationPointsChange(channel.id, automationTarget, points)}
+                      onDragStart={pushHistory}
+                    />
+                  </div>
+                )}
+              </div>
             ))}
             {loopEnd > loopStart && (
               <div
@@ -2094,6 +2500,55 @@ export function Daw() {
           e.target.value = "";
         }}
       />
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+          Send/return buses
+        </span>
+        {buses.map((bus) => (
+          <div
+            key={bus.id}
+            className="flex items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-1"
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: trackColorForIndex(bus.colorIndex).accent }}
+            />
+            <input
+              value={bus.name}
+              onChange={(e) => handleRenameBus(bus.id, e.target.value)}
+              className="w-20 bg-transparent text-xs outline-none"
+              title="Bus name"
+            />
+            <button
+              type="button"
+              title="Open bus effects"
+              onClick={() => openBusFx(bus.id)}
+              className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-accent"
+            >
+              FX{(busEffects[bus.id]?.length ?? 0) > 0 ? ` (${busEffects[bus.id]!.length})` : ""}
+            </button>
+            <button
+              type="button"
+              title="Remove bus"
+              onClick={() => handleRemoveBus(bus.id)}
+              className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-record"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={handleAddBus}
+          className="rounded border border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent"
+        >
+          + Bus
+        </button>
+        <span className="text-[10px] text-muted/70">
+          Set each track&apos;s send level to a bus from its own FX window.
+        </span>
+      </div>
 
       <div className="flex shrink-0 rounded-lg border border-border bg-surface">
         <TrackHeader
@@ -2166,13 +2621,23 @@ export function Daw() {
             </button>
           </div>
         ) : (
-          <PianoKeyboard
-            activeNotes={activeNotes}
-            onNoteOn={handleNoteOn}
-            onNoteOff={handleNoteOff}
-            scaleSetting={scaleSetting}
-            keyboardShortcutsEnabled={!editingClip}
-          />
+          <div className="flex items-center gap-3">
+            <ExpressionControls
+              pitchBendRangeSemitones={PITCH_BEND_RANGE_SEMITONES}
+              onPitchBend={(semitones) => armedChannelId && audioEngine.setPitchBend(armedChannelId, semitones)}
+              onModWheel={(amount) => armedChannelId && audioEngine.setModWheel(armedChannelId, amount)}
+              onSustainChange={(down) => armedChannelId && audioEngine.setSustain(armedChannelId, down)}
+            />
+            <div className="flex-1">
+              <PianoKeyboard
+                activeNotes={activeNotes}
+                onNoteOn={handleNoteOn}
+                onNoteOff={handleNoteOff}
+                scaleSetting={scaleSetting}
+                keyboardShortcutsEnabled={!editingClip}
+              />
+            </div>
+          </div>
         )}
       </div>
 
@@ -2219,14 +2684,35 @@ export function Daw() {
           channelType={fxChannel.type}
           color={trackColorForIndex(fxChannel.colorIndex)}
           instrument={fxChannel.instrument}
+          synthParams={fxChannel.synthParams}
           effects={channelEffects[fxChannel.id] ?? []}
+          buses={buses}
+          sends={fxChannel.sends}
           onInstrumentChange={(type) => handleInstrumentChange(fxChannel.id, type)}
+          onSynthParamsChange={handleSynthParamsChange}
+          onSendChange={handleSendChange}
           onAdd={handleAddEffect}
           onRemove={handleRemoveEffect}
           onReorder={handleReorderEffect}
+          onBypassToggle={handleEffectBypassToggle}
           onParamDragStart={pushHistory}
           onParamChange={handleEffectParamChange}
           onClose={() => setFxChannelId(null)}
+        />
+      )}
+
+      {fxBus && (
+        <FxWindow
+          channelName={fxBus.name}
+          color={trackColorForIndex(fxBus.colorIndex)}
+          effects={busEffects[fxBus.id] ?? []}
+          onAdd={handleBusAddEffect}
+          onRemove={handleBusRemoveEffect}
+          onReorder={handleBusReorderEffect}
+          onBypassToggle={handleBusEffectBypassToggle}
+          onParamDragStart={pushHistory}
+          onParamChange={handleBusEffectParamChange}
+          onClose={() => setFxBusId(null)}
         />
       )}
     </div>

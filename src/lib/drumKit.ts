@@ -16,6 +16,12 @@ export interface Instrument {
   connect(node: Tone.InputNode): this;
   disconnect(): this;
   dispose(): void;
+  /** Live pitch-bend, in cents - optional since a sampler/drum kit has no
+   * sensible way to honor it; only a real oscillator-based synth voice
+   * implements this. */
+  setDetune?(cents: number): void;
+  /** Live mod wheel, 0..1 - same optionality as `setDetune`. */
+  setModWheel?(amount: number): void;
 }
 
 /**

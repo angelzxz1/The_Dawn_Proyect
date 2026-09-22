@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import {
+  ActivitySquare,
   ChevronDown,
   ChevronUp,
   Circle,
@@ -56,6 +57,9 @@ interface TrackHeaderProps {
   canMoveDown?: boolean;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  /** Whether this track's automation lane is currently expanded below it. */
+  showAutomation?: boolean;
+  onToggleAutomation?: () => void;
 }
 
 function formatDb(db: number): string {
@@ -70,6 +74,7 @@ function formatPan(pan: number): string {
 function instrumentLabel(instrument: ChannelConfig["instrument"]): string {
   if (instrument === "piano") return "Piano";
   if (instrument === "drums") return "Drums";
+  if (instrument === "synth") return "Synth";
   return "Empty";
 }
 
@@ -78,12 +83,14 @@ function IconButton({
   onClick,
   disabled,
   danger,
+  active,
   children,
 }: {
   title: string;
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  active?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -92,8 +99,8 @@ function IconButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30 ${
-        danger ? "text-record" : "text-muted"
+      className={`flex h-6 w-6 items-center justify-center rounded border hover:bg-surface-raised disabled:opacity-30 ${
+        danger ? "border-border text-record" : active ? "border-accent text-accent" : "border-border text-muted"
       }`}
     >
       {children}
@@ -131,6 +138,8 @@ export function TrackHeader({
   canMoveDown,
   onMoveUp,
   onMoveDown,
+  showAutomation,
+  onToggleAutomation,
 }: TrackHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -412,6 +421,15 @@ export function TrackHeader({
           <IconButton title="Move track down" onClick={() => onMoveDown?.()} disabled={!canMoveDown}>
             <ChevronDown size={12} />
           </IconButton>
+          {onToggleAutomation && (
+            <IconButton
+              title={showAutomation ? "Hide automation lane" : "Show automation lane"}
+              onClick={() => onToggleAutomation()}
+              active={showAutomation}
+            >
+              <ActivitySquare size={12} />
+            </IconButton>
+          )}
           <div className="flex-1" />
           {canRemove && (
             <IconButton title="Remove channel" onClick={() => onRemove?.()} danger>

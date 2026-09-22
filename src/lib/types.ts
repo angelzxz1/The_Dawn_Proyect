@@ -11,7 +11,7 @@ export interface NoteEvent {
 
 /** The sound source a MIDI track plays through - "like in Ableton", an
  * instrument you pick per track rather than a single hardcoded piano. */
-export type InstrumentType = "piano" | "drums";
+export type InstrumentType = "piano" | "drums" | "synth";
 
 /** A channel's fixed kind, chosen when it's created (Ableton-style): a MIDI
  * track plays notes through an instrument and can host audio effects too; an
@@ -30,6 +30,9 @@ export interface ChannelConfig {
    * track doesn't have to have anything loaded into it. Unused for audio
    * channels. */
   instrument: InstrumentType | null;
+  /** Live params for the "synth" instrument - only meaningful (and only
+   * present) while `instrument === "synth"`. */
+  synthParams?: SynthParams;
   muted: boolean;
   /** Soloing any one channel silences every non-soloed channel. */
   solo: boolean;
@@ -39,6 +42,70 @@ export interface ChannelConfig {
    * on-screen piano/pads, or a MIDI controller) - so merely clicking a
    * track to select it never makes noise. */
   armed: boolean;
+  /** Send levels to return buses, in dB, keyed by bus id. A bus with no
+   * entry here (or an entry at/below SEND_OFF_DB) gets nothing sent to it -
+   * the channel's own dry signal always keeps going straight to master
+   * regardless of any sends. */
+  sends?: Record<string, number>;
+  /** Automation lanes recorded for this channel's volume/pan/effect knobs.
+   * Each lane's points are edited on the arrangement timeline's automation
+   * strip and replayed by the engine during playback. */
+  automationLanes?: AutomationLane[];
+}
+
+/** The subtractive/FM synth's live, editable sound-design params - shared
+ * by the engine (which turns them into real Tone.js voices) and the FX
+ * window's controls. */
+export interface SynthParams {
+  mode: "subtractive" | "fm";
+  /** Subtractive mode only. */
+  oscillatorType: "sine" | "square" | "sawtooth" | "triangle";
+  attack: number;
+  decay: number;
+  sustain: number; // 0..1
+  release: number;
+  /** Subtractive mode only - a lowpass filter after the oscillator. */
+  filterCutoff: number; // Hz
+  filterResonance: number; // Q
+  /** FM mode only. */
+  harmonicity: number;
+  modulationIndex: number;
+  /** Static base detune baked into the preset/sound design, in cents -
+   * independent of the live pitch-bend wheel's detune. */
+  detune: number;
+}
+
+/** A send/return bus: several tracks can route a copy of their signal into
+ * one shared effect (e.g. one reverb every track sends into) instead of
+ * each having its own instance. Its output always feeds the master bus. */
+export interface BusConfig {
+  id: string;
+  name: string;
+  colorIndex: number;
+}
+
+/** One point on an automation lane's curve - `value` is in the target
+ * parameter's own native range (dB for volume, -1..1 for pan, or the
+ * effect param's own min..max). */
+export interface AutomationPoint {
+  id: string;
+  /** Absolute position on the arrangement timeline, in seconds. */
+  time: number;
+  value: number;
+}
+
+export type AutomationTarget =
+  | { kind: "volume" }
+  | { kind: "pan" }
+  | { kind: "effect"; effectId: string; paramKey: string };
+
+export interface AutomationLane {
+  id: string;
+  target: AutomationTarget;
+  /** Sorted by `time`. Fewer than 2 points means nothing audibly changes -
+   * the value just sits flat at whatever the single point (or the knob's
+   * own current value, if there are none) says. */
+  points: AutomationPoint[];
 }
 
 /** A clip's content type - "audio" clips hold an imported audio file instead

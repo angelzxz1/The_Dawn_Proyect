@@ -5,6 +5,7 @@
 
 import { audioEngine } from "./audioEngine";
 import type {
+  BusConfig,
   ChannelConfig,
   ClipInstance,
   MidiClipInstance,
@@ -18,6 +19,8 @@ export interface ProjectState {
   channels: ChannelConfig[];
   clipsByChannel: Record<string, ClipInstance[]>;
   channelEffects: Record<string, EffectInstance[]>;
+  buses: BusConfig[];
+  busEffects: Record<string, EffectInstance[]>;
   bpm: number;
   timeSignature: TimeSignature;
   masterVolume: number;
@@ -84,8 +87,19 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
     quarterNotesPerBar(state.timeSignature.numerator, state.timeSignature.denominator)
   );
 
+  state.buses.forEach((bus) => {
+    audioEngine.addBus(bus.id);
+    (state.busEffects[bus.id] ?? []).forEach((fx) => {
+      audioEngine.addEffect(bus.id, fx.type, fx.id);
+      Object.entries(fx.params).forEach(([key, value]) =>
+        audioEngine.setEffectParam(bus.id, fx.id, key, value)
+      );
+      if (fx.bypass) audioEngine.setEffectBypass(bus.id, fx.id, true);
+    });
+  });
+
   state.channels.forEach((channel) => {
-    audioEngine.addChannel(channel.id, channel.type, channel.instrument);
+    audioEngine.addChannel(channel.id, channel.type, channel.instrument, channel.synthParams);
     audioEngine.setVolume(channel.id, channel.volume);
     audioEngine.setPan(channel.id, channel.pan);
     audioEngine.setMute(channel.id, channel.muted);
@@ -97,7 +111,13 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
       Object.entries(fx.params).forEach(([key, value]) =>
         audioEngine.setEffectParam(channel.id, fx.id, key, value)
       );
+      if (fx.bypass) audioEngine.setEffectBypass(channel.id, fx.id, true);
     });
+
+    Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
+      audioEngine.setSend(channel.id, busId, db);
+    });
+    audioEngine.setAutomation(channel.id, channel.automationLanes ?? []);
 
     const clips = state.clipsByChannel[channel.id] ?? [];
     if (channel.type === "midi") {

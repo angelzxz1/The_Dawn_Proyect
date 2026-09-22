@@ -1,16 +1,54 @@
 import * as Tone from "tone";
-import type { NoteEvent, InstrumentType, ChannelType } from "./types";
+import type {
+  NoteEvent,
+  InstrumentType,
+  ChannelType,
+  SynthParams,
+  AutomationLane,
+} from "./types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
+import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, defaultParams } from "./effects";
+
+/** Linearly interpolates an automation lane's value at time `t` - flat
+ * before the first point and after the last, matching how the lane's UI
+ * draws the curve. Points must be sorted by `time`. */
+function interpolateAutomation(
+  points: { time: number; value: number }[],
+  t: number
+): number | null {
+  if (points.length === 0) return null;
+  if (points.length === 1 || t <= points[0].time) return points[0].value;
+  const last = points[points.length - 1];
+  if (t >= last.time) return last.value;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (t >= a.time && t <= b.time) {
+      const ratio = (t - a.time) / (b.time - a.time || 1);
+      return a.value + (b.value - a.value) * ratio;
+    }
+  }
+  return last.value;
+}
 
 interface EffectNode {
   id: string;
   type: EffectType;
   node: Tone.ToneAudioNode;
+  /** Skipped when wiring the chain (as if unplugged) while true. */
+  bypass: boolean;
 }
 
-interface ChannelNodes {
+/** Common shape shared by a track channel and a bus's own effects rack, so
+ * one generic set of add/remove/reorder/bypass/param methods can drive
+ * either. */
+interface EffectsHost {
+  effects: EffectNode[];
+}
+
+interface ChannelNodes extends EffectsHost {
   channel: Tone.Channel;
   meter: Tone.Meter;
   /** Fixed for the channel's lifetime - decides whether the instrument or
@@ -21,12 +59,27 @@ interface ChannelNodes {
   part: Tone.Part<NoteEvent> | null;
   /** Notes currently held down live (not yet released), keyed by note name. */
   heldNotes: Set<string>;
-  effects: EffectNode[];
   /** An audio channel can hold several independent clips at once - each
    * clip gets its own Player (the decoded source plus its playback window)
    * and a Volume node for its per-clip gain, permanently wired in series
    * (player -> gain) and keyed by clip instance id. */
   audioClips: Map<string, { player: Tone.Player; gain: Tone.Volume }>;
+  /** One send-level Gain per bus this channel currently sends to, tapped
+   * from `channel`'s output (post-fader) and feeding straight into that
+   * bus's input - independent of the dry signal, which always keeps going
+   * to master regardless of any sends. */
+  sends: Map<string, Tone.Gain>;
+}
+
+/** A send/return bus - like a track channel's effects rack, but fed by
+ * other channels' sends instead of an instrument or audio clips. `input` is
+ * a stable tap point sends connect to, decoupled from the effects chain
+ * itself so reordering/adding/removing an effect never has to re-find every
+ * sending channel's connection. */
+interface BusNodes extends EffectsHost {
+  input: Tone.Gain;
+  channel: Tone.Channel;
+  meter: Tone.Meter;
 }
 
 export interface AudioClipTiming {
@@ -65,7 +118,8 @@ export function bumpEffectIdCounter(atLeast: number): void {
 
 export function createInstrument(
   type: InstrumentType | null,
-  onSettled: () => void
+  onSettled: () => void,
+  synthParams?: SynthParams
 ): Instrument {
   if (type === null) {
     queueMicrotask(onSettled);
@@ -76,6 +130,11 @@ export function createInstrument(
     queueMicrotask(onSettled);
     return new DrumKit();
   }
+  if (type === "synth") {
+    // Synth-built too - no samples to wait on.
+    queueMicrotask(onSettled);
+    return new SynthInstrument(synthParams ?? defaultSynthParams());
+  }
   return new Tone.Sampler({
     urls: PIANO_SAMPLE_URLS,
     baseUrl: PIANO_SAMPLE_BASE_URL,
@@ -84,6 +143,15 @@ export function createInstrument(
     onload: onSettled,
     onerror: onSettled,
   });
+}
+
+/** Maps the filter effect's single 0..1 "Type" knob onto Tone.Filter's
+ * discrete filter types, so the generic number-only ValueBar UI can still
+ * drive it: 0 = lowpass, 0.5 = highpass, 1 = bandpass. */
+function filterTypeFromKnob(v: number): BiquadFilterType {
+  if (v < 0.33) return "lowpass";
+  if (v < 0.67) return "highpass";
+  return "bandpass";
 }
 
 export function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
@@ -111,6 +179,25 @@ export function createEffectNode(type: EffectType, params: Record<string, number
       });
     case "reverb":
       return new Tone.Reverb({ decay: params.decay, wet: params.wet });
+    case "chorus":
+      return new Tone.Chorus({
+        frequency: params.frequency,
+        delayTime: params.delayTime,
+        depth: params.depth,
+        wet: params.wet,
+      }).start();
+    case "distortion":
+      return new Tone.Distortion({ distortion: params.distortion, wet: params.wet });
+    case "filter":
+      return new Tone.Filter({
+        frequency: params.frequency,
+        Q: params.Q,
+        type: filterTypeFromKnob(params.type),
+      });
+    case "limiter":
+      return new Tone.Limiter(params.threshold);
+    case "pitchShift":
+      return new Tone.PitchShift({ pitch: params.pitch, wet: params.wet });
   }
 }
 
@@ -151,11 +238,44 @@ export function applyEffectParam(
       else if (key === "wet") reverb.wet.value = value;
       break;
     }
+    case "chorus": {
+      const chorus = node as Tone.Chorus;
+      if (key === "frequency") chorus.frequency.value = value;
+      else if (key === "delayTime") chorus.delayTime = value;
+      else if (key === "depth") chorus.depth = value;
+      else if (key === "wet") chorus.wet.value = value;
+      break;
+    }
+    case "distortion": {
+      const dist = node as Tone.Distortion;
+      if (key === "distortion") dist.distortion = value;
+      else if (key === "wet") dist.wet.value = value;
+      break;
+    }
+    case "filter": {
+      const filter = node as Tone.Filter;
+      if (key === "frequency") filter.frequency.value = value;
+      else if (key === "Q") filter.Q.value = value;
+      else if (key === "type") filter.type = filterTypeFromKnob(value);
+      break;
+    }
+    case "limiter": {
+      const limiter = node as Tone.Limiter;
+      if (key === "threshold") limiter.threshold.value = value;
+      break;
+    }
+    case "pitchShift": {
+      const shift = node as Tone.PitchShift;
+      if (key === "pitch") shift.pitch = value;
+      else if (key === "wet") shift.wet.value = value;
+      break;
+    }
   }
 }
 
 class AudioEngine {
   private channels = new Map<string, ChannelNodes>();
+  private buses = new Map<string, BusNodes>();
   private started = false;
   private startPromise: Promise<void> | null = null;
   private recording: RecordingState | null = null;
@@ -164,6 +284,72 @@ class AudioEngine {
   private micStream: MediaStream | null = null;
   private audioRecording: { channelId: string; recorder: MediaRecorder; chunks: Blob[] } | null =
     null;
+
+  // --- Automation playback ---
+  private automation = new Map<string, AutomationLane[]>();
+  private automationLoopStarted = false;
+
+  /** Replaces a channel's set of automation lanes (played back live during
+   * transport playback, one control-rate sample at a time). */
+  setAutomation(channelId: string, lanes: AutomationLane[]): void {
+    if (lanes.length > 0) this.ensureAutomationLoop();
+    this.automation.set(channelId, lanes);
+  }
+
+  private ensureAutomationLoop(): void {
+    if (this.automationLoopStarted) return;
+    this.automationLoopStarted = true;
+    // 20Hz is smooth enough for volume/pan/knob automation without being a
+    // meaningful CPU cost - reuses the same synchronous setters a manual
+    // knob drag calls, so there's only one code path that actually applies
+    // a value to a live node.
+    Tone.getTransport().scheduleRepeat(() => {
+      const t = Tone.getTransport().seconds;
+      this.automation.forEach((lanes, channelId) => {
+        lanes.forEach((lane) => this.applyAutomationAt(channelId, lane, t));
+      });
+    }, 0.05);
+  }
+
+  private applyAutomationAt(channelId: string, lane: AutomationLane, t: number): void {
+    const value = interpolateAutomation(lane.points, t);
+    if (value === null) return;
+    if (lane.target.kind === "volume") this.setVolume(channelId, value);
+    else if (lane.target.kind === "pan") this.setPan(channelId, value);
+    else this.setEffectParam(channelId, lane.target.effectId, lane.target.paramKey, value);
+  }
+
+  // --- Sustain pedal (CC64) ---
+  private sustainedChannels = new Set<string>();
+  /** Notes released (key-up) while the pedal was held down, per channel -
+   * kept sounding until the pedal itself lifts. */
+  private sustainPending = new Map<string, Set<string>>();
+
+  setSustain(channelId: string, down: boolean): void {
+    if (down) {
+      this.sustainedChannels.add(channelId);
+      return;
+    }
+    this.sustainedChannels.delete(channelId);
+    const pending = this.sustainPending.get(channelId);
+    if (!pending || pending.size === 0) return;
+    const nodes = this.channels.get(channelId);
+    pending.forEach((note) => this.safe(() => nodes?.instrument.triggerRelease(note, Tone.now())));
+    pending.clear();
+  }
+
+  /** Live pitch-bend - `semitones` is the already-scaled bend amount (e.g.
+   * wheel position -1..1 times the bend range), applied as live detune.
+   * Only instruments that implement `setDetune` (the synth) respond. */
+  setPitchBend(channelId: string, semitones: number): void {
+    this.channels.get(channelId)?.instrument.setDetune?.(semitones * 100);
+  }
+
+  /** Live mod wheel, 0..1. Only instruments that implement `setModWheel`
+   * (the synth) respond. */
+  setModWheel(channelId: string, amount: number): void {
+    this.channels.get(channelId)?.instrument.setModWheel?.(amount);
+  }
 
   /** True once every sampler currently loading has finished (or failed). */
   samplesReady = true;
@@ -243,7 +429,12 @@ class AudioEngine {
     return Number.isFinite(level) ? level : 0;
   }
 
-  addChannel(id: string, channelType: ChannelType, instrument: InstrumentType | null): void {
+  addChannel(
+    id: string,
+    channelType: ChannelType,
+    instrument: InstrumentType | null,
+    synthParams?: SynthParams
+  ): void {
     if (this.channels.has(id)) return;
 
     const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
@@ -262,11 +453,16 @@ class AudioEngine {
       meter,
       channelType,
       instrumentType: channelType === "midi" ? instrument : null,
-      instrument: createInstrument(channelType === "midi" ? instrument : null, onSettled),
+      instrument: createInstrument(
+        channelType === "midi" ? instrument : null,
+        onSettled,
+        synthParams
+      ),
       part: null,
       heldNotes: new Set(),
       effects: [],
       audioClips: new Map(),
+      sends: new Map(),
     });
     this.rewireChannel(id);
   }
@@ -280,12 +476,35 @@ class AudioEngine {
       player.dispose();
       gain.dispose();
     });
+    nodes.sends.forEach((gain) => gain.dispose());
     nodes.effects.forEach((e) => e.node.dispose());
     nodes.channel.dispose();
     nodes.meter.dispose();
     this.channels.delete(id);
+    this.automation.delete(id);
+    this.sustainedChannels.delete(id);
+    this.sustainPending.delete(id);
     if (this.recording?.channelId === id) {
       this.recording = null;
+    }
+  }
+
+  /** Wires `sources` through the non-bypassed entries of `effects`, in
+   * order, into `dest` - shared by a track channel (whose sources are its
+   * instrument or audio clips) and a bus (whose source is its stable send
+   * `input` tap), so both get the same bypass-aware chain-building logic. */
+  private wireEffectsChain(
+    sources: { connect: (n: Tone.InputNode) => unknown }[],
+    effects: EffectNode[],
+    dest: Tone.ToneAudioNode
+  ): void {
+    effects.forEach((e) => e.node.disconnect());
+    const active = effects.filter((e) => !e.bypass);
+    const first = active[0]?.node ?? dest;
+    sources.forEach((source) => source.connect(first));
+    for (let i = 0; i < active.length; i++) {
+      const next = active[i + 1]?.node ?? dest;
+      active[i].node.connect(next);
     }
   }
 
@@ -306,27 +525,32 @@ class AudioEngine {
     // is currently active.
     nodes.instrument.disconnect();
     nodes.audioClips.forEach(({ gain }) => gain.disconnect());
-    nodes.effects.forEach((e) => e.node.disconnect());
 
     type Connectable = { connect: (n: Tone.InputNode) => unknown };
     const sources: Connectable[] =
       nodes.channelType === "audio"
         ? [...nodes.audioClips.values()].map((c) => c.gain)
         : [nodes.instrument];
-    if (sources.length === 0) return; // audio channel with nothing loaded yet
-
-    const firstEffect = nodes.effects[0]?.node ?? nodes.channel;
-    sources.forEach((source) => source.connect(firstEffect));
-    for (let i = 0; i < nodes.effects.length; i++) {
-      const next = nodes.effects[i + 1]?.node ?? nodes.channel;
-      nodes.effects[i].node.connect(next);
+    if (sources.length === 0) {
+      nodes.effects.forEach((e) => e.node.disconnect());
+      return; // audio channel with nothing loaded yet
     }
+    this.wireEffectsChain(sources, nodes.effects, nodes.channel);
+  }
+
+  /** Same as `rewireChannel`, but for a bus: its "source" is always just
+   * its stable send-input tap. */
+  private rewireBus(id: string): void {
+    const bus = this.buses.get(id);
+    if (!bus) return;
+    bus.input.disconnect();
+    this.wireEffectsChain([bus.input], bus.effects, bus.channel);
   }
 
   /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums,
    * or null to leave the track empty), disposing the old one and
    * reconnecting the signal chain. No-op on an audio channel. */
-  setInstrument(id: string, type: InstrumentType | null): void {
+  setInstrument(id: string, type: InstrumentType | null, synthParams?: SynthParams): void {
     const nodes = this.channels.get(id);
     if (!nodes || nodes.channelType !== "midi" || nodes.instrumentType === type) return;
     nodes.instrument.dispose();
@@ -336,12 +560,30 @@ class AudioEngine {
       this.pendingLoads = Math.max(0, this.pendingLoads - 1);
       if (this.pendingLoads === 0) this.setReady(true);
     };
-    nodes.instrument = createInstrument(type, onSettled);
+    nodes.instrument = createInstrument(type, onSettled, synthParams);
     nodes.instrumentType = type;
     this.rewireChannel(id);
   }
 
-  // --- Effects chain ---
+  /** Applies a full new param set to a channel's synth instrument (a no-op
+   * if it isn't currently a synth - e.g. a stale event arriving right after
+   * switching to Piano/Drums). */
+  setSynthParams(id: string, params: SynthParams): void {
+    const nodes = this.channels.get(id);
+    if (nodes?.instrumentType === "synth") {
+      (nodes.instrument as SynthInstrument).setParams(params);
+    }
+  }
+
+  // --- Effects chain - shared by track channels and buses ---
+
+  private effectsHost(id: string): { host: EffectsHost; rewire: () => void } | null {
+    const channel = this.channels.get(id);
+    if (channel) return { host: channel, rewire: () => this.rewireChannel(id) };
+    const bus = this.buses.get(id);
+    if (bus) return { host: bus, rewire: () => this.rewireBus(id) };
+    return null;
+  }
 
   /** `explicitId`, when given (restoring a saved project, or an undo/redo
    * rebuild), keeps the effect's id stable across a full engine rebuild so
@@ -351,44 +593,127 @@ class AudioEngine {
     id: string,
     type: EffectType,
     explicitId?: string
-  ): { id: string; type: EffectType; params: Record<string, number> } | null {
-    const nodes = this.channels.get(id);
-    if (!nodes) return null;
+  ): { id: string; type: EffectType; params: Record<string, number>; bypass: boolean } | null {
+    const target = this.effectsHost(id);
+    if (!target) return null;
     const params = defaultParams(type);
     const node = createEffectNode(type, params);
     const effectId = explicitId ?? `fx-${++effectIdCounter}`;
-    nodes.effects.push({ id: effectId, type, node });
-    this.rewireChannel(id);
-    return { id: effectId, type, params };
+    target.host.effects.push({ id: effectId, type, node, bypass: false });
+    target.rewire();
+    return { id: effectId, type, params, bypass: false };
   }
 
   removeEffect(id: string, effectId: string): void {
-    const nodes = this.channels.get(id);
-    if (!nodes) return;
-    const idx = nodes.effects.findIndex((e) => e.id === effectId);
+    const target = this.effectsHost(id);
+    if (!target) return;
+    const idx = target.host.effects.findIndex((e) => e.id === effectId);
     if (idx === -1) return;
-    nodes.effects[idx].node.dispose();
-    nodes.effects.splice(idx, 1);
-    this.rewireChannel(id);
+    target.host.effects[idx].node.dispose();
+    target.host.effects.splice(idx, 1);
+    target.rewire();
   }
 
   /** Moves an effect one slot earlier (-1) or later (+1) in the chain. */
   reorderEffect(id: string, effectId: string, direction: -1 | 1): void {
-    const nodes = this.channels.get(id);
-    if (!nodes) return;
-    const idx = nodes.effects.findIndex((e) => e.id === effectId);
-    const target = idx + direction;
-    if (idx === -1 || target < 0 || target >= nodes.effects.length) return;
-    const [entry] = nodes.effects.splice(idx, 1);
-    nodes.effects.splice(target, 0, entry);
-    this.rewireChannel(id);
+    const target = this.effectsHost(id);
+    if (!target) return;
+    const idx = target.host.effects.findIndex((e) => e.id === effectId);
+    const targetIdx = idx + direction;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= target.host.effects.length) return;
+    const [entry] = target.host.effects.splice(idx, 1);
+    target.host.effects.splice(targetIdx, 0, entry);
+    target.rewire();
+  }
+
+  /** Toggles whether an effect is skipped in the chain, keeping its params
+   * and position intact. */
+  setEffectBypass(id: string, effectId: string, bypass: boolean): void {
+    const target = this.effectsHost(id);
+    const effect = target?.host.effects.find((e) => e.id === effectId);
+    if (!effect || effect.bypass === bypass) return;
+    effect.bypass = bypass;
+    target!.rewire();
   }
 
   setEffectParam(id: string, effectId: string, key: string, value: number): void {
-    const nodes = this.channels.get(id);
-    const effect = nodes?.effects.find((e) => e.id === effectId);
+    const target = this.effectsHost(id);
+    const effect = target?.host.effects.find((e) => e.id === effectId);
     if (!effect) return;
     this.safe(() => applyEffectParam(effect.node, effect.type, key, value));
+  }
+
+  // --- Send/return buses ---
+
+  addBus(id: string): void {
+    if (this.buses.has(id)) return;
+    const input = new Tone.Gain(1);
+    const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
+    const channel = new Tone.Channel({ volume: 0, pan: 0 })
+      .connect(meter)
+      .connect(this.ensureMaster().channel);
+    this.buses.set(id, { input, channel, meter, effects: [] });
+    this.rewireBus(id);
+  }
+
+  removeBus(id: string): void {
+    const bus = this.buses.get(id);
+    if (!bus) return;
+    bus.effects.forEach((e) => e.node.dispose());
+    bus.input.dispose();
+    bus.channel.dispose();
+    bus.meter.dispose();
+    this.buses.delete(id);
+    this.channels.forEach((nodes) => {
+      const gain = nodes.sends.get(id);
+      if (gain) {
+        gain.dispose();
+        nodes.sends.delete(id);
+      }
+    });
+  }
+
+  setBusVolume(id: string, db: number): void {
+    const bus = this.buses.get(id);
+    if (bus) bus.channel.volume.value = db;
+  }
+
+  setBusPan(id: string, pan: number): void {
+    const bus = this.buses.get(id);
+    if (bus) bus.channel.pan.value = pan;
+  }
+
+  getBusLevel(id: string): number {
+    const bus = this.buses.get(id);
+    if (!bus) return 0;
+    const value = bus.meter.getValue();
+    const level = Array.isArray(value) ? value[0] : value;
+    return Number.isFinite(level) ? level : 0;
+  }
+
+  /** Sets (or, with `db === null`, removes) a channel's send to a bus, in
+   * dB - independent of the channel's own dry output, which always keeps
+   * going straight to master regardless of any sends. */
+  setSend(channelId: string, busId: string, db: number | null): void {
+    const nodes = this.channels.get(channelId);
+    if (!nodes) return;
+    const bus = this.buses.get(busId);
+    let gain = nodes.sends.get(busId);
+    if (db === null || !bus) {
+      if (gain) {
+        gain.dispose();
+        nodes.sends.delete(busId);
+      }
+      return;
+    }
+    if (!gain) {
+      gain = new Tone.Gain(Tone.dbToGain(db));
+      nodes.channel.connect(gain);
+      gain.connect(bus.input);
+      nodes.sends.set(busId, gain);
+    } else {
+      gain.gain.value = Tone.dbToGain(db);
+    }
   }
 
   setVolume(id: string, db: number): void {
@@ -438,12 +763,25 @@ class AudioEngine {
     }
   }
 
-  /** Live note-off. */
+  /** Live note-off. When the sustain pedal (CC64) is down for this channel,
+   * the voice keeps ringing - it's queued for release once the pedal lifts
+   * - but the note is still considered "up" for re-triggering and its
+   * recorded duration (if recording) still reflects the real key-up time,
+   * not the sustained tail. */
   noteOff(channelId: string, note: string): void {
     const nodes = this.channels.get(channelId);
     if (!nodes || !nodes.heldNotes.has(note)) return;
     nodes.heldNotes.delete(note);
-    this.safe(() => nodes.instrument.triggerRelease(note, Tone.now()));
+    if (this.sustainedChannels.has(channelId)) {
+      let pending = this.sustainPending.get(channelId);
+      if (!pending) {
+        pending = new Set();
+        this.sustainPending.set(channelId, pending);
+      }
+      pending.add(note);
+    } else {
+      this.safe(() => nodes.instrument.triggerRelease(note, Tone.now()));
+    }
 
     const rec = this.recording;
     if (rec && rec.channelId === channelId) {
@@ -610,6 +948,7 @@ class AudioEngine {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
     });
+    this.sustainPending.forEach((pending) => pending.clear());
   }
 
   /** Stops playback/recording and releases any hanging notes. Leaves the
@@ -623,6 +962,7 @@ class AudioEngine {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
     });
+    this.sustainPending.forEach((pending) => pending.clear());
     if (this.recording) {
       this.finishRecording();
     }

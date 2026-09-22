@@ -2,21 +2,48 @@
 // window UI. Every effect's live params are plain numbers so a single
 // generic ValueBar-driven UI can drive any of them.
 
-export type EffectType = "eq3" | "compressor" | "delay" | "reverb";
+export type EffectType =
+  | "eq3"
+  | "compressor"
+  | "delay"
+  | "reverb"
+  | "chorus"
+  | "distortion"
+  | "filter"
+  | "limiter"
+  | "pitchShift";
 
-export const EFFECT_TYPES: EffectType[] = ["eq3", "compressor", "delay", "reverb"];
+export const EFFECT_TYPES: EffectType[] = [
+  "eq3",
+  "compressor",
+  "delay",
+  "reverb",
+  "chorus",
+  "distortion",
+  "filter",
+  "limiter",
+  "pitchShift",
+];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq3: "EQ Three",
   compressor: "Compressor",
   delay: "Delay",
   reverb: "Reverb",
+  chorus: "Chorus",
+  distortion: "Distortion",
+  filter: "Filter",
+  limiter: "Limiter",
+  pitchShift: "Pitch Shift",
 };
 
 export interface EffectInstance {
   id: string;
   type: EffectType;
   params: Record<string, number>;
+  /** Skipped in the signal chain (as if unplugged) without losing its
+   * params or its position in the chain, so it can be flipped back on. */
+  bypass?: boolean;
 }
 
 export interface ParamSpec {
@@ -34,6 +61,8 @@ const ms = (v: number) => `${Math.round(v * 1000)}ms`;
 const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`);
 const ratio = (v: number) => `${v.toFixed(1)}:1`;
 const sec = (v: number) => `${v.toFixed(2)}s`;
+const semi = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(0)}st`;
+const plain = (v: number) => v.toFixed(1);
 
 const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
   eq3: [
@@ -57,6 +86,28 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
   reverb: [
     { key: "decay", label: "Decay", min: 0.1, max: 8, default: 2, format: sec },
     { key: "wet", label: "Mix", min: 0, max: 1, default: 0.3, format: pct },
+  ],
+  chorus: [
+    { key: "frequency", label: "Rate", min: 0.1, max: 10, default: 1.5, format: hz },
+    { key: "delayTime", label: "Delay", min: 1, max: 20, default: 3.5, format: ms },
+    { key: "depth", label: "Depth", min: 0, max: 1, default: 0.7, format: pct },
+    { key: "wet", label: "Mix", min: 0, max: 1, default: 0.5, format: pct },
+  ],
+  distortion: [
+    { key: "distortion", label: "Drive", min: 0, max: 1, default: 0.4, format: pct },
+    { key: "wet", label: "Mix", min: 0, max: 1, default: 1, format: pct },
+  ],
+  filter: [
+    { key: "frequency", label: "Cutoff", min: 40, max: 12000, default: 1200, format: hz },
+    { key: "Q", label: "Reso", min: 0.1, max: 20, default: 1, format: plain },
+    // 0 = lowpass, 0.5 = highpass, 1 = bandpass - a single knob so the
+    // generic ValueBar UI (numbers only, no dropdowns) can still drive it.
+    { key: "type", label: "Type", min: 0, max: 1, default: 0, format: plain },
+  ],
+  limiter: [{ key: "threshold", label: "Ceiling", min: -30, max: 0, default: -3, format: db }],
+  pitchShift: [
+    { key: "pitch", label: "Pitch", min: -24, max: 24, default: 0, format: semi },
+    { key: "wet", label: "Mix", min: 0, max: 1, default: 1, format: pct },
   ],
 };
 

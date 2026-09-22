@@ -4,7 +4,7 @@
 // only the underlying Blob is stored - a fresh URL gets minted for each
 // audio clip when the project is loaded back.
 
-import type { ChannelConfig, NoteEvent, TimeSignature } from "./types";
+import type { BusConfig, ChannelConfig, NoteEvent, TimeSignature } from "./types";
 import type { EffectInstance } from "./effects";
 import type { ScaleSetting } from "./scales";
 import type { SnapResolution } from "./timeline";
@@ -47,6 +47,8 @@ export interface SerializedProject {
   channels: ChannelConfig[];
   clipsByChannel: Record<string, SerializedClip[]>;
   channelEffects: Record<string, EffectInstance[]>;
+  buses?: BusConfig[];
+  busEffects?: Record<string, EffectInstance[]>;
   bpm: number;
   timeSignature: TimeSignature;
   masterVolume: number;

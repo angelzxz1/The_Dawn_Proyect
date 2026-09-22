@@ -60,6 +60,13 @@ interface TrackHeaderProps {
   /** Whether this track's automation lane is currently expanded below it. */
   showAutomation?: boolean;
   onToggleAutomation?: () => void;
+  /** The browser's available audio input devices, and which one this
+   * track records from - shown in place of the "Audio" badge on an audio
+   * track so a device can be picked right on the track, without needing
+   * it armed first. Unused for a MIDI track. */
+  inputDevices?: { deviceId: string; label: string }[];
+  selectedInputDeviceId?: string | null;
+  onInputDeviceChange?: (deviceId: string | null) => void;
 }
 
 function formatDb(db: number): string {
@@ -140,6 +147,9 @@ export function TrackHeader({
   onMoveDown,
   showAutomation,
   onToggleAutomation,
+  inputDevices,
+  selectedInputDeviceId,
+  onInputDeviceChange,
 }: TrackHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -305,16 +315,30 @@ export function TrackHeader({
           className="flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
         >
-          <span
-            title={isMidi ? "MIDI track" : "Audio track"}
-            className={`flex h-5 items-center rounded border px-1.5 text-[10px] ${
-              isMidi && channel.instrument === null
-                ? "border-record/50 text-record"
-                : "border-border text-muted"
-            }`}
-          >
-            {isMidi ? instrumentLabel(channel.instrument) : "Audio"}
-          </span>
+          {isMidi ? (
+            <span
+              title="MIDI track"
+              className={`flex h-5 items-center rounded border px-1.5 text-[10px] ${
+                channel.instrument === null ? "border-record/50 text-record" : "border-border text-muted"
+              }`}
+            >
+              {instrumentLabel(channel.instrument)}
+            </span>
+          ) : (
+            <select
+              title="Which microphone or audio-interface input this track records from"
+              value={selectedInputDeviceId ?? ""}
+              onChange={(e) => onInputDeviceChange?.(e.target.value || null)}
+              className="h-5 max-w-[76px] rounded border border-border bg-surface px-1 text-[10px] text-muted"
+            >
+              <option value="">Default</option>
+              {(inputDevices ?? []).map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="flex-1" />
           <button
             type="button"

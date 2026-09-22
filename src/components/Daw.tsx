@@ -2413,9 +2413,6 @@ export function Daw() {
           onToggleLoop={() => setLoopEnabled((v) => !v)}
           countInBars={countInBars}
           onCountInChange={setCountInBars}
-          inputDevices={inputDevices}
-          selectedInputDeviceId={selectedInputDeviceId}
-          onInputDeviceChange={handleInputDeviceChange}
           onPlay={handlePlay}
           onPause={handlePause}
           onStop={() => void handleStop()}
@@ -2560,6 +2557,9 @@ export function Daw() {
                   canMoveDown={idx < channels.length - 1}
                   showAutomation={automationChannelId === channel.id}
                   onToggleAutomation={() => handleToggleAutomation(channel.id)}
+                  inputDevices={inputDevices}
+                  selectedInputDeviceId={selectedInputDeviceId}
+                  onInputDeviceChange={handleInputDeviceChange}
                   onSelect={() => {
                     setSelectedChannelId(channel.id);
                     setSelectedClipIds(new Set());

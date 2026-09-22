@@ -33,11 +33,6 @@ interface TransportBarProps {
    * starts - 0 disables count-in. */
   countInBars: number;
   onCountInChange: (bars: number) => void;
-  /** The browser's available microphone/interface inputs - only shown
-   * (and only relevant) while an audio track is armed. */
-  inputDevices: { deviceId: string; label: string }[];
-  selectedInputDeviceId: string | null;
-  onInputDeviceChange: (deviceId: string | null) => void;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
@@ -61,9 +56,6 @@ export function TransportBar({
   onToggleLoop,
   countInBars,
   onCountInChange,
-  inputDevices,
-  selectedInputDeviceId,
-  onInputDeviceChange,
   onPlay,
   onPause,
   onStop,
@@ -225,25 +217,6 @@ export function TransportBar({
           ))}
         </select>
       </label>
-
-      {recordingMode === "audio" && (
-        <label className="flex items-center gap-1.5 text-xs text-muted">
-          Input
-          <select
-            value={selectedInputDeviceId ?? ""}
-            onChange={(e) => onInputDeviceChange(e.target.value || null)}
-            title="Which microphone or audio-interface input to record from"
-            className="max-w-40 rounded border border-border bg-surface-raised px-1.5 py-1 font-mono text-foreground"
-          >
-            <option value="">Default</option>
-            {inputDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
 
       <div className="text-xs text-muted">
         {isPlaying

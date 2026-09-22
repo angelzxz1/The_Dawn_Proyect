@@ -398,15 +398,29 @@ class AudioEngine {
   private masterChannel: Tone.Channel | null = null;
   private masterLimiter: Tone.Limiter | null = null;
   private masterMeter: Tone.Meter | null = null;
+  /** The master bus's own effects chain (e.g. a final EQ or compressor
+   * across the whole mix) - sits between the master channel and the
+   * limiter, wired the same way a track's or bus's chain is. */
+  private masterEffects: EffectNode[] = [];
 
   private ensureMaster(): { channel: Tone.Channel; limiter: Tone.Limiter; meter: Tone.Meter } {
     if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
       this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
       this.masterLimiter = new Tone.Limiter(-1).connect(this.masterMeter);
       this.masterMeter.toDestination();
-      this.masterChannel = new Tone.Channel({ volume: 0, pan: 0 }).connect(this.masterLimiter);
+      this.masterChannel = new Tone.Channel({ volume: 0, pan: 0 });
+      this.rewireMaster();
     }
     return { channel: this.masterChannel, limiter: this.masterLimiter, meter: this.masterMeter };
+  }
+
+  /** Reconnects the master channel through its (bypass-aware) effects
+   * chain into the limiter - called whenever an effect is added, removed,
+   * reordered, or bypassed on the master bus. */
+  private rewireMaster(): void {
+    if (!this.masterChannel || !this.masterLimiter) return;
+    this.masterChannel.disconnect();
+    this.wireEffectsChain([this.masterChannel], this.masterEffects, this.masterLimiter);
   }
 
   setMasterVolume(db: number): void {
@@ -575,9 +589,13 @@ class AudioEngine {
     }
   }
 
-  // --- Effects chain - shared by track channels and buses ---
+  // --- Effects chain - shared by track channels, buses, and the master bus ---
 
   private effectsHost(id: string): { host: EffectsHost; rewire: () => void } | null {
+    if (id === "master") {
+      this.ensureMaster();
+      return { host: { effects: this.masterEffects }, rewire: () => this.rewireMaster() };
+    }
     const channel = this.channels.get(id);
     if (channel) return { host: channel, rewire: () => this.rewireChannel(id) };
     const bus = this.buses.get(id);
@@ -656,6 +674,21 @@ class AudioEngine {
     if (!effect || effect.bypass === bypass) return;
     effect.bypass = bypass;
     target!.rewire();
+  }
+
+  /** Clears an effects host (a bus or the master bus - never a channel,
+   * which is fully torn down and rebuilt on every hydrate) back to no
+   * effects, disposing every node. `hydrateEngine` calls this right before
+   * repopulating a bus's or master's chain from a snapshot: unlike a
+   * channel, a bus/master persists across repeated undo/redo, so without
+   * this it would re-`addEffect` the same ids on top of what's already
+   * there and silently double up the chain. */
+  resetEffects(id: string): void {
+    const target = this.effectsHost(id);
+    if (!target) return;
+    target.host.effects.forEach((e) => e.node.dispose());
+    target.host.effects.length = 0;
+    target.rewire();
   }
 
   setEffectParam(id: string, effectId: string, key: string, value: number): void {
@@ -1080,10 +1113,43 @@ class AudioEngine {
 
   // --- Audio (microphone) recording ---
 
+  /** Which input device recordings should capture from - null means the
+   * browser's default. Set via `setMicDevice`, e.g. after plugging in an
+   * audio interface and picking it from the transport bar's Input select. */
+  private micDeviceId: string | null = null;
+
   private async ensureMicStream(): Promise<MediaStream> {
     if (this.micStream) return this.micStream;
-    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.micStream = await navigator.mediaDevices.getUserMedia({
+      audio: this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : true,
+    });
     return this.micStream;
+  }
+
+  /** Switches which input device the next recording captures from. Drops
+   * any already-open mic stream so `ensureMicStream` re-requests
+   * `getUserMedia` against the new device instead of reusing the old one -
+   * a no-op while nothing's open yet. */
+  setMicDevice(deviceId: string | null): void {
+    if (this.micDeviceId === deviceId) return;
+    this.micDeviceId = deviceId;
+    if (this.micStream) {
+      this.micStream.getTracks().forEach((track) => track.stop());
+      this.micStream = null;
+    }
+  }
+
+  /** Lists the browser's available audio input devices (an interface's
+   * separate inputs included, once the OS exposes them). Device labels
+   * come back blank until mic permission has been granted at least once -
+   * the caller can still offer the (unlabeled) list to trigger that
+   * prompt via `setMicDevice` + a recording attempt. */
+  async listInputDevices(): Promise<{ deviceId: string; label: string }[]> {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === "audioinput")
+      .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
   }
 
   private static readonly PREFERRED_MIME_TYPES = [

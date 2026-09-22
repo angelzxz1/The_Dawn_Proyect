@@ -55,6 +55,7 @@ export interface SerializedProject {
   masterPan: number;
   masterName: string;
   masterLimiterThreshold: number;
+  masterEffects?: EffectInstance[];
   scaleSetting: ScaleSetting;
   snapResolution: SnapResolution;
   countInBars: number;

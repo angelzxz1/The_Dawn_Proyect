@@ -2,6 +2,7 @@
 
 import type { AutomationPoint } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
+import { computeAdaptiveMarks } from "@/lib/timeline";
 
 let pointIdCounter = 0;
 function newPointId(): string {
@@ -15,8 +16,15 @@ interface AutomationLaneProps {
   points: AutomationPoint[];
   valueMin: number;
   valueMax: number;
+  /** The target's own live value (the channel's Vol/Pan ValueBar, or the
+   * effect's own knob) - drawn as a dashed reference line, Ableton-style,
+   * showing where the parameter actually sits when no automation point is
+   * driving it at the playhead's current time. */
+  currentValue: number;
   totalSeconds: number;
   pxPerSecond: number;
+  bpm: number;
+  beatsPerBar: number;
   height: number;
   color: TrackColor;
   formatValue?: (v: number) => string;
@@ -37,8 +45,11 @@ export function AutomationLane({
   points,
   valueMin,
   valueMax,
+  currentValue,
   totalSeconds,
   pxPerSecond,
+  bpm,
+  beatsPerBar,
   height,
   color,
   formatValue,
@@ -47,6 +58,7 @@ export function AutomationLane({
 }: AutomationLaneProps) {
   const width = totalSeconds * pxPerSecond;
   const range = valueMax - valueMin || 1;
+  const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
 
   const valueToY = (v: number) => height - ((v - valueMin) / range) * height;
   const yToValue = (y: number) =>
@@ -117,11 +129,37 @@ export function AutomationLane({
       className="relative cursor-crosshair"
       style={{ width, height }}
     >
-      {sorted.length > 0 && (
-        <svg className="pointer-events-none absolute inset-0" width={width} height={height}>
+      {marks.map((mark) => (
+        <div
+          key={mark.index}
+          className="pointer-events-none absolute top-0 h-full"
+          style={{
+            left: mark.left,
+            borderLeft: `1px solid ${
+              mark.strength === "bar"
+                ? "rgba(230,230,235,0.22)"
+                : mark.strength === "beat"
+                  ? "rgba(230,230,235,0.1)"
+                  : "rgba(230,230,235,0.045)"
+            }`,
+          }}
+        />
+      ))}
+      <svg className="pointer-events-none absolute inset-0" width={width} height={height}>
+        <line
+          x1={0}
+          y1={valueToY(currentValue)}
+          x2={width}
+          y2={valueToY(currentValue)}
+          stroke={color.accent}
+          strokeWidth={1}
+          strokeDasharray="3,3"
+          opacity={0.5}
+        />
+        {sorted.length > 0 && (
           <polyline points={linePoints} fill="none" stroke={color.accent} strokeWidth={1.5} />
-        </svg>
-      )}
+        )}
+      </svg>
       {sorted.map((p) => (
         <div
           key={p.id}

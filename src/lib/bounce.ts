@@ -21,6 +21,7 @@ export interface BounceParams {
   masterVolume: number;
   masterPan: number;
   masterLimiterThreshold: number;
+  masterEffects: EffectInstance[];
   /** Where the last bit of content ends, in seconds - the render runs a
    * couple of seconds past this for effect tails. */
   contentEndSeconds: number;
@@ -85,9 +86,9 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     const masterMeter = new Tone.Meter();
     const masterLimiter = new Tone.Limiter(params.masterLimiterThreshold).connect(masterMeter);
     masterMeter.toDestination();
-    const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan }).connect(
-      masterLimiter
-    );
+    const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan });
+    const { entry: masterEntry } = buildOfflineEffectsChain(params.masterEffects, masterLimiter);
+    master.connect(masterEntry);
 
     const buses = new Map<string, { input: Tone.Gain }>();
     params.buses.forEach((bus) => {

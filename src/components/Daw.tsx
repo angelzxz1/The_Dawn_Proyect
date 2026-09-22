@@ -22,6 +22,7 @@ import {
   Redo2,
   Repeat,
   Scissors,
+  Sliders,
   Trash2,
   Undo2,
   X,
@@ -119,6 +120,20 @@ function automationRange(
   const spec = fx && paramSpecs(fx.type).find((s) => s.key === target.paramKey);
   if (spec) return { min: spec.min, max: spec.max, format: spec.format };
   return { min: 0, max: 1, format: (v) => v.toFixed(2) };
+}
+
+/** An automation target's own live value right now - the channel's Vol/Pan
+ * ValueBar, or the effect's own param - drawn as the lane's dashed
+ * reference line. */
+function automationCurrentValue(
+  target: AutomationTarget,
+  channel: ChannelConfig,
+  channelEffects: EffectInstance[]
+): number {
+  if (target.kind === "volume") return channel.volume;
+  if (target.kind === "pan") return channel.pan;
+  const fx = channelEffects.find((e) => e.id === target.effectId);
+  return fx?.params[target.paramKey] ?? 0;
 }
 
 /** All targets a channel's automation dropdown can offer: its own
@@ -245,7 +260,15 @@ export function Daw() {
     () => channels[0]?.id ?? null
   );
   const [fxBusId, setFxBusId] = useState<string | null>(null);
+  /** Whether the FX rack at the bottom of the screen is currently showing
+   * the master bus's own effects chain instead of a track's or a bus's. */
+  const [fxMasterOpen, setFxMasterOpen] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  /** The browser's available audio input devices, and which one
+   * recordings currently use (null = the browser's default). Refreshed on
+   * mount and whenever the OS reports a device was plugged/unplugged. */
+  const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([]);
+  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState<string | null>(null);
   /** Which channel (if any) currently has its automation lane expanded
    * under its track in the arrangement - a view-only toggle, not part of
    * the undo-tracked document. */
@@ -294,6 +317,7 @@ export function Daw() {
   const [masterVolume, setMasterVolume] = useState(0);
   const [masterPan, setMasterPan] = useState(0);
   const [masterLimiterThreshold, setMasterLimiterThreshold] = useState(-1);
+  const [masterEffects, setMasterEffects] = useState<EffectInstance[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // --- Snap-to-grid, loop region, count-in ---
@@ -357,6 +381,7 @@ export function Daw() {
     masterVolume,
     masterPan,
     masterName,
+    masterEffects,
   });
   liveProjectRef.current = {
     channels,
@@ -369,6 +394,7 @@ export function Daw() {
     masterVolume,
     masterPan,
     masterName,
+    masterEffects,
   };
 
   const MAX_HISTORY = 100;
@@ -427,6 +453,7 @@ export function Daw() {
     setMasterVolume(s.masterVolume);
     setMasterPan(s.masterPan);
     setMasterName(s.masterName);
+    setMasterEffects(s.masterEffects);
     setSelectedClipIds(new Set());
     setEditingClip(null);
     hydrateEngine(s, registeredChannelIds.current);
@@ -854,6 +881,30 @@ export function Daw() {
       }
     });
   }, [handleNoteOn, handleNoteOff, armedChannelId]);
+
+  // Available audio input devices (mic, or an interface's separate inputs),
+  // refreshed on mount and whenever the OS reports one was plugged in or
+  // removed - so a freshly-connected interface shows up in the Input
+  // select without needing a page reload.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      audioEngine.listInputDevices().then((devices) => {
+        if (!cancelled) setInputDevices(devices);
+      });
+    };
+    refresh();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refresh);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices?.removeEventListener?.("devicechange", refresh);
+    };
+  }, []);
+
+  const handleInputDeviceChange = useCallback((deviceId: string | null) => {
+    setSelectedInputDeviceId(deviceId);
+    audioEngine.setMicDevice(deviceId);
+  }, []);
 
   // Which channel a recording-in-progress targets - captured once at
   // Record time (not read live from `armedChannelId`) so re-arming a
@@ -1397,6 +1448,7 @@ export function Daw() {
   const openFx = useCallback((channelId: string) => {
     setFxChannelId(channelId);
     setFxBusId(null);
+    setFxMasterOpen(false);
   }, []);
 
   const handleToggleAutomation = useCallback((channelId: string) => {
@@ -1560,6 +1612,13 @@ export function Daw() {
   const openBusFx = useCallback((busId: string) => {
     setFxBusId(busId);
     setFxChannelId(null);
+    setFxMasterOpen(false);
+  }, []);
+
+  const openMasterFx = useCallback(() => {
+    setFxMasterOpen(true);
+    setFxChannelId(null);
+    setFxBusId(null);
   }, []);
 
   const handleBusAddEffect = useCallback(
@@ -1613,16 +1672,6 @@ export function Daw() {
     [fxBusId, pushHistory]
   );
 
-  /** Adds an effect (from the EffectBrowser sidebar, dragged or clicked) to
-   * whichever target - a track or a bus - the FX rack currently shows. */
-  const handleSidebarAddEffect = useCallback(
-    (type: EffectType) => {
-      if (fxBusId) handleBusAddEffect(type);
-      else handleAddEffect(type);
-    },
-    [fxBusId, handleBusAddEffect, handleAddEffect]
-  );
-
   const handleBusEffectParamChange = useCallback(
     (effectId: string, key: string, value: number) => {
       if (!fxBusId) return;
@@ -1654,6 +1703,86 @@ export function Daw() {
       });
     },
     [fxBusId, pushHistory]
+  );
+
+  // --- Master bus effects chain ---
+
+  const handleMasterAddEffect = useCallback(
+    (type: EffectType, atIndex?: number) => {
+      pushHistory();
+      const created = audioEngine.addEffect("master", type, undefined, atIndex);
+      if (created) {
+        setMasterEffects((prev) => {
+          const list = [...prev];
+          if (atIndex !== undefined && atIndex >= 0 && atIndex <= list.length) {
+            list.splice(atIndex, 0, created);
+          } else {
+            list.push(created);
+          }
+          return list;
+        });
+      }
+    },
+    [pushHistory]
+  );
+
+  const handleMasterRemoveEffect = useCallback(
+    (effectId: string) => {
+      pushHistory();
+      audioEngine.removeEffect("master", effectId);
+      setMasterEffects((prev) => prev.filter((e) => e.id !== effectId));
+    },
+    [pushHistory]
+  );
+
+  const handleMasterMoveEffect = useCallback(
+    (effectId: string, toIndex: number) => {
+      pushHistory();
+      audioEngine.moveEffect("master", effectId, toIndex);
+      setMasterEffects((prev) => {
+        const list = [...prev];
+        const idx = list.findIndex((e) => e.id === effectId);
+        if (idx === -1) return prev;
+        const [entry] = list.splice(idx, 1);
+        const clamped = Math.max(0, Math.min(list.length, toIndex));
+        list.splice(clamped, 0, entry);
+        return list;
+      });
+    },
+    [pushHistory]
+  );
+
+  const handleMasterEffectParamChange = useCallback((effectId: string, key: string, value: number) => {
+    audioEngine.setEffectParam("master", effectId, key, value);
+    setMasterEffects((prev) =>
+      prev.map((e) => (e.id === effectId ? { ...e, params: { ...e.params, [key]: value } } : e))
+    );
+  }, []);
+
+  const handleMasterEffectBypassToggle = useCallback(
+    (effectId: string) => {
+      pushHistory();
+      setMasterEffects((prev) => {
+        const effect = prev.find((e) => e.id === effectId);
+        if (!effect) return prev;
+        const bypass = !effect.bypass;
+        audioEngine.setEffectBypass("master", effectId, bypass);
+        return prev.map((e) => (e.id === effectId ? { ...e, bypass } : e));
+      });
+    },
+    [pushHistory]
+  );
+
+  /** Adds an effect (from the EffectBrowser sidebar, dragged or clicked) to
+   * whichever target - a track, a bus, or the master bus - the FX rack
+   * currently shows. */
+  const handleSidebarAddEffect = useCallback(
+    (type: EffectType) => {
+      if (fxMasterOpen) handleMasterAddEffect(type);
+      else if (fxBusId) handleBusAddEffect(type);
+      else handleAddEffect(type);
+    },
+    [fxMasterOpen, fxBusId, handleMasterAddEffect, handleBusAddEffect, handleAddEffect]
   );
 
   // --- Automation lanes ---
@@ -2006,6 +2135,7 @@ export function Daw() {
         masterVolume,
         masterPan,
         masterLimiterThreshold,
+        masterEffects,
         contentEndSeconds: contentEnd,
       });
       downloadWavBlob(blob, masterName);
@@ -2023,6 +2153,7 @@ export function Daw() {
     masterVolume,
     masterPan,
     masterLimiterThreshold,
+    masterEffects,
     masterName,
   ]);
 
@@ -2074,6 +2205,7 @@ export function Daw() {
           masterPan,
           masterName,
           masterLimiterThreshold,
+          masterEffects,
           scaleSetting,
           snapResolution,
           countInBars,
@@ -2097,6 +2229,7 @@ export function Daw() {
     masterPan,
     masterName,
     masterLimiterThreshold,
+    masterEffects,
     scaleSetting,
     snapResolution,
     countInBars,
@@ -2153,6 +2286,7 @@ export function Daw() {
         project.channels.forEach((c) => bumpCounterFromId(c.id, "ch"));
         const buses = project.buses ?? [];
         const busEffects = project.busEffects ?? {};
+        const masterEffects = project.masterEffects ?? [];
         buses.forEach((b) => {
           const match = b.id.match(/^bus-(\d+)$/);
           if (match) busCounter = Math.max(busCounter, parseInt(match[1], 10));
@@ -2163,12 +2297,14 @@ export function Daw() {
             if (match) automationLaneCounter = Math.max(automationLaneCounter, parseInt(match[1], 10));
           })
         );
-        [...Object.values(project.channelEffects).flat(), ...Object.values(busEffects).flat()].forEach(
-          (fx) => {
-            const match = fx.id.match(/^fx-(\d+)$/);
-            if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
-          }
-        );
+        [
+          ...Object.values(project.channelEffects).flat(),
+          ...Object.values(busEffects).flat(),
+          ...masterEffects,
+        ].forEach((fx) => {
+          const match = fx.id.match(/^fx-(\d+)$/);
+          if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
+        });
         bumpEffectIdCounter(maxEffectN);
 
         setChannels(project.channels);
@@ -2182,6 +2318,7 @@ export function Daw() {
         setMasterPan(project.masterPan);
         setMasterName(project.masterName);
         setMasterLimiterThreshold(project.masterLimiterThreshold);
+        setMasterEffects(masterEffects);
         setScaleSetting(project.scaleSetting);
         setSnapResolution(project.snapResolution);
         setCountInBars(project.countInBars);
@@ -2198,6 +2335,7 @@ export function Daw() {
             masterVolume: project.masterVolume,
             masterPan: project.masterPan,
             masterName: project.masterName,
+            masterEffects,
           },
           registeredChannelIds.current
         );
@@ -2275,6 +2413,9 @@ export function Daw() {
           onToggleLoop={() => setLoopEnabled((v) => !v)}
           countInBars={countInBars}
           onCountInChange={setCountInBars}
+          inputDevices={inputDevices}
+          selectedInputDeviceId={selectedInputDeviceId}
+          onInputDeviceChange={handleInputDeviceChange}
           onPlay={handlePlay}
           onPause={handlePause}
           onStop={() => void handleStop()}
@@ -2540,9 +2681,12 @@ export function Daw() {
                       }
                       valueMin={automationRange(automationTarget, channelEffects[channel.id] ?? []).min}
                       valueMax={automationRange(automationTarget, channelEffects[channel.id] ?? []).max}
+                      currentValue={automationCurrentValue(automationTarget, channel, channelEffects[channel.id] ?? [])}
                       formatValue={automationRange(automationTarget, channelEffects[channel.id] ?? []).format}
                       totalSeconds={totalSeconds}
                       pxPerSecond={pxPerSecond}
+                      bpm={bpm}
+                      beatsPerBar={beatsPerBar}
                       height={AUTOMATION_LANE_HEIGHT}
                       color={trackColorForIndex(channel.colorIndex)}
                       onChange={(points) => handleAutomationPointsChange(channel.id, automationTarget, points)}
@@ -2693,11 +2837,28 @@ export function Daw() {
           formatValue={(v) => `${v.toFixed(1)}dB`}
         />
         <span className="text-[10px] text-muted/70">limiter</span>
+        <button
+          type="button"
+          title={`FX${masterEffects.length > 0 ? ` (${masterEffects.length})` : ""} — master bus effects`}
+          onClick={openMasterFx}
+          className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
+            masterEffects.length > 0 ? "text-accent" : "text-muted"
+          }`}
+        >
+          <Sliders size={11} />
+          FX
+          {masterEffects.length > 0 && (
+            <span className="flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
+              {masterEffects.length}
+            </span>
+          )}
+        </button>
         <span className="text-[10px] text-muted/70">
           Master output — every track routes through here before the speakers.
         </span>
       </div>
 
+      {armedChannel?.type !== "audio" && (
       <div className="shrink-0 overflow-hidden rounded-lg border border-border bg-surface">
         <button
           type="button"
@@ -2719,10 +2880,6 @@ export function Daw() {
         {!armedChannel ? (
           <p className="py-3 text-center text-xs text-muted">
             No track armed — click a track&apos;s Record button to play or record it.
-          </p>
-        ) : armedChannel.type === "audio" ? (
-          <p className="py-3 text-center text-xs text-muted">
-            {armedChannel.name} is an audio track — arm a MIDI track to play an instrument.
           </p>
         ) : armedChannel.instrument === "drums" ? (
           <DrumPads
@@ -2764,6 +2921,7 @@ export function Daw() {
         </div>
         )}
       </div>
+      )}
 
       {editingChannel && editingClipInstance && editingClipInstance.kind === "midi" && (
         <PianoRollEditor
@@ -2802,25 +2960,25 @@ export function Daw() {
         />
       )}
 
-      {(fxChannel || fxBus) && (
+      {(fxChannel || fxBus || fxMasterOpen) && (
         <FxRack
-          channelName={fxChannel?.name ?? fxBus?.name ?? ""}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           channelType={fxChannel?.type}
-          color={trackColorForIndex(fxChannel?.colorIndex ?? fxBus?.colorIndex ?? 0)}
+          color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
           synthParams={fxChannel?.synthParams}
-          effects={fxChannel ? channelEffects[fxChannel.id] ?? [] : busEffects[fxBus!.id] ?? []}
+          effects={fxChannel ? channelEffects[fxChannel.id] ?? [] : fxBus ? busEffects[fxBus.id] ?? [] : masterEffects}
           buses={buses}
           sends={fxChannel?.sends}
           onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
           onSynthParamsChange={fxChannel ? handleSynthParamsChange : undefined}
           onSendChange={fxChannel ? handleSendChange : undefined}
-          onAddEffect={fxChannel ? handleAddEffect : handleBusAddEffect}
-          onRemoveEffect={fxChannel ? handleRemoveEffect : handleBusRemoveEffect}
-          onMoveEffect={fxChannel ? handleMoveEffect : handleBusMoveEffect}
-          onBypassToggle={fxChannel ? handleEffectBypassToggle : handleBusEffectBypassToggle}
+          onAddEffect={fxChannel ? handleAddEffect : fxBus ? handleBusAddEffect : handleMasterAddEffect}
+          onRemoveEffect={fxChannel ? handleRemoveEffect : fxBus ? handleBusRemoveEffect : handleMasterRemoveEffect}
+          onMoveEffect={fxChannel ? handleMoveEffect : fxBus ? handleBusMoveEffect : handleMasterMoveEffect}
+          onBypassToggle={fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle}
           onParamDragStart={pushHistory}
-          onParamChange={fxChannel ? handleEffectParamChange : handleBusEffectParamChange}
+          onParamChange={fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange}
         />
       )}
       </div>

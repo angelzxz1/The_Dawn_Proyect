@@ -26,6 +26,7 @@ export interface ProjectState {
   masterVolume: number;
   masterPan: number;
   masterName: string;
+  masterEffects: EffectInstance[];
 }
 
 function isMidiClip(c: ClipInstance): c is MidiClipInstance {
@@ -89,6 +90,10 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
 
   state.buses.forEach((bus) => {
     audioEngine.addBus(bus.id);
+    // A bus persists across repeated hydrates (unlike a channel), so its
+    // chain has to be cleared before re-adding from the snapshot - matches
+    // resetEffects's own reasoning below for the master bus.
+    audioEngine.resetEffects(bus.id);
     (state.busEffects[bus.id] ?? []).forEach((fx) => {
       audioEngine.addEffect(bus.id, fx.type, fx.id);
       Object.entries(fx.params).forEach(([key, value]) =>
@@ -149,4 +154,14 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
 
   audioEngine.setMasterVolume(state.masterVolume);
   audioEngine.setMasterPan(state.masterPan);
+  // Master persists across repeated hydrates just like a bus - see the
+  // matching resetEffects call above.
+  audioEngine.resetEffects("master");
+  state.masterEffects.forEach((fx) => {
+    audioEngine.addEffect("master", fx.type, fx.id);
+    Object.entries(fx.params).forEach(([key, value]) =>
+      audioEngine.setEffectParam("master", fx.id, key, value)
+    );
+    if (fx.bypass) audioEngine.setEffectBypass("master", fx.id, true);
+  });
 }

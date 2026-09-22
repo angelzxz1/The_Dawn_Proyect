@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Drum, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Drum, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
@@ -108,6 +108,7 @@ export function FxRack({
   onParamDragStart,
 }: FxRackProps) {
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const isBus = channelType === undefined;
 
   const handleDropAt = (index: number, e: React.DragEvent) => {
@@ -119,18 +120,31 @@ export function FxRack({
   };
 
   return (
-    <div className="flex h-[260px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
-      <div className="flex items-center gap-2 border-b border-border bg-surface-raised px-3 py-1.5">
+    <div
+      className={`flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface ${
+        collapsed ? "" : "h-[210px]"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        title={collapsed ? "Expand the FX rack" : "Collapse the FX rack"}
+        className="flex w-full items-center gap-2 border-b border-border bg-surface-raised px-3 py-1.5 text-left"
+      >
+        {collapsed ? <ChevronUp size={12} className="shrink-0 text-muted" /> : <ChevronDown size={12} className="shrink-0 text-muted" />}
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color.accent }} />
         <span className="text-xs font-medium">FX — {channelName}</span>
-        <span className="text-[10px] text-muted">
-          drag a device from the sidebar into the rack, or drag a card to reorder it
-        </span>
-      </div>
+        {!collapsed && (
+          <span className="text-[10px] text-muted">
+            drag a device from the sidebar into the rack, or drag a card to reorder it
+          </span>
+        )}
+      </button>
 
+      {!collapsed && (
       <div className="flex flex-1 items-stretch gap-0 overflow-x-auto p-2">
         {channelType === "midi" && (
-          <div className="flex w-64 shrink-0 flex-col rounded border border-border bg-surface-raised p-2">
+          <div className="flex w-56 shrink-0 flex-col rounded border border-border bg-surface-raised p-2">
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
               Instrument
             </div>
@@ -170,7 +184,7 @@ export function FxRack({
                 e.dataTransfer.setData(REORDER_DRAG_MIME, fx.id);
                 e.dataTransfer.effectAllowed = "move";
               }}
-              className={`flex w-44 shrink-0 cursor-grab flex-col rounded border border-border bg-surface-raised p-2 active:cursor-grabbing ${
+              className={`flex w-40 shrink-0 cursor-grab flex-col rounded border border-border bg-surface-raised p-2 active:cursor-grabbing ${
                 fx.bypass ? "opacity-50" : ""
               }`}
             >
@@ -233,7 +247,7 @@ export function FxRack({
         )}
 
         {!isBus && buses.length > 0 && onSendChange && (
-          <div className="flex w-44 shrink-0 flex-col rounded border border-border bg-surface-raised p-2">
+          <div className="flex w-40 shrink-0 flex-col rounded border border-border bg-surface-raised p-2">
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
               Sends
             </div>
@@ -255,6 +269,7 @@ export function FxRack({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

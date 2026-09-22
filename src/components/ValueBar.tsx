@@ -20,7 +20,7 @@ interface ValueBarProps {
   onDragStart?: () => void;
 }
 
-const DRAG_RANGE_PX = 120; // vertical pixels for a full sweep
+const DRAG_RANGE_PX = 108; // vertical pixels for a full sweep
 const CLICK_MOVE_THRESHOLD = 3;
 
 export function ValueBar({
@@ -126,7 +126,7 @@ export function ValueBar({
             onChange(clamp(value - step));
           }
         }}
-        className="relative h-[18px] w-[74px] cursor-ns-resize touch-none select-none overflow-hidden rounded-[3px] border border-border bg-black/40"
+        className="relative h-4 w-[67px] cursor-ns-resize touch-none select-none overflow-hidden rounded-[3px] border border-border bg-black/40"
       >
         <div
           className="absolute inset-y-0"

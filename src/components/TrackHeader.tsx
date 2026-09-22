@@ -99,7 +99,7 @@ function IconButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-6 w-6 items-center justify-center rounded border hover:bg-surface-raised disabled:opacity-30 ${
+      className={`flex h-5 w-5 items-center justify-center rounded border hover:bg-surface-raised disabled:opacity-30 ${
         danger ? "border-border text-record" : active ? "border-accent text-accent" : "border-border text-muted"
       }`}
     >
@@ -159,7 +159,7 @@ export function TrackHeader({
       onClick={onSelect}
       onContextMenu={onContextMenu}
       style={{ width: TRACK_HEADER_WIDTH, height: TRACK_ROW_HEIGHT }}
-      className={`flex shrink-0 cursor-pointer flex-col gap-1.5 border-b border-r border-border p-2 transition-colors ${
+      className={`flex shrink-0 cursor-pointer flex-col gap-1 border-b border-r border-border p-1.5 transition-colors ${
         selected ? "bg-surface-raised" : "bg-surface hover:bg-surface-raised/60"
       }`}
     >
@@ -295,7 +295,7 @@ export function TrackHeader({
             formatValue={formatDb}
           />
         </div>
-        <div className="h-11">
+        <div className="h-10">
           <Meter channelId={isMaster ? "master" : channel.id} />
         </div>
       </div>
@@ -307,7 +307,7 @@ export function TrackHeader({
         >
           <span
             title={isMidi ? "MIDI track" : "Audio track"}
-            className={`flex h-6 items-center rounded border px-1.5 text-[10px] ${
+            className={`flex h-5 items-center rounded border px-1.5 text-[10px] ${
               isMidi && channel.instrument === null
                 ? "border-record/50 text-record"
                 : "border-border text-muted"
@@ -321,7 +321,7 @@ export function TrackHeader({
             title={channel.muted ? "Unmute" : "Mute"}
             aria-pressed={channel.muted}
             onClick={() => onMuteToggle?.()}
-            className={`flex h-6 w-6 items-center justify-center rounded border text-[10px] font-bold ${
+            className={`flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold ${
               channel.muted
                 ? "border-record bg-record/20 text-record"
                 : "border-border text-muted hover:bg-surface-raised"
@@ -334,7 +334,7 @@ export function TrackHeader({
             title={channel.solo ? "Unsolo" : "Solo"}
             aria-pressed={channel.solo}
             onClick={() => onSoloToggle?.()}
-            className={`flex h-6 w-6 items-center justify-center rounded border text-[10px] font-bold ${
+            className={`flex h-5 w-5 items-center justify-center rounded border text-[10px] font-bold ${
               channel.solo
                 ? "border-yellow-400 bg-yellow-400/20 text-yellow-300"
                 : "border-border text-muted hover:bg-surface-raised"
@@ -346,7 +346,7 @@ export function TrackHeader({
             type="button"
             title={`FX${effectsCount > 0 ? ` (${effectsCount})` : ""} — instrument & effects`}
             onClick={() => onOpenFx?.()}
-            className={`relative flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
+            className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
               effectsCount > 0 ? "text-accent" : "text-muted"
             }`}
           >

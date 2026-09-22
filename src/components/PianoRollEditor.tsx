@@ -52,11 +52,11 @@ function stripIds(notes: EditableNote[]): NoteEvent[] {
 
 const MIN_MIDI = 24; // C1
 const MAX_MIDI = 108; // C8
-const ROW_H = 14;
-const KEY_COL_WIDTH = 44;
-const RULER_H = 22;
-const GRID_VIEWPORT_H = 380;
-const VELOCITY_H = 72;
+const ROW_H = 13;
+const KEY_COL_WIDTH = 40;
+const RULER_H = 20;
+const GRID_VIEWPORT_H = 340;
+const VELOCITY_H = 65;
 const DEFAULT_PX_PER_SECOND = 130;
 const MIN_PX_PER_SECOND = 40;
 const MAX_PX_PER_SECOND = 500;

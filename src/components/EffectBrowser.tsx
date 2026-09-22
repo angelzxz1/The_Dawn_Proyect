@@ -33,7 +33,7 @@ export function EffectBrowser({ onAddEffect }: EffectBrowserProps) {
   };
 
   return (
-    <div className="flex w-48 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
+    <div className="flex w-44 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface">
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted">
         <Sliders size={12} />
         Audio Effects

@@ -9,6 +9,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  ChevronDown,
+  ChevronUp,
   Clipboard,
   Copy,
   CopyPlus,
@@ -29,6 +31,7 @@ import {
 import { TrackHeader } from "./TrackHeader";
 import { TrackLane } from "./TrackLane";
 import { ValueBar } from "./ValueBar";
+import { Meter } from "./Meter";
 import { TimelineRuler } from "./TimelineRuler";
 import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
@@ -247,6 +250,9 @@ export function Daw() {
    * under its track in the arrangement - a view-only toggle, not part of
    * the undo-tracked document. */
   const [automationChannelId, setAutomationChannelId] = useState<string | null>(null);
+  /** Whether the note-input panel (piano keyboard / drum pads) at the
+   * bottom of the screen is collapsed - a view-only toggle. */
+  const [instrumentPanelCollapsed, setInstrumentPanelCollapsed] = useState(false);
   /** Which of that channel's targets (volume/pan/an effect param) the
    * expanded lane is currently showing/editing. */
   const [automationTarget, setAutomationTarget] = useState<AutomationTarget>({ kind: "volume" });
@@ -283,6 +289,8 @@ export function Daw() {
     enabled: false,
   });
   const [masterName, setMasterName] = useState("Master");
+  const [editingMasterName, setEditingMasterName] = useState(false);
+  const [masterNameDraft, setMasterNameDraft] = useState("Master");
   const [masterVolume, setMasterVolume] = useState(0);
   const [masterPan, setMasterPan] = useState(0);
   const [masterLimiterThreshold, setMasterLimiterThreshold] = useState(-1);
@@ -2205,7 +2213,7 @@ export function Daw() {
         </div>
       )}
       <EffectBrowser onAddEffect={handleSidebarAddEffect} />
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
       <header className="flex shrink-0 items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">
           The Dawn Project
@@ -2589,50 +2597,95 @@ export function Daw() {
         </span>
       </div>
 
-      <div className="flex shrink-0 rounded-lg border border-border bg-surface">
-        <TrackHeader
-          channel={{
-            id: "master",
-            name: masterName,
-            volume: masterVolume,
-            pan: masterPan,
-            colorIndex: -1,
-            type: "midi",
-            instrument: null,
-            muted: false,
-            solo: false,
-            armed: false,
-          }}
-          color={MASTER_COLOR}
-          selected={false}
-          recording={false}
-          hasNotes={false}
-          canRemove={false}
-          isMaster
-          onSelect={() => {}}
-          onRename={setMasterName}
-          onVolumeChange={setMasterVolume}
-          onPanChange={setMasterPan}
-          onAdjustStart={pushHistory}
-        />
-        <div className="flex flex-1 items-center gap-3 px-3 text-xs text-muted">
-          <span>Master output — every track routes through here before the speakers.</span>
-          <div className="flex items-center gap-1.5">
-            <ValueBar
-              label="Ceiling"
-              value={masterLimiterThreshold}
-              min={-24}
-              max={0}
-              defaultValue={-1}
-              onChange={setMasterLimiterThreshold}
-              formatValue={(v) => `${v.toFixed(1)}dB`}
-            />
-            <span className="text-[10px] text-muted/70">limiter</span>
-          </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: MASTER_COLOR.accent }} />
+        {editingMasterName ? (
+          <input
+            autoFocus
+            value={masterNameDraft}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) => setMasterNameDraft(e.target.value)}
+            onBlur={() => {
+              const trimmed = masterNameDraft.trim();
+              if (trimmed && trimmed !== masterName) setMasterName(trimmed);
+              setEditingMasterName(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              else if (e.key === "Escape") setEditingMasterName(false);
+            }}
+            className="w-20 rounded border border-accent bg-surface px-1 text-xs font-medium outline-none"
+          />
+        ) : (
+          <span
+            title="Double-click to rename"
+            onDoubleClick={() => {
+              setMasterNameDraft(masterName);
+              setEditingMasterName(true);
+            }}
+            className="w-20 shrink-0 truncate text-xs font-medium"
+          >
+            {masterName}
+          </span>
+        )}
+        <div className="h-8">
+          <Meter channelId="master" />
         </div>
+        <ValueBar
+          label="Pan"
+          value={masterPan}
+          min={-1}
+          max={1}
+          defaultValue={0}
+          onChange={setMasterPan}
+          onDragStart={pushHistory}
+          formatValue={(v) => (Math.abs(v) < 0.02 ? "C" : v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`)}
+          bipolar
+        />
+        <ValueBar
+          label="Vol"
+          value={masterVolume}
+          min={-60}
+          max={6}
+          defaultValue={0}
+          onChange={setMasterVolume}
+          onDragStart={pushHistory}
+          formatValue={(v) => (v <= -60 ? "-∞" : `${v.toFixed(1)}dB`)}
+        />
+        <ValueBar
+          label="Ceiling"
+          value={masterLimiterThreshold}
+          min={-24}
+          max={0}
+          defaultValue={-1}
+          onChange={setMasterLimiterThreshold}
+          onDragStart={pushHistory}
+          formatValue={(v) => `${v.toFixed(1)}dB`}
+        />
+        <span className="text-[10px] text-muted/70">limiter</span>
+        <span className="text-[10px] text-muted/70">
+          Master output — every track routes through here before the speakers.
+        </span>
       </div>
 
-      <div className="shrink-0 rounded-lg border border-border bg-surface p-3">
+      <div className="shrink-0 overflow-hidden rounded-lg border border-border bg-surface">
+        <button
+          type="button"
+          onClick={() => setInstrumentPanelCollapsed((v) => !v)}
+          title={instrumentPanelCollapsed ? "Expand the note-input panel" : "Collapse the note-input panel"}
+          className="flex w-full items-center gap-2 bg-surface-raised px-3 py-1.5 text-left"
+        >
+          {instrumentPanelCollapsed ? (
+            <ChevronUp size={12} className="shrink-0 text-muted" />
+          ) : (
+            <ChevronDown size={12} className="shrink-0 text-muted" />
+          )}
+          <span className="text-xs font-medium">
+            {armedChannel ? `${armedChannel.name} input` : "Note input"}
+          </span>
+        </button>
+        {!instrumentPanelCollapsed && (
+        <div className="p-3">
         {!armedChannel ? (
           <p className="py-3 text-center text-xs text-muted">
             No track armed — click a track&apos;s Record button to play or record it.
@@ -2677,6 +2730,8 @@ export function Daw() {
               />
             </div>
           </div>
+        )}
+        </div>
         )}
       </div>
 

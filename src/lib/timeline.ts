@@ -1,10 +1,10 @@
 // Shared layout constants and helpers for the horizontal arrangement view.
 
-export const TRACK_HEADER_WIDTH = 224;
+export const TRACK_HEADER_WIDTH = 202;
 // Tall enough for the header's four rows - name, pan/vol + meter, the
 // instrument/FX row, and the import/export/clear/remove row.
-export const TRACK_ROW_HEIGHT = 164;
-export const RULER_HEIGHT = 28;
+export const TRACK_ROW_HEIGHT = 148;
+export const RULER_HEIGHT = 25;
 export const DEFAULT_PX_PER_SECOND = 70;
 export const MIN_PX_PER_SECOND = 20;
 export const MAX_PX_PER_SECOND = 260;

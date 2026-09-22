@@ -373,15 +373,48 @@ export function Daw() {
 
   const MAX_HISTORY = 100;
 
+  /** Releases an audio clip's blob/object-URL for good - only safe to call
+   * once nothing in the live document or the undo/redo stacks can still
+   * reference it (see `pushHistory` below). Deleting a clip must NOT call
+   * this directly: undo has to bring the actual audio back, not just the
+   * clip's visual box, so the blob has to outlive the delete until the
+   * snapshot that could restore it is itself gone for good. */
+  const releaseOrphanedAudioBlobs = useCallback((discarded: ProjectState[]) => {
+    if (discarded.length === 0) return;
+    const reachable = new Set<string>();
+    const collectReachable = (s: ProjectState) =>
+      Object.values(s.clipsByChannel).forEach((clips) =>
+        clips.forEach((c) => {
+          if (c.kind === "audio") reachable.add(c.id);
+        })
+      );
+    collectReachable(liveProjectRef.current);
+    historyPast.current.forEach(collectReachable);
+    historyFuture.current.forEach(collectReachable);
+    discarded.forEach((s) =>
+      Object.values(s.clipsByChannel).forEach((clips) =>
+        clips.forEach((c) => {
+          if (c.kind === "audio" && !reachable.has(c.id)) {
+            URL.revokeObjectURL(c.url);
+            audioBlobsRef.current.delete(c.id);
+          }
+        })
+      )
+    );
+  }, []);
+
   /** Pushes the CURRENT (pre-mutation) state onto the undo stack - call at
    * the very top of a handler, before any setState, or right as a drag
    * gesture starts, so the captured snapshot is genuinely "before". */
   const pushHistory = useCallback(() => {
     historyPast.current.push(liveProjectRef.current);
-    if (historyPast.current.length > MAX_HISTORY) historyPast.current.shift();
+    const evicted: ProjectState[] =
+      historyPast.current.length > MAX_HISTORY ? [historyPast.current.shift()!] : [];
+    const discardedFuture = historyFuture.current;
     historyFuture.current = [];
+    releaseOrphanedAudioBlobs([...evicted, ...discardedFuture]);
     setHistoryTick((t) => t + 1);
-  }, []);
+  }, [releaseOrphanedAudioBlobs]);
 
   const applySnapshot = useCallback((s: ProjectState) => {
     setChannels(s.channels);
@@ -515,8 +548,10 @@ export function Daw() {
       if (toDelete.length === 0) return;
       toDelete.forEach((c) => {
         if (c.kind === "audio") {
-          URL.revokeObjectURL(c.url);
-          audioBlobsRef.current.delete(c.id);
+          // The clip's blob/object-URL stays alive - it's still referenced
+          // by the snapshot pushHistory() just captured, so undo can bring
+          // the actual audio back, not just the clip's visual box. It's
+          // released later, once that snapshot itself ages out of history.
           audioEngine.removeAudioClip(chId, c.id);
         }
       });
@@ -669,12 +704,9 @@ export function Daw() {
       const existing = clipsOf(channelId);
       if (existing.length === 0) return;
       pushHistory();
-      existing.forEach((c) => {
-        if (c.kind === "audio") {
-          URL.revokeObjectURL(c.url);
-          audioBlobsRef.current.delete(c.id);
-        }
-      });
+      // No blob/URL cleanup here - the snapshot pushHistory() just captured
+      // still references these clips, so undo can restore their audio, not
+      // just the clip boxes. It's released once that snapshot ages out.
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [] }));
       setSelectedClipIds((prev) => {
         const next = new Set(prev);
@@ -922,12 +954,10 @@ export function Daw() {
       pushHistory();
       setChannels((prev) => prev.filter((c) => c.id !== id));
       setClipsByChannel((prev) => {
-        (prev[id] ?? []).forEach((c) => {
-          if (c.kind === "audio") {
-            URL.revokeObjectURL(c.url);
-            audioBlobsRef.current.delete(c.id);
-          }
-        });
+        // No blob/URL cleanup here - the snapshot pushHistory() just
+        // captured still references these clips, so undoing the channel
+        // removal can restore their audio, not just the clip boxes. It's
+        // released once that snapshot ages out of history.
         const next = { ...prev };
         delete next[id];
         return next;

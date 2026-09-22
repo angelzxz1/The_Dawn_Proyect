@@ -588,18 +588,26 @@ class AudioEngine {
   /** `explicitId`, when given (restoring a saved project, or an undo/redo
    * rebuild), keeps the effect's id stable across a full engine rebuild so
    * the UI's existing references to it (remove/reorder/param-change) keep
-   * working without React state needing to learn a new id. */
+   * working without React state needing to learn a new id. `atIndex`, when
+   * given (dragging a device in from the FX browser sidebar and dropping
+   * it mid-chain), inserts there instead of appending at the end. */
   addEffect(
     id: string,
     type: EffectType,
-    explicitId?: string
+    explicitId?: string,
+    atIndex?: number
   ): { id: string; type: EffectType; params: Record<string, number>; bypass: boolean } | null {
     const target = this.effectsHost(id);
     if (!target) return null;
     const params = defaultParams(type);
     const node = createEffectNode(type, params);
     const effectId = explicitId ?? `fx-${++effectIdCounter}`;
-    target.host.effects.push({ id: effectId, type, node, bypass: false });
+    const entry = { id: effectId, type, node, bypass: false };
+    if (atIndex !== undefined && atIndex >= 0 && atIndex <= target.host.effects.length) {
+      target.host.effects.splice(atIndex, 0, entry);
+    } else {
+      target.host.effects.push(entry);
+    }
     target.rewire();
     return { id: effectId, type, params, bypass: false };
   }
@@ -623,6 +631,20 @@ class AudioEngine {
     if (idx === -1 || targetIdx < 0 || targetIdx >= target.host.effects.length) return;
     const [entry] = target.host.effects.splice(idx, 1);
     target.host.effects.splice(targetIdx, 0, entry);
+    target.rewire();
+  }
+
+  /** Moves an effect to an absolute position in the chain - used by
+   * drag-and-drop reordering in the FX rack, where a device can be dropped
+   * anywhere, not just one slot over. */
+  moveEffect(id: string, effectId: string, toIndex: number): void {
+    const target = this.effectsHost(id);
+    if (!target) return;
+    const idx = target.host.effects.findIndex((e) => e.id === effectId);
+    if (idx === -1) return;
+    const [entry] = target.host.effects.splice(idx, 1);
+    const clamped = Math.max(0, Math.min(target.host.effects.length, toIndex));
+    target.host.effects.splice(clamped, 0, entry);
     target.rewire();
   }
 

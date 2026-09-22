@@ -38,7 +38,8 @@ import { ExpressionControls } from "./ExpressionControls";
 import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
-import { FxWindow } from "./FxWindow";
+import { FxRack } from "./FxRack";
+import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
 import { defaultSynthParams } from "@/lib/synth";
@@ -233,7 +234,13 @@ export function Daw() {
   const [channelEffects, setChannelEffects] = useState<Record<string, EffectInstance[]>>({});
   const [buses, setBuses] = useState<BusConfig[]>([]);
   const [busEffects, setBusEffects] = useState<Record<string, EffectInstance[]>>({});
-  const [fxChannelId, setFxChannelId] = useState<string | null>(null);
+  // Which track (or, exclusively, which bus) the persistent FX rack at the
+  // bottom of the screen currently shows - defaults to the first channel so
+  // the rack is never empty, matching Ableton's "always shows the selected
+  // track's device chain" behavior.
+  const [fxChannelId, setFxChannelId] = useState<string | null>(
+    () => channels[0]?.id ?? null
+  );
   const [fxBusId, setFxBusId] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   /** Which channel (if any) currently has its automation lane expanded
@@ -922,7 +929,10 @@ export function Daw() {
         delete next[id];
         return next;
       });
-      if (fxChannelId === id) setFxChannelId(null);
+      if (fxChannelId === id) {
+        const fallback = channels.find((c) => c.id !== id);
+        setFxChannelId(fallback?.id ?? null);
+      }
       if (selectedChannelId === id) {
         const fallback = channels.find((c) => c.id !== id);
         if (fallback) setSelectedChannelId(fallback.id);
@@ -1348,6 +1358,7 @@ export function Daw() {
 
   const openFx = useCallback((channelId: string) => {
     setFxChannelId(channelId);
+    setFxBusId(null);
   }, []);
 
   const handleToggleAutomation = useCallback((channelId: string) => {
@@ -1356,15 +1367,20 @@ export function Daw() {
   }, []);
 
   const handleAddEffect = useCallback(
-    (type: EffectType) => {
+    (type: EffectType, atIndex?: number) => {
       if (!fxChannelId) return;
       pushHistory();
-      const created = audioEngine.addEffect(fxChannelId, type);
+      const created = audioEngine.addEffect(fxChannelId, type, undefined, atIndex);
       if (created) {
-        setChannelEffects((prev) => ({
-          ...prev,
-          [fxChannelId]: [...(prev[fxChannelId] ?? []), created],
-        }));
+        setChannelEffects((prev) => {
+          const list = [...(prev[fxChannelId] ?? [])];
+          if (atIndex !== undefined && atIndex >= 0 && atIndex <= list.length) {
+            list.splice(atIndex, 0, created);
+          } else {
+            list.push(created);
+          }
+          return { ...prev, [fxChannelId]: list };
+        });
       }
     },
     [fxChannelId, pushHistory]
@@ -1383,18 +1399,20 @@ export function Daw() {
     [fxChannelId, pushHistory]
   );
 
-  const handleReorderEffect = useCallback(
-    (effectId: string, direction: -1 | 1) => {
+  /** Moves an existing effect to an absolute position in the chain - what
+   * dragging a device card to a new slot in the FX rack calls. */
+  const handleMoveEffect = useCallback(
+    (effectId: string, toIndex: number) => {
       if (!fxChannelId) return;
       pushHistory();
-      audioEngine.reorderEffect(fxChannelId, effectId, direction);
+      audioEngine.moveEffect(fxChannelId, effectId, toIndex);
       setChannelEffects((prev) => {
         const list = [...(prev[fxChannelId] ?? [])];
         const idx = list.findIndex((e) => e.id === effectId);
-        const target = idx + direction;
-        if (idx === -1 || target < 0 || target >= list.length) return prev;
+        if (idx === -1) return prev;
         const [entry] = list.splice(idx, 1);
-        list.splice(target, 0, entry);
+        const clamped = Math.max(0, Math.min(list.length, toIndex));
+        list.splice(clamped, 0, entry);
         return { ...prev, [fxChannelId]: list };
       });
     },
@@ -1503,18 +1521,24 @@ export function Daw() {
 
   const openBusFx = useCallback((busId: string) => {
     setFxBusId(busId);
+    setFxChannelId(null);
   }, []);
 
   const handleBusAddEffect = useCallback(
-    (type: EffectType) => {
+    (type: EffectType, atIndex?: number) => {
       if (!fxBusId) return;
       pushHistory();
-      const created = audioEngine.addEffect(fxBusId, type);
+      const created = audioEngine.addEffect(fxBusId, type, undefined, atIndex);
       if (created) {
-        setBusEffects((prev) => ({
-          ...prev,
-          [fxBusId]: [...(prev[fxBusId] ?? []), created],
-        }));
+        setBusEffects((prev) => {
+          const list = [...(prev[fxBusId] ?? [])];
+          if (atIndex !== undefined && atIndex >= 0 && atIndex <= list.length) {
+            list.splice(atIndex, 0, created);
+          } else {
+            list.push(created);
+          }
+          return { ...prev, [fxBusId]: list };
+        });
       }
     },
     [fxBusId, pushHistory]
@@ -1533,22 +1557,32 @@ export function Daw() {
     [fxBusId, pushHistory]
   );
 
-  const handleBusReorderEffect = useCallback(
-    (effectId: string, direction: -1 | 1) => {
+  const handleBusMoveEffect = useCallback(
+    (effectId: string, toIndex: number) => {
       if (!fxBusId) return;
       pushHistory();
-      audioEngine.reorderEffect(fxBusId, effectId, direction);
+      audioEngine.moveEffect(fxBusId, effectId, toIndex);
       setBusEffects((prev) => {
         const list = [...(prev[fxBusId] ?? [])];
         const idx = list.findIndex((e) => e.id === effectId);
-        const target = idx + direction;
-        if (idx === -1 || target < 0 || target >= list.length) return prev;
+        if (idx === -1) return prev;
         const [entry] = list.splice(idx, 1);
-        list.splice(target, 0, entry);
+        const clamped = Math.max(0, Math.min(list.length, toIndex));
+        list.splice(clamped, 0, entry);
         return { ...prev, [fxBusId]: list };
       });
     },
     [fxBusId, pushHistory]
+  );
+
+  /** Adds an effect (from the EffectBrowser sidebar, dragged or clicked) to
+   * whichever target - a track or a bus - the FX rack currently shows. */
+  const handleSidebarAddEffect = useCallback(
+    (type: EffectType) => {
+      if (fxBusId) handleBusAddEffect(type);
+      else handleAddEffect(type);
+    },
+    [fxBusId, handleBusAddEffect, handleAddEffect]
   );
 
   const handleBusEffectParamChange = useCallback(
@@ -2161,7 +2195,7 @@ export function Daw() {
     channels.length * TRACK_ROW_HEIGHT + (automationChannelId ? AUTOMATION_LANE_HEIGHT : 0);
 
   return (
-    <div className="flex h-screen flex-col gap-4 overflow-hidden p-4">
+    <div className="flex h-screen overflow-hidden">
       {isLoadingProject && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/90">
           <div className="flex items-center gap-2 text-sm text-muted">
@@ -2170,6 +2204,8 @@ export function Daw() {
           </div>
         </div>
       )}
+      <EffectBrowser onAddEffect={handleSidebarAddEffect} />
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
       <header className="flex shrink-0 items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">
           The Dawn Project
@@ -2348,6 +2384,7 @@ export function Daw() {
                   onSelect={() => {
                     setSelectedChannelId(channel.id);
                     setSelectedClipIds(new Set());
+                    openFx(channel.id);
                   }}
                   onRename={(name) => handleRenameChannel(channel.id, name)}
                   onRecolor={(colorIndex) => handleRecolorChannel(channel.id, colorIndex)}
@@ -2431,9 +2468,11 @@ export function Daw() {
                   onSelectTrack={() => {
                     setSelectedChannelId(channel.id);
                     setSelectedClipIds(new Set());
+                    openFx(channel.id);
                   }}
                   onSelectClip={(clipId, additive) => {
                     setSelectedChannelId(channel.id);
+                    openFx(channel.id);
                     setSelectedClipIds((prev) => {
                       if (additive) {
                         const next = new Set(prev);
@@ -2678,43 +2717,28 @@ export function Daw() {
         />
       )}
 
-      {fxChannel && (
-        <FxWindow
-          channelName={fxChannel.name}
-          channelType={fxChannel.type}
-          color={trackColorForIndex(fxChannel.colorIndex)}
-          instrument={fxChannel.instrument}
-          synthParams={fxChannel.synthParams}
-          effects={channelEffects[fxChannel.id] ?? []}
+      {(fxChannel || fxBus) && (
+        <FxRack
+          channelName={fxChannel?.name ?? fxBus?.name ?? ""}
+          channelType={fxChannel?.type}
+          color={trackColorForIndex(fxChannel?.colorIndex ?? fxBus?.colorIndex ?? 0)}
+          instrument={fxChannel?.instrument}
+          synthParams={fxChannel?.synthParams}
+          effects={fxChannel ? channelEffects[fxChannel.id] ?? [] : busEffects[fxBus!.id] ?? []}
           buses={buses}
-          sends={fxChannel.sends}
-          onInstrumentChange={(type) => handleInstrumentChange(fxChannel.id, type)}
-          onSynthParamsChange={handleSynthParamsChange}
-          onSendChange={handleSendChange}
-          onAdd={handleAddEffect}
-          onRemove={handleRemoveEffect}
-          onReorder={handleReorderEffect}
-          onBypassToggle={handleEffectBypassToggle}
+          sends={fxChannel?.sends}
+          onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
+          onSynthParamsChange={fxChannel ? handleSynthParamsChange : undefined}
+          onSendChange={fxChannel ? handleSendChange : undefined}
+          onAddEffect={fxChannel ? handleAddEffect : handleBusAddEffect}
+          onRemoveEffect={fxChannel ? handleRemoveEffect : handleBusRemoveEffect}
+          onMoveEffect={fxChannel ? handleMoveEffect : handleBusMoveEffect}
+          onBypassToggle={fxChannel ? handleEffectBypassToggle : handleBusEffectBypassToggle}
           onParamDragStart={pushHistory}
-          onParamChange={handleEffectParamChange}
-          onClose={() => setFxChannelId(null)}
+          onParamChange={fxChannel ? handleEffectParamChange : handleBusEffectParamChange}
         />
       )}
-
-      {fxBus && (
-        <FxWindow
-          channelName={fxBus.name}
-          color={trackColorForIndex(fxBus.colorIndex)}
-          effects={busEffects[fxBus.id] ?? []}
-          onAdd={handleBusAddEffect}
-          onRemove={handleBusRemoveEffect}
-          onReorder={handleBusReorderEffect}
-          onBypassToggle={handleBusEffectBypassToggle}
-          onParamDragStart={pushHistory}
-          onParamChange={handleBusEffectParamChange}
-          onClose={() => setFxBusId(null)}
-        />
-      )}
+      </div>
     </div>
   );
 }

@@ -25,6 +25,16 @@ export const EFFECT_TYPES: EffectType[] = [
   "pitchShift",
 ];
 
+/** Groups the effect palette the way an Ableton-style device browser would
+ * - the sidebar renders one collapsible section per group. */
+export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
+  { name: "Dynamics", types: ["compressor", "limiter"] },
+  { name: "EQ & Filter", types: ["eq3", "filter"] },
+  { name: "Modulation", types: ["chorus", "pitchShift"] },
+  { name: "Distortion", types: ["distortion"] },
+  { name: "Reverb & Delay", types: ["reverb", "delay"] },
+];
+
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq3: "EQ Three",
   compressor: "Compressor",

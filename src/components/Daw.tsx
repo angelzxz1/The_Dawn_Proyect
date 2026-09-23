@@ -264,6 +264,10 @@ export function Daw() {
    * the master bus's own effects chain instead of a track's or a bus's. */
   const [fxMasterOpen, setFxMasterOpen] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  /** Set when a file dropped onto a track couldn't be read as audio (e.g.
+   * the wrong file type) - drag-and-drop has no OS-level file-type filter
+   * the way the "Import audio" picker's `accept="audio/*"` does. */
+  const [importError, setImportError] = useState<string | null>(null);
   /** The browser's available audio input devices, and which one
    * recordings currently use (null = the browser's default). Refreshed on
    * mount and whenever the OS reports a device was plugged/unplugged. */
@@ -768,6 +772,24 @@ export function Daw() {
     return () => window.removeEventListener("contextmenu", suppressContextMenu);
   }, []);
 
+  // Dragging a file in from the OS anywhere the app itself doesn't handle
+  // it (outside a track lane, or over a MIDI track) would otherwise make
+  // the browser navigate to/open that file, losing the whole session - an
+  // audio track's own lane calls preventDefault itself and stops
+  // propagation for a drop it actually handles, so this is purely the
+  // catch-all for everywhere else.
+  useEffect(() => {
+    const suppressFileDrop = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", suppressFileDrop);
+    window.addEventListener("drop", suppressFileDrop);
+    return () => {
+      window.removeEventListener("dragover", suppressFileDrop);
+      window.removeEventListener("drop", suppressFileDrop);
+    };
+  }, []);
+
   // Keep the audio engine's channels in sync with React state.
   useEffect(() => {
     const currentIds = new Set(channels.map((c) => c.id));
@@ -1169,6 +1191,23 @@ export function Daw() {
       addAudioClip(channelId, decoded, anchor, file.name, file);
     },
     [bpm, beatsPerBar, addAudioClip]
+  );
+
+  /** Drag-and-drop entry point: unlike the "Import audio" file picker
+   * (`accept="audio/*"`), the OS drag-and-drop API applies no file-type
+   * filter at all, so this is far more likely to actually be handed
+   * something `decodeAudioFile` can't read - caught here and surfaced in
+   * the header status line instead of an unhandled rejection. */
+  const handleDropAudioFile = useCallback(
+    async (channelId: string, file: File, atSeconds: number) => {
+      try {
+        await handleImportAudioAt(channelId, file, atSeconds);
+        setImportError(null);
+      } catch {
+        setImportError(`Couldn't import "${file.name}" — not a readable audio file.`);
+      }
+    },
+    [handleImportAudioAt]
   );
 
   const handleImportAudioAppend = useCallback(
@@ -2425,12 +2464,14 @@ export function Daw() {
             The Dawn Project
           </h1>
         </div>
-        <p className={`text-xs ${micError ? "text-record" : "text-muted"}`}>
+        <p className={`text-xs ${micError || importError ? "text-record" : "text-muted"}`}>
           {micError
             ? micError
-            : samplesReady
-              ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
-              : "loading piano sounds…"}
+            : importError
+              ? importError
+              : samplesReady
+                ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
+                : "loading piano sounds…"}
         </p>
       </header>
 
@@ -2712,6 +2753,8 @@ export function Daw() {
                   onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
                   onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
                   onClipDragStart={pushHistory}
+                  acceptsFileDrop={channel.type === "audio"}
+                  onDropAudioFile={(file, atSeconds) => void handleDropAudioFile(channel.id, file, atSeconds)}
                 />
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">

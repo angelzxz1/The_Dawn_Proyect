@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ClipBlock } from "./ClipBlock";
 import type { ClipInstance } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
@@ -34,6 +35,14 @@ interface TrackLaneProps {
   /** Fired once at the start of a clip move/resize/fade/gain drag - lets
    * the caller push one undo checkpoint per drag instead of one per pixel. */
   onClipDragStart: () => void;
+  /** Whether this track can accept an audio file dragged in from the OS -
+   * only an audio-type channel can. A MIDI lane still swallows the drop
+   * (so the browser doesn't navigate to the file) but shows no affordance
+   * and doesn't import anything. */
+  acceptsFileDrop: boolean;
+  /** Fires once a dropped file lands - `atSeconds` is where on the
+   * timeline it was dropped, unsnapped (the caller snaps it to the bar). */
+  onDropAudioFile: (file: File, atSeconds: number) => void;
 }
 
 export function TrackLane({
@@ -57,8 +66,16 @@ export function TrackLane({
   onClipContextMenu,
   onLaneContextMenu,
   onClipDragStart,
+  acceptsFileDrop,
+  onDropAudioFile,
 }: TrackLaneProps) {
   const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
+  const [fileDragOver, setFileDragOver] = useState(false);
+
+  const atSecondsFromEvent = (e: React.DragEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return Math.max(0, (e.clientX - rect.left) / pxPerSecond);
+  };
 
   return (
     <div
@@ -68,13 +85,40 @@ export function TrackLane({
         const rect = e.currentTarget.getBoundingClientRect();
         onLaneContextMenu(e, Math.max(0, (e.clientX - rect.left) / pxPerSecond));
       }}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        if (acceptsFileDrop) setFileDragOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = acceptsFileDrop ? "copy" : "none";
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setFileDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setFileDragOver(false);
+        if (!acceptsFileDrop) return;
+        const file = e.dataTransfer.files[0];
+        if (file) onDropAudioFile(file, atSecondsFromEvent(e));
+      }}
       className={`relative cursor-pointer border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
-      }`}
+      } ${fileDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
       style={{ height: TRACK_ROW_HEIGHT, width: totalSeconds * pxPerSecond }}
     >
       {armed && (
         <div className="pointer-events-none absolute inset-0 z-0 border border-record/40" />
+      )}
+      {fileDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-xs font-medium text-accent">
+          Drop audio file here
+        </div>
       )}
       {marks.map((mark) => (
         <div

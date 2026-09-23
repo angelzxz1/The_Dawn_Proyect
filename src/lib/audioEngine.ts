@@ -498,6 +498,8 @@ class AudioEngine {
     this.automation.delete(id);
     this.sustainedChannels.delete(id);
     this.sustainPending.delete(id);
+    this.monitorNodes.get(id)?.dispose();
+    this.monitorNodes.delete(id);
     if (this.recording?.channelId === id) {
       this.recording = null;
     }
@@ -1115,20 +1117,47 @@ class AudioEngine {
 
   /** Which input device recordings should capture from - null means the
    * browser's default. Set via `setMicDevice`, e.g. after plugging in an
-   * audio interface and picking it from the transport bar's Input select. */
+   * audio interface and picking it from a track's own Input select. */
   private micDeviceId: string | null = null;
+
+  /** Per-channel live input-monitor taps - open only while that channel is
+   * both armed and monitoring is enabled (see `setInputMonitoring`). */
+  private monitorNodes = new Map<string, Tone.UserMedia>();
 
   private async ensureMicStream(): Promise<MediaStream> {
     if (this.micStream) return this.micStream;
+    // `channelCount: { ideal: 1 }` asks for a single (mono) capture rather
+    // than whatever multi-channel width the selected device natively
+    // exposes - without it, some audio interfaces hand back every input
+    // channel summed together regardless of which single `deviceId` was
+    // requested. echo/noise/gain processing is turned off since it can
+    // audibly mangle a mic or instrument signal, matching what a DAW's own
+    // input path should do (same constraints Tone.UserMedia uses below).
     this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : true,
+      audio: {
+        ...(this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : {}),
+        channelCount: { ideal: 1 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
     });
     return this.micStream;
   }
 
-  /** Switches which input device the next recording captures from. Drops
-   * any already-open mic stream so `ensureMicStream` re-requests
-   * `getUserMedia` against the new device instead of reusing the old one -
+  /** Requests mic permission (prompting the user the first time) without
+   * starting a recording - lets a caller (e.g. a track's Input select,
+   * on focus) unlock the browser's full, labeled device list ahead of
+   * time, since `enumerateDevices` only returns generic/blank entries
+   * until permission has been granted at least once. */
+  async requestMicAccess(): Promise<void> {
+    await this.ensureMicStream();
+  }
+
+  /** Switches which input device future recordings and monitoring capture
+   * from. Drops any already-open mic stream so `ensureMicStream`
+   * re-requests `getUserMedia` against the new device instead of reusing
+   * the old one, and reopens any active monitor taps on the new device -
    * a no-op while nothing's open yet. */
   setMicDevice(deviceId: string | null): void {
     if (this.micDeviceId === deviceId) return;
@@ -1137,19 +1166,64 @@ class AudioEngine {
       this.micStream.getTracks().forEach((track) => track.stop());
       this.micStream = null;
     }
+    this.monitorNodes.forEach((_, channelId) => {
+      this.setInputMonitoring(channelId, false);
+      void this.setInputMonitoring(channelId, true);
+    });
   }
 
   /** Lists the browser's available audio input devices (an interface's
-   * separate inputs included, once the OS exposes them). Device labels
-   * come back blank until mic permission has been granted at least once -
-   * the caller can still offer the (unlabeled) list to trigger that
-   * prompt via `setMicDevice` + a recording attempt. */
+   * separate inputs included, once the OS exposes them). Device labels -
+   * and, on some browsers, entries for anything past the first device -
+   * come back blank/missing until mic permission has been granted at
+   * least once; call `requestMicAccess` first (or just try recording) to
+   * unlock the real list, then call this again. */
   async listInputDevices(): Promise<{ deviceId: string; label: string }[]> {
     if (!navigator.mediaDevices?.enumerateDevices) return [];
     const devices = await navigator.mediaDevices.enumerateDevices();
     return devices
       .filter((d) => d.kind === "audioinput")
       .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
+  }
+
+  /** Turns a live input-monitor tap for `channelId` on or off - while on,
+   * the selected mic/interface input is audible in real time through that
+   * channel's volume/pan/mute, so an armed track can be heard while
+   * recording (or just while getting ready to). Taps in directly to the
+   * channel strip rather than through its effects chain, for lower
+   * latency and so unrelated effect changes never have to know about it. */
+  async setInputMonitoring(channelId: string, enabled: boolean): Promise<void> {
+    const nodes = this.channels.get(channelId);
+    if (!nodes) return;
+    if (!enabled) {
+      const mic = this.monitorNodes.get(channelId);
+      if (mic) {
+        mic.dispose();
+        this.monitorNodes.delete(channelId);
+      }
+      return;
+    }
+    if (this.monitorNodes.has(channelId)) return;
+    await this.ensureStarted();
+    const mic = new Tone.UserMedia();
+    try {
+      await mic.open(this.micDeviceId ?? undefined);
+    } catch {
+      mic.dispose();
+      return;
+    }
+    // The channel (or the whole engine) may have gone away while the
+    // permission prompt/device open was in flight.
+    if (!this.channels.has(channelId) || this.monitorNodes.has(channelId)) {
+      mic.dispose();
+      return;
+    }
+    mic.connect(nodes.channel);
+    this.monitorNodes.set(channelId, mic);
+  }
+
+  isInputMonitoring(channelId: string): boolean {
+    return this.monitorNodes.has(channelId);
   }
 
   private static readonly PREFERRED_MIME_TYPES = [

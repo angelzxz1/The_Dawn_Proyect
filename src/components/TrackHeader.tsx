@@ -67,6 +67,10 @@ interface TrackHeaderProps {
   inputDevices?: { deviceId: string; label: string }[];
   selectedInputDeviceId?: string | null;
   onInputDeviceChange?: (deviceId: string | null) => void;
+  /** Primes mic permission and refreshes `inputDevices` - fired when the
+   * input select gains focus, since the browser only returns the full,
+   * labeled device list once permission has been granted at least once. */
+  onRequestInputDevices?: () => void;
 }
 
 function formatDb(db: number): string {
@@ -150,6 +154,7 @@ export function TrackHeader({
   inputDevices,
   selectedInputDeviceId,
   onInputDeviceChange,
+  onRequestInputDevices,
 }: TrackHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -329,6 +334,7 @@ export function TrackHeader({
               title="Which microphone or audio-interface input this track records from"
               value={selectedInputDeviceId ?? ""}
               onChange={(e) => onInputDeviceChange?.(e.target.value || null)}
+              onFocus={() => onRequestInputDevices?.()}
               className="h-5 max-w-[76px] rounded border border-border bg-surface px-1 text-[10px] text-muted"
             >
               <option value="">Default</option>

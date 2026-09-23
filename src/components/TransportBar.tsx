@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Circle, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
+import { Circle, Headphones, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/lib/types";
 
@@ -27,6 +27,10 @@ interface TransportBarProps {
   recordingMode?: "midi" | "audio";
   /** Name of the record-armed channel, or null if none is armed. */
   armedChannelName: string | null;
+  /** Whether the armed audio track's input is currently monitored live -
+   * only meaningful (and only shown) while `recordingMode` is "audio". */
+  monitoringEnabled: boolean;
+  onToggleMonitoring: () => void;
   loopEnabled: boolean;
   onToggleLoop: () => void;
   /** Bars of audible pre-roll clicks played before recording actually
@@ -52,6 +56,8 @@ export function TransportBar({
   canRecord,
   recordingMode = "midi",
   armedChannelName,
+  monitoringEnabled,
+  onToggleMonitoring,
   loopEnabled,
   onToggleLoop,
   countInBars,
@@ -136,6 +142,25 @@ export function TransportBar({
         >
           {metronomeEnabled ? <Volume2 size={15} /> : <Volume1 size={15} />}
         </button>
+        {recordingMode === "audio" && (
+          <button
+            type="button"
+            onClick={onToggleMonitoring}
+            aria-pressed={monitoringEnabled}
+            title={
+              monitoringEnabled
+                ? `Monitoring on - hearing ${armedChannelName}'s live input`
+                : "Monitor the armed audio track's live input while recording"
+            }
+            className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors ${
+              monitoringEnabled
+                ? "border-accent bg-accent/20 text-accent"
+                : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            <Headphones size={15} />
+          </button>
+        )}
         <button
           type="button"
           onClick={onToggleLoop}

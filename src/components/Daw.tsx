@@ -269,6 +269,10 @@ export function Daw() {
    * mount and whenever the OS reports a device was plugged/unplugged. */
   const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([]);
   const [selectedInputDeviceId, setSelectedInputDeviceId] = useState<string | null>(null);
+  /** Whether the currently record-armed audio track's input is monitored
+   * live (heard through its volume/pan while armed) - a view/session-only
+   * toggle, not part of the undo-tracked document. */
+  const [inputMonitoringEnabled, setInputMonitoringEnabled] = useState(false);
   /** Which channel (if any) currently has its automation lane expanded
    * under its track in the arrangement - a view-only toggle, not part of
    * the undo-tracked document. */
@@ -883,28 +887,58 @@ export function Daw() {
   }, [handleNoteOn, handleNoteOff, armedChannelId]);
 
   // Available audio input devices (mic, or an interface's separate inputs),
-  // refreshed on mount and whenever the OS reports one was plugged in or
-  // removed - so a freshly-connected interface shows up in the Input
-  // select without needing a page reload.
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = () => {
-      audioEngine.listInputDevices().then((devices) => {
-        if (!cancelled) setInputDevices(devices);
-      });
-    };
-    refresh();
-    navigator.mediaDevices?.addEventListener?.("devicechange", refresh);
-    return () => {
-      cancelled = true;
-      navigator.mediaDevices?.removeEventListener?.("devicechange", refresh);
-    };
+  // refreshed on mount, whenever the OS reports one was plugged in or
+  // removed, and after anything that grants mic permission (browsers only
+  // return full, labeled devices - sometimes only a single generic one at
+  // all - once permission has been granted at least once, so the list
+  // starts out sparse until then).
+  const refreshInputDevices = useCallback(() => {
+    audioEngine.listInputDevices().then(setInputDevices);
   }, []);
+
+  useEffect(() => {
+    refreshInputDevices();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refreshInputDevices);
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.("devicechange", refreshInputDevices);
+    };
+  }, [refreshInputDevices]);
 
   const handleInputDeviceChange = useCallback((deviceId: string | null) => {
     setSelectedInputDeviceId(deviceId);
     audioEngine.setMicDevice(deviceId);
   }, []);
+
+  /** Primes mic permission (e.g. from a track's Input select gaining
+   * focus) and refreshes the device list right after, so the full set of
+   * labeled devices shows up without the user needing to already be
+   * recording first. A no-op (beyond a fresh label refresh) once
+   * permission was already granted. */
+  const handleRequestInputDevices = useCallback(() => {
+    audioEngine
+      .requestMicAccess()
+      .then(refreshInputDevices)
+      .catch(() =>
+        setMicError(
+          "Couldn't access audio input devices - check the browser's permission prompt or site settings."
+        )
+      );
+  }, [refreshInputDevices]);
+
+  // Live input monitoring follows whichever audio channel is currently
+  // armed - opens a monitor tap on it while enabled, and tears it back
+  // down (on disarm, a device change already handles reopening itself, or
+  // toggling monitoring off) so a stale tap never outlives its channel.
+  useEffect(() => {
+    if (!armedChannelId || channelTypeOf(armedChannelId) !== "audio" || !inputMonitoringEnabled) {
+      return;
+    }
+    const channelId = armedChannelId;
+    void audioEngine.setInputMonitoring(channelId, true);
+    return () => {
+      void audioEngine.setInputMonitoring(channelId, false);
+    };
+  }, [armedChannelId, inputMonitoringEnabled, channelTypeOf]);
 
   // Which channel a recording-in-progress targets - captured once at
   // Record time (not read live from `armedChannelId`) so re-arming a
@@ -976,6 +1010,7 @@ export function Daw() {
         await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar);
         setMicError(null);
         setTransportState("recording");
+        refreshInputDevices();
       } catch {
         recordingChannelRef.current = null;
         setMicError(
@@ -986,7 +1021,7 @@ export function Daw() {
     }
     setTransportState("recording");
     await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar);
-  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar]);
+  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices]);
 
   const handleAddChannel = useCallback(
     (type: ChannelType) => {
@@ -2409,6 +2444,8 @@ export function Daw() {
           canRecord={transportState === "recording" || !!armedChannelId}
           recordingMode={armedChannel?.type === "audio" ? "audio" : "midi"}
           armedChannelName={armedChannel?.name ?? null}
+          monitoringEnabled={inputMonitoringEnabled}
+          onToggleMonitoring={() => setInputMonitoringEnabled((v) => !v)}
           loopEnabled={loopEnabled}
           onToggleLoop={() => setLoopEnabled((v) => !v)}
           countInBars={countInBars}
@@ -2560,6 +2597,7 @@ export function Daw() {
                   inputDevices={inputDevices}
                   selectedInputDeviceId={selectedInputDeviceId}
                   onInputDeviceChange={handleInputDeviceChange}
+                  onRequestInputDevices={handleRequestInputDevices}
                   onSelect={() => {
                     setSelectedChannelId(channel.id);
                     setSelectedClipIds(new Set());

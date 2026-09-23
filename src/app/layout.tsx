@@ -16,6 +16,19 @@ export const metadata: Metadata = {
   title: "The Dawn Project — Online DAW",
   description:
     "A browser-based digital audio workstation for recording and creating MIDI.",
+  openGraph: {
+    title: "The Dawn Project — Online DAW",
+    description:
+      "A browser-based digital audio workstation for recording and creating MIDI.",
+    images: ["/banner.png"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "The Dawn Project — Online DAW",
+    description:
+      "A browser-based digital audio workstation for recording and creating MIDI.",
+    images: ["/banner.png"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

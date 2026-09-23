@@ -1,4 +1,4 @@
-# The Dawn Project
+![The Dawn Project](public/banner.png)
 
 A browser-based digital audio workstation (DAW), built with Next.js and
 [Tone.js](https://tonejs.github.io/).

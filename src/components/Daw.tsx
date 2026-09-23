@@ -2418,9 +2418,13 @@ export function Daw() {
       <EffectBrowser onAddEffect={handleSidebarAddEffect} />
       <div className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
       <header className="flex shrink-0 items-center justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">
-          The Dawn Project
-        </h1>
+        <div className="flex items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-icon.png" alt="" className="h-6 w-6 rounded-md" />
+          <h1 className="text-lg font-semibold tracking-tight">
+            The Dawn Project
+          </h1>
+        </div>
         <p className={`text-xs ${micError ? "text-record" : "text-muted"}`}>
           {micError
             ? micError

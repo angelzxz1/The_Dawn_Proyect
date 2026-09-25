@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Drum, Piano, Power, Settings2, SlashSquare, Waves, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
+import { EQThreeRackCard } from "./EQThreeRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -34,6 +35,8 @@ interface FxRackProps {
   /** Fired once at the start of a param drag/edit gesture - lets the caller
    * push one undo checkpoint per gesture. */
   onParamDragStart?: () => void;
+  /** Opens the full EQ Three window for one effect instance. */
+  onOpenEQWindow?: (effectId: string) => void;
 }
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
@@ -108,6 +111,7 @@ export function FxRack({
   onBypassToggle,
   onParamChange,
   onParamDragStart,
+  onOpenEQWindow,
 }: FxRackProps) {
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -200,48 +204,63 @@ export function FxRack({
                 e.dataTransfer.setData(REORDER_DRAG_MIME, fx.id);
                 e.dataTransfer.effectAllowed = "move";
               }}
-              className={`flex w-40 shrink-0 cursor-grab flex-col rounded border border-border bg-surface-raised p-2 active:cursor-grabbing ${
-                fx.bypass ? "opacity-50" : ""
-              }`}
+              className={`flex shrink-0 cursor-grab flex-col active:cursor-grabbing ${
+                fx.type === "eq3" ? "w-64 rounded-xl p-2.5" : "w-40 rounded border border-border bg-surface-raised p-2"
+              } ${fx.bypass ? "opacity-50" : ""}`}
+              style={fx.type === "eq3" ? { background: "#1B1C22", border: "1px solid #2E2F37" } : undefined}
             >
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="truncate text-[11px] font-semibold">{EFFECT_LABELS[fx.type]}</span>
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    title={fx.bypass ? "Enable effect" : "Bypass effect"}
-                    onClick={() => onBypassToggle(fx.id)}
-                    className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface ${
-                      fx.bypass ? "text-muted" : "text-accent"
-                    }`}
-                  >
-                    <Power size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove effect"
-                    onClick={() => onRemoveEffect(fx.id)}
-                    className="flex h-5 w-5 items-center justify-center rounded text-record hover:bg-surface"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-1 flex-wrap content-start gap-2">
-                {paramSpecs(fx.type).map((spec) => (
-                  <ValueBar
-                    key={spec.key}
-                    label={spec.label}
-                    value={fx.params[spec.key]}
-                    min={spec.min}
-                    max={spec.max}
-                    defaultValue={spec.default}
-                    onChange={(v) => onParamChange(fx.id, spec.key, v)}
-                    onDragStart={onParamDragStart}
-                    formatValue={spec.format}
-                  />
-                ))}
-              </div>
+              {fx.type === "eq3" ? (
+                <EQThreeRackCard
+                  params={fx.params}
+                  bypass={!!fx.bypass}
+                  onBypassToggle={() => onBypassToggle(fx.id)}
+                  onRemove={() => onRemoveEffect(fx.id)}
+                  onExpand={() => onOpenEQWindow?.(fx.id)}
+                  onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                  onParamDragStart={onParamDragStart}
+                />
+              ) : (
+                <>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="truncate text-[11px] font-semibold">{EFFECT_LABELS[fx.type]}</span>
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        title={fx.bypass ? "Enable effect" : "Bypass effect"}
+                        onClick={() => onBypassToggle(fx.id)}
+                        className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface ${
+                          fx.bypass ? "text-muted" : "text-accent"
+                        }`}
+                      >
+                        <Power size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Remove effect"
+                        onClick={() => onRemoveEffect(fx.id)}
+                        className="flex h-5 w-5 items-center justify-center rounded text-record hover:bg-surface"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-1 flex-wrap content-start gap-2">
+                    {paramSpecs(fx.type).map((spec) => (
+                      <ValueBar
+                        key={spec.key}
+                        label={spec.label}
+                        value={fx.params[spec.key]}
+                        min={spec.min}
+                        max={spec.max}
+                        defaultValue={spec.default}
+                        onChange={(v) => onParamChange(fx.id, spec.key, v)}
+                        onDragStart={onParamDragStart}
+                        formatValue={spec.format}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             <DropGap
               index={i + 1}

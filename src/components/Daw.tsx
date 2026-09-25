@@ -44,6 +44,7 @@ import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FxRack } from "./FxRack";
 import { SynthWindow } from "./SynthWindow";
+import { EQThreeWindow } from "./EQThreeWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -267,6 +268,10 @@ export function Daw() {
   /** Whether the dedicated Synth Settings window is open, for whichever
    * channel the FX rack is currently showing. */
   const [synthWindowOpen, setSynthWindowOpen] = useState(false);
+  /** The id of an EQ Three effect instance whose full window is open, or
+   * null - effects can appear on any track/bus/master, so this is an id
+   * rather than a boolean. */
+  const [expandedEQId, setExpandedEQId] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   /** Set when a file dropped onto a track couldn't be read as audio (e.g.
    * the wrong file type) - drag-and-drop has no OS-level file-type filter
@@ -2470,6 +2475,8 @@ export function Daw() {
     : undefined;
   const fxChannel = channels.find((c) => c.id === fxChannelId);
   const fxBus = buses.find((b) => b.id === fxBusId);
+  const rackEffects = fxChannel ? channelEffects[fxChannel.id] ?? [] : fxBus ? busEffects[fxBus.id] ?? [] : masterEffects;
+  const expandedEQ = expandedEQId ? rackEffects.find((e) => e.id === expandedEQId) : undefined;
   const lanesHeight =
     channels.length * TRACK_ROW_HEIGHT + (automationChannelId ? AUTOMATION_LANE_HEIGHT : 0);
 
@@ -3081,7 +3088,7 @@ export function Daw() {
           color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
           synthParams={fxChannel?.synthParams}
-          effects={fxChannel ? channelEffects[fxChannel.id] ?? [] : fxBus ? busEffects[fxBus.id] ?? [] : masterEffects}
+          effects={rackEffects}
           buses={buses}
           sends={fxChannel?.sends}
           onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
@@ -3093,6 +3100,7 @@ export function Daw() {
           onBypassToggle={fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle}
           onParamDragStart={pushHistory}
           onParamChange={fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange}
+          onOpenEQWindow={setExpandedEQId}
         />
       )}
 
@@ -3104,6 +3112,28 @@ export function Daw() {
           onChange={handleSynthParamsChange}
           onClose={() => setSynthWindowOpen(false)}
           onDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEQId && expandedEQ && (
+        <EQThreeWindow
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEQ.params}
+          bypass={!!expandedEQ.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEQId
+            )
+          }
+          onClose={() => setExpandedEQId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEQId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
         />
       )}
       </div>

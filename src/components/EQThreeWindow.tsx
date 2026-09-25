@@ -1,11 +1,11 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { EQThreeKnob } from "./EQThreeKnob";
+import { PluginKnob } from "./PluginKnob";
 import { EQThreeGraph } from "./EQThreeGraph";
-import { EQThreeIcon } from "./EQThreeIcon";
+import { PluginIcon } from "./PluginIcon";
 import { paramSpecs } from "@/lib/effects";
-import { fraunces, spaceGrotesk } from "@/lib/eqThreeFonts";
+import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface EQThreeWindowProps {
   channelName: string;
@@ -41,7 +41,7 @@ export function EQThreeWindow({
       >
         <div className="flex h-[30px] items-center justify-between">
           <div className="flex items-center gap-2">
-            <EQThreeIcon />
+            <PluginIcon />
             <h2 className={`${fraunces.className} text-[19px] font-semibold text-[#F4EDE2]`} style={{ letterSpacing: "-0.2px" }}>
               EQ Three
             </h2>
@@ -78,7 +78,7 @@ export function EQThreeWindow({
 
         <div className="flex justify-between px-3.5 pt-0.5">
           {[lowSpec, midSpec, highSpec].map((spec) => (
-            <EQThreeKnob
+            <PluginKnob
               key={spec.key}
               label={spec.label}
               value={value(spec.key, spec.default)}
@@ -99,7 +99,7 @@ export function EQThreeWindow({
 
         <div className="flex justify-between px-1">
           {[lowXSpec, highXSpec].map((spec) => (
-            <EQThreeKnob
+            <PluginKnob
               key={spec.key}
               label={spec.label}
               value={value(spec.key, spec.default)}

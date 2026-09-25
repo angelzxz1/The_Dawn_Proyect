@@ -83,10 +83,15 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "highFrequency", label: "High X", min: 1000, max: 8000, default: 2500, format: hz },
   ],
   compressor: [
-    { key: "threshold", label: "Thresh", min: -60, max: 0, default: -24, format: db },
+    { key: "threshold", label: "Threshold", min: -60, max: 0, default: -24, format: db },
     { key: "ratio", label: "Ratio", min: 1, max: 20, default: 4, format: ratio },
     { key: "attack", label: "Attack", min: 0.001, max: 0.25, default: 0.02, format: ms },
     { key: "release", label: "Release", min: 0.01, max: 1, default: 0.2, format: ms },
+    { key: "knee", label: "Knee", min: 0, max: 40, default: 6, format: db },
+    { key: "makeup", label: "Makeup", min: -12, max: 24, default: 0, format: db },
+    { key: "makeupAuto", label: "Auto Makeup", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "Auto" : "Manual") },
+    { key: "dryWet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: db },
   ],
   delay: [
     { key: "delayTime", label: "Time", min: 0.02, max: 1, default: 0.25, format: sec },
@@ -127,4 +132,15 @@ export function paramSpecs(type: EffectType): ParamSpec[] {
 
 export function defaultParams(type: EffectType): Record<string, number> {
   return Object.fromEntries(paramSpecs(type).map((s) => [s.key, s.default]));
+}
+
+/** A standard "half the average gain reduction" heuristic for automatic
+ * makeup gain: at signal levels well above threshold, a compressor at this
+ * ratio reduces gain by `-threshold * (1 - 1/ratio)` dB, and this recovers
+ * roughly half of that. Shared by the audio engine (to actually apply it)
+ * and the Compressor UI (to display the live "AUTO +N dB" readout) so both
+ * always agree without the UI having to poll the engine. */
+export function autoMakeupDb(threshold: number, ratio: number): number {
+  const reduction = -threshold * (1 - 1 / ratio);
+  return Math.max(0, Math.min(24, reduction / 2));
 }

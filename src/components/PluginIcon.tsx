@@ -1,4 +1,6 @@
-export function EQThreeIcon({ size = 18 }: { size?: number }) {
+/** A small decorative "wave" mark shared by every custom plugin UI's header
+ * (EQ Three, Compressor, ...) as a consistent brand identity. */
+export function PluginIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={(size * 10) / 18} viewBox="0 0 18 10" aria-hidden="true">
       <path d="M1 9 A8 8 0 0 1 17 9 Z" fill="#E6AD5E" />

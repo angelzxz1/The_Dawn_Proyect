@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, Settings2, SlashSquare, Waves, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { EQThreeRackCard } from "./EQThreeRackCard";
+import { CompressorRackCard } from "./CompressorRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -35,9 +36,14 @@ interface FxRackProps {
   /** Fired once at the start of a param drag/edit gesture - lets the caller
    * push one undo checkpoint per gesture. */
   onParamDragStart?: () => void;
-  /** Opens the full EQ Three window for one effect instance. */
-  onOpenEQWindow?: (effectId: string) => void;
+  /** Opens the full plugin window (EQ Three, Compressor, ...) for one
+   * effect instance that has a custom UI. */
+  onOpenEffectWindow?: (effectId: string) => void;
 }
+
+/** Effect types with a custom rack card + full window, instead of the
+ * generic ValueBar-driven card. */
+const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor"];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
 
@@ -111,7 +117,7 @@ export function FxRack({
   onBypassToggle,
   onParamChange,
   onParamDragStart,
-  onOpenEQWindow,
+  onOpenEffectWindow,
 }: FxRackProps) {
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -200,9 +206,13 @@ export function FxRack({
           <div key={fx.id} className="flex items-stretch">
             <div
               className={`flex shrink-0 ${
-                fx.type === "eq3" ? "w-64 rounded-xl" : "w-40 rounded border border-border bg-surface-raised"
+                fx.type === "eq3"
+                  ? "w-64 rounded-xl"
+                  : fx.type === "compressor"
+                    ? "w-72 rounded-xl"
+                    : "w-40 rounded border border-border bg-surface-raised"
               } ${fx.bypass ? "opacity-50" : ""}`}
-              style={fx.type === "eq3" ? { background: "#1B1C22", border: "1px solid #2E2F37" } : undefined}
+              style={CUSTOM_UI_TYPES.includes(fx.type) ? { background: "#1B1C22", border: "1px solid #2E2F37" } : undefined}
             >
               <div
                 draggable
@@ -215,14 +225,24 @@ export function FxRack({
               >
                 <GripVertical size={10} className="text-muted" />
               </div>
-              <div className={`flex min-w-0 flex-1 flex-col ${fx.type === "eq3" ? "p-2.5 pl-1.5" : "p-2 pl-1"}`}>
+              <div className={`flex min-w-0 flex-1 flex-col ${CUSTOM_UI_TYPES.includes(fx.type) ? "p-2.5 pl-1.5" : "p-2 pl-1"}`}>
                 {fx.type === "eq3" ? (
                   <EQThreeRackCard
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
                     onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEQWindow?.(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "compressor" ? (
+                  <CompressorRackCard
+                    params={fx.params}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
                     onParamChange={(key, v) => onParamChange(fx.id, key, v)}
                     onParamDragStart={onParamDragStart}
                   />

@@ -23,7 +23,7 @@ import type {
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
 import { SynthInstrument, defaultSynthParams } from "./synth";
-import { type EffectType, defaultParams } from "./effects";
+import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
 
 /** Linearly interpolates an automation lane's value at time `t` - flat
  * before the first point and after the last, matching how the lane's UI
@@ -168,6 +168,137 @@ function filterTypeFromKnob(v: number): BiquadFilterType {
   return "bandpass";
 }
 
+/** A Tone.Compressor plus everything the custom Compressor plugin UI needs
+ * that Tone.Compressor doesn't provide on its own: automatic (or manual)
+ * makeup gain, a dry/wet blend for parallel compression, a final output
+ * trim, and input/gain-reduction/output metering for the live meters in the
+ * full window. Exposed as a single `Tone.ToneAudioNode` (its `input`/
+ * `output` are its own boundary nodes) so it drops straight into the
+ * existing effects-chain wiring (`wireEffectsChain` only ever calls
+ * `.connect()`/`.disconnect()`/`.dispose()` on an effect's node) without the
+ * engine needing to know it's actually several nodes internally. */
+class CompressorChain extends Tone.ToneAudioNode {
+  readonly name = "CompressorChain";
+  readonly input: Tone.Gain;
+  readonly output: Tone.Gain;
+  readonly compressor: Tone.Compressor;
+  private readonly makeupGain: Tone.Volume;
+  private readonly dryGain: Tone.Gain;
+  private readonly wetGain: Tone.Gain;
+  private readonly outputTrim: Tone.Volume;
+  private readonly inputMeter: Tone.Meter;
+  private readonly outputMeter: Tone.Meter;
+  private manualMakeup: number;
+  private autoMakeup: boolean;
+
+  constructor(params: Record<string, number>) {
+    super();
+    this.input = new Tone.Gain();
+    this.output = new Tone.Gain();
+    this.compressor = new Tone.Compressor({
+      threshold: params.threshold,
+      ratio: params.ratio,
+      attack: params.attack,
+      release: params.release,
+      knee: params.knee,
+    });
+    this.makeupGain = new Tone.Volume(0);
+    this.dryGain = new Tone.Gain(1 - params.dryWet);
+    this.wetGain = new Tone.Gain(params.dryWet);
+    this.outputTrim = new Tone.Volume(params.output);
+    this.inputMeter = new Tone.Meter({ normalRange: false, smoothing: 0.6 });
+    this.outputMeter = new Tone.Meter({ normalRange: false, smoothing: 0.6 });
+    this.manualMakeup = params.makeup;
+    this.autoMakeup = params.makeupAuto >= 0.5;
+
+    this.input.connect(this.inputMeter);
+    this.input.connect(this.dryGain);
+    this.input.connect(this.compressor);
+    this.compressor.connect(this.makeupGain);
+    this.makeupGain.connect(this.wetGain);
+    this.dryGain.connect(this.outputTrim);
+    this.wetGain.connect(this.outputTrim);
+    this.outputTrim.connect(this.output);
+    // Tapped off `outputTrim`, one node before the `output` boundary, not
+    // off `output` itself: the shared effects-chain wiring disconnects and
+    // reconnects every effect's `output` boundary on every add/remove/
+    // reorder/bypass (`wireEffectsChain`'s `e.node.disconnect()` resolves
+    // through that same boundary and clears ALL of its outgoing native
+    // connections, this tap included) - tapping a node earlier keeps this
+    // meter alive across the chain's own rewiring instead of only ever
+    // measuring the instant right after construction.
+    this.outputTrim.connect(this.outputMeter);
+
+    this.refreshMakeup();
+  }
+
+  setThreshold(v: number): void {
+    this.compressor.threshold.value = v;
+    this.refreshMakeup();
+  }
+
+  setRatio(v: number): void {
+    this.compressor.ratio.value = v;
+    this.refreshMakeup();
+  }
+
+  setManualMakeup(v: number): void {
+    this.manualMakeup = v;
+    this.refreshMakeup();
+  }
+
+  setAutoMakeup(auto: boolean): void {
+    this.autoMakeup = auto;
+    this.refreshMakeup();
+  }
+
+  setDryWet(mix: number): void {
+    this.dryGain.gain.value = 1 - mix;
+    this.wetGain.gain.value = mix;
+  }
+
+  setOutput(db: number): void {
+    this.outputTrim.volume.value = db;
+  }
+
+  private refreshMakeup(): void {
+    const threshold = this.compressor.threshold.value;
+    const ratio = this.compressor.ratio.value;
+    this.makeupGain.volume.value = this.autoMakeup ? autoMakeupDb(threshold, ratio) : this.manualMakeup;
+  }
+
+  /** Current gain reduction, in dB (always <= 0; 0 = no reduction). */
+  get reductionDb(): number {
+    return this.compressor.reduction;
+  }
+
+  get inputDb(): number {
+    const v = this.inputMeter.getValue();
+    const n = Array.isArray(v) ? v[0] : v;
+    return Number.isFinite(n) ? n : -Infinity;
+  }
+
+  get outputDb(): number {
+    const v = this.outputMeter.getValue();
+    const n = Array.isArray(v) ? v[0] : v;
+    return Number.isFinite(n) ? n : -Infinity;
+  }
+
+  dispose(): this {
+    super.dispose();
+    this.compressor.dispose();
+    this.makeupGain.dispose();
+    this.dryGain.dispose();
+    this.wetGain.dispose();
+    this.outputTrim.dispose();
+    this.inputMeter.dispose();
+    this.outputMeter.dispose();
+    this.input.dispose();
+    this.output.dispose();
+    return this;
+  }
+}
+
 export function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
   switch (type) {
     case "eq3":
@@ -179,12 +310,7 @@ export function createEffectNode(type: EffectType, params: Record<string, number
         highFrequency: params.highFrequency,
       });
     case "compressor":
-      return new Tone.Compressor({
-        threshold: params.threshold,
-        ratio: params.ratio,
-        attack: params.attack,
-        release: params.release,
-      });
+      return new CompressorChain(params);
     case "delay":
       return new Tone.FeedbackDelay({
         delayTime: params.delayTime,
@@ -232,11 +358,16 @@ export function applyEffectParam(
       break;
     }
     case "compressor": {
-      const comp = node as Tone.Compressor;
-      if (key === "threshold") comp.threshold.value = value;
-      else if (key === "ratio") comp.ratio.value = value;
-      else if (key === "attack") comp.attack.value = value;
-      else if (key === "release") comp.release.value = value;
+      const comp = node as CompressorChain;
+      if (key === "threshold") comp.setThreshold(value);
+      else if (key === "ratio") comp.setRatio(value);
+      else if (key === "attack") comp.compressor.attack.value = value;
+      else if (key === "release") comp.compressor.release.value = value;
+      else if (key === "knee") comp.compressor.knee.value = value;
+      else if (key === "makeup") comp.setManualMakeup(value);
+      else if (key === "makeupAuto") comp.setAutoMakeup(value >= 0.5);
+      else if (key === "dryWet") comp.setDryWet(value);
+      else if (key === "output") comp.setOutput(value);
       break;
     }
     case "delay": {
@@ -817,6 +948,18 @@ class AudioEngine {
     const value = nodes.meter.getValue();
     const level = Array.isArray(value) ? value[0] : value;
     return Number.isFinite(level) ? level : 0;
+  }
+
+  /** Live input/gain-reduction/output levels (all in dB) for one compressor
+   * effect instance, for the full Compressor window's meters - `hostId` is
+   * the channel, bus, or "master" the effect lives on. Null if that effect
+   * isn't a compressor (or doesn't exist). */
+  getCompressorMeters(hostId: string, effectId: string): { input: number; gainReduction: number; output: number } | null {
+    const target = this.effectsHost(hostId);
+    const effect = target?.host.effects.find((e) => e.id === effectId);
+    if (!effect || effect.type !== "compressor") return null;
+    const comp = effect.node as CompressorChain;
+    return { input: comp.inputDb, gainReduction: comp.reductionDb, output: comp.outputDb };
   }
 
   /** Live note-on, triggered immediately (not scheduled on the transport). */

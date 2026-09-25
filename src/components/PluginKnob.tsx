@@ -2,36 +2,39 @@
 
 import { useRef, useState } from "react";
 
-export type EQKnobMode = "bipolar" | "log";
+export type KnobMode = "bipolar" | "log" | "linear";
 
-interface EQThreeKnobProps {
+interface PluginKnobProps {
   label: string;
   value: number;
   min: number;
   max: number;
   defaultValue: number;
-  mode: EQKnobMode;
+  mode: KnobMode;
   onChange: (value: number) => void;
   formatValue: (value: number) => string;
   /** Fired once, right before the first actual value change of a drag/type/
    * reset gesture - lets the caller push one undo checkpoint per gesture. */
   onDragStart?: () => void;
-  /** Pixel diameter of the rendered knob - the full ("EQ Three" window) and
-   * compact (FX rack card) views use different sizes of the same knob. */
+  /** Pixel diameter of the rendered knob - full plugin windows and compact
+   * FX rack cards use different sizes of the same knob. */
   size?: number;
   /** Shows the JetBrains-Mono-style value readout box below the knob -
-   * only the expanded window has room for it; the compact rack card omits
-   * it, matching the design. */
+   * only the expanded windows have room for it; compact rack cards omit
+   * it (though the knob is still directly click-to-edit either way). */
   showReadout?: boolean;
   /** "stacked" (default): label above, knob, readout below, all centered -
-   * used everywhere except the full window's crossover row, which instead
+   * used everywhere except a window's crossover-style row, which instead
    * places the knob beside a [label, readout] column ("inline"). */
   layout?: "stacked" | "inline";
+  /** Greys the knob out and disables its own interaction - used for the
+   * Compressor's Makeup knob while Auto Makeup is on (it still shows the
+   * live computed value, just can't be dragged/typed into). */
+  disabled?: boolean;
 }
 
 // All the knob's geometry lives in a fixed 60x60 viewBox so every size is
-// just a CSS scale of the same paths - these constants match the exact
-// arcs/radii from the supplied design.
+// just a CSS scale of the same paths.
 const CENTER = 30;
 const TRACK_R = 24;
 const INDICATOR_INNER_R = 6;
@@ -56,11 +59,14 @@ function arcPath(fromDeg: number, toDeg: number, r: number): string {
 }
 
 /** A knob's "fraction" is its position (0..1) along the full -135..135
- * sweep - unifies dragging/keyboard-nudging across both value curves below. */
-function valueToFraction(value: number, min: number, max: number, mode: EQKnobMode): number {
+ * sweep - unifies dragging/keyboard-nudging across every value curve below. */
+function valueToFraction(value: number, min: number, max: number, mode: KnobMode): number {
   const v = Math.min(max, Math.max(min, value));
   if (mode === "log") {
     return Math.log(v / min) / Math.log(max / min);
+  }
+  if (mode === "linear") {
+    return (v - min) / (max - min);
   }
   // bipolar: 0 sits at the knob's center (fraction 0.5); each side scales
   // independently against its own extreme, so turning off-center by the
@@ -69,14 +75,19 @@ function valueToFraction(value: number, min: number, max: number, mode: EQKnobMo
   return (angle - START_ANGLE) / SWEEP;
 }
 
-function fractionToValue(fraction: number, min: number, max: number, mode: EQKnobMode): number {
+function fractionToValue(fraction: number, min: number, max: number, mode: KnobMode): number {
   const f = Math.min(1, Math.max(0, fraction));
   if (mode === "log") return min * Math.pow(max / min, f);
+  if (mode === "linear") return min + f * (max - min);
   const angle = START_ANGLE + f * SWEEP;
   return angle >= 0 ? (angle / 135) * max : (angle / 135) * Math.abs(min);
 }
 
-export function EQThreeKnob({
+/** A reusable circular plugin knob - drag to change, click (no movement) or
+ * right-click to type an exact value, double-click to reset. Used by every
+ * custom effect plugin UI (EQ Three, Compressor, ...) in both their compact
+ * FX-rack card and their full floating window. */
+export function PluginKnob({
   label,
   value,
   min,
@@ -89,7 +100,8 @@ export function EQThreeKnob({
   size = 48,
   showReadout = false,
   layout = "stacked",
-}: EQThreeKnobProps) {
+  disabled = false,
+}: PluginKnobProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const dragState = useRef<{ startY: number; startFraction: number; moved: boolean } | null>(null);
@@ -99,6 +111,7 @@ export function EQThreeKnob({
   const angle = START_ANGLE + fraction * SWEEP;
 
   const startEditing = () => {
+    if (disabled) return;
     setDraft(String(Math.round(value * 100) / 100));
     setEditing(true);
   };
@@ -112,13 +125,13 @@ export function EQThreeKnob({
     setEditing(false);
   };
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (editing || e.button !== 0) return;
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (editing || disabled || e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragState.current = { startY: e.clientY, startFraction: fraction, moved: false };
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragState.current;
     if (!drag) return;
     const delta = drag.startY - e.clientY;
@@ -131,11 +144,15 @@ export function EQThreeKnob({
     onChange(clamp(fractionToValue(nextFraction, min, max, mode)));
   };
 
-  const endDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    const drag = dragState.current;
     dragState.current = null;
+    // A plain click (pointer never moved beyond the threshold) opens the
+    // type-in editor, same convention as the generic ValueBar control.
+    if (drag && !drag.moved) startEditing();
   };
 
   const trackPath = arcPath(START_ANGLE, END_ANGLE, TRACK_R);
@@ -149,11 +166,21 @@ export function EQThreeKnob({
     <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-muted">{label}</span>
   );
 
+  // The interactive host is a plain div (not a button) so the edit input
+  // below can live inside it as a sibling without creating invalid nested-
+  // interactive-content markup - and, importantly, so a dblclick's second
+  // click (which may land on that input once the first click opened it)
+  // still bubbles up to this same persistent element's onDoubleClick.
   const knobEl = (
-    <button
-      type="button"
+    <div
+      role="slider"
       aria-label={`${label}, ${formatValue(value)}`}
-      title="Drag to change · right-click to type · double-click to reset"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
+      title={disabled ? undefined : "Drag to change · click or right-click to type · double-click to reset"}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
@@ -163,10 +190,17 @@ export function EQThreeKnob({
         startEditing();
       }}
       onDoubleClick={() => {
+        if (disabled) return;
+        // The double-click's first click, taken alone, already looks like a
+        // plain click and opens the editor above (see endDrag) - close it
+        // back out here so a real double-click still resets cleanly instead
+        // of leaving a stray input open.
+        setEditing(false);
         onDragStart?.();
         onChange(defaultValue);
       }}
       onKeyDown={(e) => {
+        if (disabled) return;
         const step = (max - min) / 100;
         if (e.key === "ArrowUp" || e.key === "ArrowRight") {
           onDragStart?.();
@@ -177,7 +211,9 @@ export function EQThreeKnob({
         }
       }}
       style={{ width: size, height: size, touchAction: "none" }}
-      className="flex shrink-0 cursor-ns-resize items-center justify-center rounded-full border-0 bg-transparent p-0"
+      className={`relative flex shrink-0 items-center justify-center rounded-full ${
+        disabled ? "cursor-default opacity-45" : "cursor-ns-resize"
+      }`}
     >
       <svg width={size} height={size} viewBox="0 0 60 60" fill="none" aria-hidden="true">
         <path d={trackPath} stroke="#2E2F37" strokeWidth={4} strokeLinecap="round" />
@@ -194,35 +230,39 @@ export function EQThreeKnob({
           strokeLinecap="round"
         />
       </svg>
-    </button>
+      {editing && (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onBlur={commitDraft}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitDraft();
+            else if (e.key === "Escape") setEditing(false);
+          }}
+          className="absolute left-1/2 top-1/2 z-10 w-14 -translate-x-1/2 -translate-y-1/2 rounded border border-accent bg-[#14151A] px-1 py-0.5 text-center font-mono text-[11px] text-[#F4EDE2] outline-none"
+        />
+      )}
+    </div>
   );
 
   const readoutEl = showReadout ? (
-    editing ? (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onFocus={(e) => e.target.select()}
-        onBlur={commitDraft}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commitDraft();
-          else if (e.key === "Escape") setEditing(false);
-        }}
-        className="w-[60px] rounded border border-border bg-[#14151A] px-2 py-0.5 text-center font-mono text-xs text-[#F4EDE2] outline-none"
-      />
-    ) : (
-      <button
-        type="button"
-        onContextMenu={(e) => {
-          e.preventDefault();
-          startEditing();
-        }}
-        className="min-w-[60px] rounded border border-border bg-[#14151A] px-2 py-0.5 text-center font-mono text-xs font-medium text-[#F4EDE2]"
-      >
-        {formatValue(value)}
-      </button>
-    )
+    <button
+      type="button"
+      tabIndex={-1}
+      onClick={startEditing}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        startEditing();
+      }}
+      disabled={disabled}
+      className="min-w-[60px] rounded border border-border bg-[#14151A] px-2 py-0.5 text-center font-mono text-xs font-medium text-[#F4EDE2] disabled:opacity-60"
+    >
+      {formatValue(value)}
+    </button>
   ) : null;
 
   if (layout === "inline") {

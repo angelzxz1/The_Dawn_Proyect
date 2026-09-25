@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { buildEQCurve, eqFreqToX, EQ_GRAPH_WIDTH, EQ_GRAPH_HEIGHT } from "@/lib/eqThreeCurve";
-import { spaceGrotesk } from "@/lib/eqThreeFonts";
+import { spaceGrotesk } from "@/lib/pluginFonts";
 
 interface EQThreeGraphProps {
   low: number;

@@ -6,7 +6,7 @@ import { PluginIcon } from "./PluginIcon";
 import { paramSpecs } from "@/lib/effects";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
-interface EQThreeRackCardProps {
+interface CompressorRackCardProps {
   params: Record<string, number>;
   bypass: boolean;
   onBypassToggle: () => void;
@@ -16,10 +16,10 @@ interface EQThreeRackCardProps {
   onParamDragStart?: () => void;
 }
 
-/** The compact card shown inline in the FX rack - just the knobs, no
- * numeric readouts (matching the design's compact view), with a button to
- * open the full EQThreeWindow for the graph and readouts. */
-export function EQThreeRackCard({
+/** The compact card shown inline in the FX rack - just the four primary
+ * knobs (Threshold/Ratio/Attack/Release), no readouts; knee/makeup/dry-wet/
+ * output live in the full CompressorWindow, opened via the expand button. */
+export function CompressorRackCard({
   params,
   bypass,
   onBypassToggle,
@@ -27,17 +27,15 @@ export function EQThreeRackCard({
   onExpand,
   onParamChange,
   onParamDragStart,
-}: EQThreeRackCardProps) {
-  const specs = paramSpecs("eq3");
-  const gainSpecs = specs.slice(0, 3); // low, mid, high
-  const xoverSpecs = specs.slice(3); // lowFrequency, highFrequency
+}: CompressorRackCardProps) {
+  const [thresholdSpec, ratioSpec, attackSpec, releaseSpec] = paramSpecs("compressor");
 
   return (
     <div className="flex h-full flex-col gap-2.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <PluginIcon size={15} />
-          <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>EQ Three</h2>
+          <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Compressor</h2>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -68,8 +66,8 @@ export function EQThreeRackCard({
         </div>
       </div>
 
-      <div className={`${spaceGrotesk.className} grid grid-cols-3 gap-1`}>
-        {gainSpecs.map((spec) => (
+      <div className={`${spaceGrotesk.className} grid grid-cols-4 gap-1`}>
+        {[thresholdSpec, ratioSpec, attackSpec, releaseSpec].map((spec) => (
           <PluginKnob
             key={spec.key}
             label={spec.label}
@@ -77,28 +75,8 @@ export function EQThreeRackCard({
             min={spec.min}
             max={spec.max}
             defaultValue={spec.default}
-            mode="bipolar"
+            mode="linear"
             size={34}
-            onChange={(v) => onParamChange(spec.key, v)}
-            onDragStart={onParamDragStart}
-            formatValue={spec.format}
-          />
-        ))}
-      </div>
-
-      <div style={{ height: 1, background: "#2E2F37" }} />
-
-      <div className={`${spaceGrotesk.className} grid grid-cols-2 gap-1`}>
-        {xoverSpecs.map((spec) => (
-          <PluginKnob
-            key={spec.key}
-            label={spec.label}
-            value={params[spec.key] ?? spec.default}
-            min={spec.min}
-            max={spec.max}
-            defaultValue={spec.default}
-            mode="log"
-            size={30}
             onChange={(v) => onParamChange(spec.key, v)}
             onDragStart={onParamDragStart}
             formatValue={spec.format}

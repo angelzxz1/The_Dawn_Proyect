@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Drum, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Drum, Piano, Power, Settings2, SlashSquare, Waves, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
-import { SYNTH_PRESETS } from "@/lib/synth";
+import { WAVETABLES } from "@/lib/wavetables";
 import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 
@@ -21,7 +21,9 @@ interface FxRackProps {
   buses?: BusConfig[];
   sends?: Record<string, number>;
   onInstrumentChange?: (type: InstrumentType | null) => void;
-  onSynthParamsChange?: (params: SynthParams) => void;
+  /** Opens the dedicated Synth Settings window - only meaningful while
+   * `instrument === "synth"`. */
+  onOpenSynthSettings?: () => void;
   onSendChange?: (busId: string, db: number | null) => void;
   /** `atIndex` omitted means "append at the end". */
   onAddEffect: (type: EffectType, atIndex?: number) => void;
@@ -98,7 +100,7 @@ export function FxRack({
   buses = [],
   sends = {},
   onInstrumentChange,
-  onSynthParamsChange,
+  onOpenSynthSettings,
   onSendChange,
   onAddEffect,
   onRemoveEffect,
@@ -168,8 +170,22 @@ export function FxRack({
             {instrument === null && (
               <p className="text-[11px] text-muted">No instrument loaded — this track stays silent.</p>
             )}
-            {instrument === "synth" && synthParams && onSynthParamsChange && (
-              <SynthPanel params={synthParams} onChange={onSynthParamsChange} onDragStart={onParamDragStart} />
+            {instrument === "synth" && synthParams && (
+              <div className="flex flex-1 flex-col justify-between gap-1.5">
+                <p className="text-[11px] text-muted">
+                  {WAVETABLES[synthParams.oscA.wavetable].label}
+                  {synthParams.oscBEnabled ? ` + ${WAVETABLES[synthParams.oscB.wavetable].label}` : ""} wavetable
+                  voice
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenSynthSettings}
+                  className="flex items-center justify-center gap-1.5 rounded border border-border py-1.5 text-[11px] text-muted hover:bg-surface hover:text-accent"
+                >
+                  <Settings2 size={12} />
+                  Synth Settings
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -274,171 +290,3 @@ export function FxRack({
   );
 }
 
-const OSCILLATOR_TYPES: SynthParams["oscillatorType"][] = ["sine", "triangle", "sawtooth", "square"];
-
-function SynthPanel({
-  params,
-  onChange,
-  onDragStart,
-}: {
-  params: SynthParams;
-  onChange: (params: SynthParams) => void;
-  onDragStart?: () => void;
-}) {
-  return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <select
-          value=""
-          onChange={(e) => {
-            const preset = SYNTH_PRESETS.find((p) => p.name === e.target.value);
-            if (preset) {
-              onDragStart?.();
-              onChange({ ...preset.params });
-            }
-          }}
-          className="rounded border border-border bg-surface px-1.5 py-1 text-[11px]"
-          title="Load a preset"
-        >
-          <option value="" disabled>
-            Presets…
-          </option>
-          {SYNTH_PRESETS.map((p) => (
-            <option key={p.name} value={p.name}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <div className="flex overflow-hidden rounded border border-border">
-          {(["subtractive", "fm"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => {
-                onDragStart?.();
-                onChange({ ...params, mode });
-              }}
-              className={`px-2 py-1 text-[11px] first:border-r first:border-border ${
-                params.mode === mode ? "bg-accent/25 text-accent" : "text-muted hover:bg-surface"
-              }`}
-            >
-              {mode === "subtractive" ? "Subtractive" : "FM"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {params.mode === "subtractive" ? (
-        <div className="mb-1.5 flex overflow-hidden rounded border border-border">
-          {OSCILLATOR_TYPES.map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => {
-                onDragStart?.();
-                onChange({ ...params, oscillatorType: type });
-              }}
-              className={`flex-1 border-l border-border py-1 text-[11px] capitalize first:border-l-0 ${
-                params.oscillatorType === type
-                  ? "bg-accent/25 text-accent"
-                  : "text-muted hover:bg-surface"
-              }`}
-            >
-              {type}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="flex flex-1 flex-wrap content-start gap-2">
-        <ValueBar
-          label="Attack"
-          value={params.attack}
-          min={0.001}
-          max={2}
-          defaultValue={0.01}
-          onChange={(v) => onChange({ ...params, attack: v })}
-          onDragStart={onDragStart}
-          formatValue={(v) => `${Math.round(v * 1000)}ms`}
-        />
-        <ValueBar
-          label="Decay"
-          value={params.decay}
-          min={0.01}
-          max={2}
-          defaultValue={0.2}
-          onChange={(v) => onChange({ ...params, decay: v })}
-          onDragStart={onDragStart}
-          formatValue={(v) => `${Math.round(v * 1000)}ms`}
-        />
-        <ValueBar
-          label="Sustain"
-          value={params.sustain}
-          min={0}
-          max={1}
-          defaultValue={0.5}
-          onChange={(v) => onChange({ ...params, sustain: v })}
-          onDragStart={onDragStart}
-          formatValue={(v) => `${Math.round(v * 100)}%`}
-        />
-        <ValueBar
-          label="Release"
-          value={params.release}
-          min={0.01}
-          max={3}
-          defaultValue={0.2}
-          onChange={(v) => onChange({ ...params, release: v })}
-          onDragStart={onDragStart}
-          formatValue={(v) => `${v.toFixed(2)}s`}
-        />
-        {params.mode === "subtractive" ? (
-          <>
-            <ValueBar
-              label="Cutoff"
-              value={params.filterCutoff}
-              min={40}
-              max={12000}
-              defaultValue={2000}
-              onChange={(v) => onChange({ ...params, filterCutoff: v })}
-              onDragStart={onDragStart}
-              formatValue={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`)}
-            />
-            <ValueBar
-              label="Reso"
-              value={params.filterResonance}
-              min={0.1}
-              max={20}
-              defaultValue={1}
-              onChange={(v) => onChange({ ...params, filterResonance: v })}
-              onDragStart={onDragStart}
-              formatValue={(v) => v.toFixed(1)}
-            />
-          </>
-        ) : (
-          <>
-            <ValueBar
-              label="Harmon."
-              value={params.harmonicity}
-              min={0.5}
-              max={8}
-              defaultValue={2}
-              onChange={(v) => onChange({ ...params, harmonicity: v })}
-              onDragStart={onDragStart}
-              formatValue={(v) => v.toFixed(1)}
-            />
-            <ValueBar
-              label="Mod idx"
-              value={params.modulationIndex}
-              min={0}
-              max={40}
-              defaultValue={8}
-              onChange={(v) => onChange({ ...params, modulationIndex: v })}
-              onDragStart={onDragStart}
-              formatValue={(v) => v.toFixed(0)}
-            />
-          </>
-        )}
-      </div>
-    </div>
-  );
-}

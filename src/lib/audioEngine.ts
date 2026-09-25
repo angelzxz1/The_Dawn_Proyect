@@ -1,4 +1,18 @@
 import * as Tone from "tone";
+
+// Every live-triggered note (a keyboard/MIDI-controller key, a drum pad)
+// goes out via Tone.now(), which Tone.js defines as `currentTime +
+// context.lookAhead` - a deliberate scheduling safety margin meant for
+// Transport-driven playback, not live input. Its 100ms default was the
+// actual source of the noticeable keypress-to-sound delay (not a bug in
+// how notes are triggered here - they already go out immediately, via
+// Tone.now(), with no debounce/setTimeout in the way). Trimming it to
+// 10ms keeps enough margin that sequenced clip/automation playback still
+// schedules safely, while cutting live playing latency by ~90ms.
+if (typeof window !== "undefined") {
+  Tone.getContext().lookAhead = 0.01;
+}
+
 import type {
   NoteEvent,
   InstrumentType,

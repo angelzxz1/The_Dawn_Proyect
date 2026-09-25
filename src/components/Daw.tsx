@@ -43,6 +43,7 @@ import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FxRack } from "./FxRack";
+import { SynthWindow } from "./SynthWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -263,6 +264,9 @@ export function Daw() {
   /** Whether the FX rack at the bottom of the screen is currently showing
    * the master bus's own effects chain instead of a track's or a bus's. */
   const [fxMasterOpen, setFxMasterOpen] = useState(false);
+  /** Whether the dedicated Synth Settings window is open, for whichever
+   * channel the FX rack is currently showing. */
+  const [synthWindowOpen, setSynthWindowOpen] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   /** Set when a file dropped onto a track couldn't be read as audio (e.g.
    * the wrong file type) - drag-and-drop has no OS-level file-type filter
@@ -1251,6 +1255,29 @@ export function Daw() {
     [clipsOf, rebuildMidiPart]
   );
 
+  /** Re-timing an audio clip's live Tone.Player (moveAudioClip) tears the
+   * player's native buffer source down and restarts it - fine once, but
+   * ClipBlock's drag handlers fire on every pointermove, so dragging a
+   * clip's resize/move/fade handle while the transport is playing used to
+   * retrigger the player dozens of times a second, each one an audible
+   * click. Debouncing the actual engine sync to fire only once playback
+   * of the mouse has settled (trailing edge, ~80ms) keeps the on-screen
+   * clip box tracking the pointer instantly (that part is a cheap React
+   * state update, untouched) while the real audio only re-syncs once,
+   * right after you stop moving - no more click storm mid-drag. */
+  const audioSyncTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const scheduleAudioClipSync = useCallback((clipId: string, fn: () => void) => {
+    const existing = audioSyncTimers.current.get(clipId);
+    if (existing) clearTimeout(existing);
+    audioSyncTimers.current.set(
+      clipId,
+      setTimeout(() => {
+        audioSyncTimers.current.delete(clipId);
+        fn();
+      }, 80)
+    );
+  }, []);
+
   /** Moving a clip that's part of a multi-selection drags the whole group
    * together, applying the same offset delta to every selected clip across
    * however many tracks they're on. */
@@ -1282,13 +1309,13 @@ export function Daw() {
         } else {
           clips.forEach((c) => {
             if (movedIds.has(c.id) && c.kind === "audio") {
-              audioEngine.moveAudioClip(chId, c.id, audioClipTiming(c));
+              scheduleAudioClipSync(c.id, () => audioEngine.moveAudioClip(chId, c.id, audioClipTiming(c)));
             }
           });
         }
       });
     },
-    [clipsOf, clipsByChannel, channelTypeOf, rebuildMidiPart, selectedClipIds]
+    [clipsOf, clipsByChannel, channelTypeOf, rebuildMidiPart, selectedClipIds, scheduleAudioClipSync]
   );
 
   const handleResizeClip = useCallback(
@@ -1300,7 +1327,7 @@ export function Daw() {
       const clip = updated.find((c) => c.id === clipId);
       if (clip?.kind === "audio") {
         // An audio clip's length also trims playback.
-        audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(clip));
+        scheduleAudioClipSync(clipId, () => audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(clip)));
       } else {
         // A MIDI clip's box hides any note at/after `length` (ClipBlock's
         // own rendering already does this) - rebuild the engine's
@@ -1310,7 +1337,7 @@ export function Daw() {
         rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
     },
-    [clipsOf, rebuildMidiPart]
+    [clipsOf, rebuildMidiPart, scheduleAudioClipSync]
   );
 
   const handleFadeChange = useCallback(
@@ -1320,9 +1347,11 @@ export function Daw() {
       );
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       const clip = updated.find((c) => c.id === clipId);
-      if (clip?.kind === "audio") audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(clip));
+      if (clip?.kind === "audio") {
+        scheduleAudioClipSync(clipId, () => audioEngine.moveAudioClip(channelId, clipId, audioClipTiming(clip)));
+      }
     },
-    [clipsOf]
+    [clipsOf, scheduleAudioClipSync]
   );
 
   const handleGainChange = useCallback(
@@ -3056,7 +3085,7 @@ export function Daw() {
           buses={buses}
           sends={fxChannel?.sends}
           onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
-          onSynthParamsChange={fxChannel ? handleSynthParamsChange : undefined}
+          onOpenSynthSettings={() => setSynthWindowOpen(true)}
           onSendChange={fxChannel ? handleSendChange : undefined}
           onAddEffect={fxChannel ? handleAddEffect : fxBus ? handleBusAddEffect : handleMasterAddEffect}
           onRemoveEffect={fxChannel ? handleRemoveEffect : fxBus ? handleBusRemoveEffect : handleMasterRemoveEffect}
@@ -3064,6 +3093,17 @@ export function Daw() {
           onBypassToggle={fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle}
           onParamDragStart={pushHistory}
           onParamChange={fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange}
+        />
+      )}
+
+      {synthWindowOpen && fxChannel?.instrument === "synth" && fxChannel.synthParams && (
+        <SynthWindow
+          channelName={fxChannel.name}
+          color={trackColorForIndex(fxChannel.colorIndex)}
+          params={fxChannel.synthParams}
+          onChange={handleSynthParamsChange}
+          onClose={() => setSynthWindowOpen(false)}
+          onDragStart={pushHistory}
         />
       )}
       </div>

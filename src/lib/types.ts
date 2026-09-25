@@ -53,26 +53,52 @@ export interface ChannelConfig {
   automationLanes?: AutomationLane[];
 }
 
-/** The subtractive/FM synth's live, editable sound-design params - shared
- * by the engine (which turns them into real Tone.js voices) and the FX
- * window's controls. */
+export type { WavetableName } from "./wavetables";
+
+/** One of the synth voice's two wavetable oscillators. */
+export interface OscillatorParams {
+  wavetable: import("./wavetables").WavetableName;
+  /** Scans through the wavetable's stored frames, 0..1. */
+  position: number;
+  octave: number; // -2..2
+  semitone: number; // -12..12
+  fineCents: number; // -50..50
+  level: number; // 0..1
+  /** Detuned copies of this oscillator stacked together, like a classic
+   * analog "unison" knob - 1 means no unison. */
+  unisonVoices: number; // 1..8
+  unisonSpread: number; // 0..50, cents between the outermost unison voices
+}
+
+/** The wavetable synth voice's live, editable sound-design params - shared
+ * by the engine (which turns them into real Tone.js nodes) and the Synth
+ * Settings window's controls. Two wavetable oscillators plus a sub, through
+ * a filter with its own envelope, an amp envelope, and one LFO. */
 export interface SynthParams {
-  mode: "subtractive" | "fm";
-  /** Subtractive mode only. */
-  oscillatorType: "sine" | "square" | "sawtooth" | "triangle";
-  attack: number;
-  decay: number;
-  sustain: number; // 0..1
-  release: number;
-  /** Subtractive mode only - a lowpass filter after the oscillator. */
+  oscA: OscillatorParams;
+  oscB: OscillatorParams;
+  oscBEnabled: boolean;
+  subLevel: number; // 0..1
+  subOctaveDown: 1 | 2;
+  filterType: "lowpass" | "highpass" | "bandpass" | "notch";
   filterCutoff: number; // Hz
   filterResonance: number; // Q
-  /** FM mode only. */
-  harmonicity: number;
-  modulationIndex: number;
-  /** Static base detune baked into the preset/sound design, in cents -
-   * independent of the live pitch-bend wheel's detune. */
-  detune: number;
+  /** How far (in octaves) the filter envelope sweeps the cutoff; negative
+   * sweeps it down instead of up. */
+  filterEnvAmount: number;
+  ampAttack: number;
+  ampDecay: number;
+  ampSustain: number; // 0..1
+  ampRelease: number;
+  filterAttack: number;
+  filterDecay: number;
+  filterSustain: number; // 0..1
+  filterRelease: number;
+  lfoRate: number; // Hz
+  lfoAmount: number; // 0..1
+  lfoTarget: "pitch" | "filter";
+  /** Portamento/glide time between notes, in seconds. */
+  glide: number;
 }
 
 /** A send/return bus: several tracks can route a copy of their signal into

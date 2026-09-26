@@ -141,9 +141,17 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     // 0 = sine, 1 = triangle.
     { key: "waveform", label: "Waveform", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "Triangle" : "Sine") },
   ],
+  // `distortion` (Drive) and `wet` keep their original keys so saved
+  // distortions load.
   distortion: [
-    { key: "distortion", label: "Drive", min: 0, max: 1, default: 0.4, format: pct },
-    { key: "wet", label: "Mix", min: 0, max: 1, default: 1, format: pct },
+    { key: "distortion", label: "Drive", min: 0, max: 1, default: 0.3, format: pct },
+    { key: "bias", label: "Bias", min: 0, max: 1, default: 0, format: pct },
+    { key: "tone", label: "Tone", min: 200, max: 20000, default: 8000, format: hzSpaced },
+    { key: "output", label: "Output", min: -24, max: 12, default: 0, format: dbSigned },
+    { key: "wet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
+    // 0..2 = Soft, Hard, Fold; oversample 0..2 = off, 2x, 4x.
+    { key: "shape", label: "Shape", min: 0, max: 2, default: 0, format: (v) => ["Soft", "Hard", "Fold"][Math.round(v)] ?? "Soft" },
+    { key: "oversample", label: "Oversampling", min: 0, max: 2, default: 1, format: (v) => ["Off", "2x", "4x"][Math.round(v)] ?? "Off" },
   ],
   // `frequency` and `Q` keep their original keys. Older projects' single
   // 0..1 "type" knob is migrated to `mode` on load (see filterModel.ts).

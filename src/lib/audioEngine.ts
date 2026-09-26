@@ -30,6 +30,13 @@ import { PitchShifter } from "./pitchShifter";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
+  CURVE_HEADROOM,
+  type DistortionShape,
+  distortionCurve,
+  distortionShapeFromParam,
+  oversampleFromParam,
+} from "./distortionModel";
+import {
   type FilterMode,
   LFO_MAX_OCTAVES,
   designFilter,
@@ -928,6 +935,94 @@ class ChorusChain extends Tone.ToneAudioNode {
   }
 }
 
+/** The Distortion effect: input gain (Drive), a DC offset (Bias) and a
+ * Soft/Hard/Fold shape, all baked into one WaveShaperNode curve (see
+ * distortionModel.ts), with the node's own 2x/4x oversampling against
+ * aliasing. After it: a DC blocker (a biased waveform picks up an offset),
+ * the Tone low-pass, Output gain, and an equal-power dry/wet blend (as
+ * Tone.Distortion's crossfade was). */
+class DistortionChain extends Tone.ToneAudioNode {
+  readonly name = "DistortionChain";
+  readonly input = new Tone.Gain();
+  readonly output = new Tone.Gain();
+  private readonly headroom = new Tone.Gain(1 / CURVE_HEADROOM);
+  private readonly shaper = new Tone.WaveShaper();
+  private readonly dcBlock = new Tone.Filter({ type: "highpass", frequency: 10, Q: Math.SQRT1_2 });
+  private readonly toneFilter: Tone.Filter;
+  private readonly outputGain: Tone.Volume;
+  private readonly dryGain = new Tone.Gain();
+  private readonly wetGain = new Tone.Gain();
+  private shape: DistortionShape;
+  private drive: number;
+  private bias: number;
+
+  constructor(params: Record<string, number>) {
+    super();
+    this.shape = distortionShapeFromParam(params.shape);
+    this.drive = params.distortion;
+    this.bias = params.bias;
+    this.toneFilter = new Tone.Filter({ type: "lowpass", frequency: params.tone, Q: Math.SQRT1_2 });
+    this.outputGain = new Tone.Volume(params.output);
+
+    this.input.connect(this.dryGain);
+    this.dryGain.connect(this.output);
+    this.input.chain(this.headroom, this.shaper, this.dcBlock, this.toneFilter, this.outputGain, this.wetGain, this.output);
+    this.rebuildCurve();
+    this.setOversample(params.oversample);
+    this.setWet(params.wet);
+  }
+
+  private rebuildCurve(): void {
+    this.shaper.curve = distortionCurve(this.shape, this.drive, this.bias);
+  }
+
+  setDrive(amount: number): void {
+    this.drive = amount;
+    this.rebuildCurve();
+  }
+
+  setBias(amount: number): void {
+    this.bias = amount;
+    this.rebuildCurve();
+  }
+
+  setShape(v: number): void {
+    this.shape = distortionShapeFromParam(v);
+    this.rebuildCurve();
+  }
+
+  setTone(hz: number): void {
+    this.toneFilter.frequency.value = hz;
+  }
+
+  setOutput(db: number): void {
+    this.outputGain.volume.value = db;
+  }
+
+  setOversample(v: number): void {
+    this.shaper.oversample = oversampleFromParam(v);
+  }
+
+  setWet(mix: number): void {
+    this.dryGain.gain.value = Math.cos((mix * Math.PI) / 2);
+    this.wetGain.gain.value = Math.sin((mix * Math.PI) / 2);
+  }
+
+  dispose(): this {
+    super.dispose();
+    this.headroom.dispose();
+    this.shaper.dispose();
+    this.dcBlock.dispose();
+    this.toneFilter.dispose();
+    this.outputGain.dispose();
+    this.dryGain.dispose();
+    this.wetGain.dispose();
+    this.input.dispose();
+    this.output.dispose();
+    return this;
+  }
+}
+
 export function createEffectNode(type: EffectType, savedParams: Record<string, number>): Tone.ToneAudioNode {
   // Params saved before an effect gained new controls lack those keys (the
   // live engine fills them via addEffect's defaults, but the WAV export
@@ -951,7 +1046,7 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
     case "chorus":
       return new ChorusChain(params);
     case "distortion":
-      return new Tone.Distortion({ distortion: params.distortion, wet: params.wet });
+      return new DistortionChain(params);
     case "filter":
       return new FilterChain(params);
     case "limiter":
@@ -1041,9 +1136,14 @@ export function applyEffectParam(
       break;
     }
     case "distortion": {
-      const dist = node as Tone.Distortion;
-      if (key === "distortion") dist.distortion = value;
-      else if (key === "wet") dist.wet.value = value;
+      const dist = node as DistortionChain;
+      if (key === "distortion") dist.setDrive(value);
+      else if (key === "bias") dist.setBias(value);
+      else if (key === "shape") dist.setShape(value);
+      else if (key === "tone") dist.setTone(value);
+      else if (key === "output") dist.setOutput(value);
+      else if (key === "oversample") dist.setOversample(value);
+      else if (key === "wet") dist.setWet(value);
       break;
     }
     case "filter": {

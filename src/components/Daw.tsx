@@ -52,6 +52,7 @@ import { LimiterWindow } from "./LimiterWindow";
 import { FilterWindow } from "./FilterWindow";
 import { ChorusWindow } from "./ChorusWindow";
 import { PitchShiftWindow } from "./PitchShiftWindow";
+import { DistortionWindow } from "./DistortionWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -3151,6 +3152,28 @@ export function Daw() {
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           effectId={expandedEffectId}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "distortion" && (
+        <DistortionWindow
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           params={expandedEffect.params}
           bypass={!!expandedEffect.bypass}
           onBypassToggle={() =>

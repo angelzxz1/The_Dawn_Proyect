@@ -6,6 +6,7 @@ import { ValueBar } from "./ValueBar";
 import { EQThreeRackCard } from "./EQThreeRackCard";
 import { CompressorRackCard } from "./CompressorRackCard";
 import { DelayRackCard } from "./DelayRackCard";
+import { ReverbRackCard } from "./ReverbRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -47,7 +48,7 @@ interface FxRackProps {
 
 /** Effect types with a custom rack card + full window, instead of the
  * generic ValueBar-driven card. */
-const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor", "delay"];
+const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor", "delay", "reverb"];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
 
@@ -215,7 +216,9 @@ export function FxRack({
                   ? "w-64 rounded-xl"
                   : fx.type === "compressor" || fx.type === "delay"
                     ? "w-72 rounded-xl"
-                    : "w-40 rounded border border-border bg-surface-raised"
+                    : fx.type === "reverb"
+                      ? "w-80 rounded-xl"
+                      : "w-40 rounded border border-border bg-surface-raised"
               } ${fx.bypass ? "opacity-50" : ""}`}
               style={CUSTOM_UI_TYPES.includes(fx.type) ? { background: "#1B1C22", border: "1px solid #2E2F37" } : undefined}
             >
@@ -255,6 +258,16 @@ export function FxRack({
                   <DelayRackCard
                     params={fx.params}
                     bpm={bpm}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "reverb" ? (
+                  <ReverbRackCard
+                    params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
                     onRemove={() => onRemoveEffect(fx.id)}

@@ -47,6 +47,7 @@ import { SynthWindow } from "./SynthWindow";
 import { EQThreeWindow } from "./EQThreeWindow";
 import { CompressorWindow } from "./CompressorWindow";
 import { DelayWindow } from "./DelayWindow";
+import { ReverbWindow } from "./ReverbWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -3146,6 +3147,28 @@ export function Daw() {
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           effectId={expandedEffectId}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "reverb" && (
+        <ReverbWindow
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           params={expandedEffect.params}
           bypass={!!expandedEffect.bypass}
           onBypassToggle={() =>

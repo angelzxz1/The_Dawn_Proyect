@@ -26,6 +26,7 @@ import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
 import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
+import { PitchShifter } from "./pitchShifter";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
@@ -962,7 +963,14 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
         softClip: params.softClip >= 0.5,
       });
     case "pitchShift":
-      return new Tone.PitchShift({ pitch: params.pitch, wet: params.wet });
+      // Not Tone.PitchShift, which is out of tune - see pitchShifter.ts.
+      return new PitchShifter({
+        pitch: params.pitch,
+        fine: params.fine,
+        window: params.window,
+        feedback: params.feedback,
+        wet: params.wet,
+      });
   }
 }
 
@@ -1061,9 +1069,12 @@ export function applyEffectParam(
       break;
     }
     case "pitchShift": {
-      const shift = node as Tone.PitchShift;
-      if (key === "pitch") shift.pitch = value;
-      else if (key === "wet") shift.wet.value = value;
+      const shift = node as PitchShifter;
+      if (key === "pitch") shift.setPitch(value);
+      else if (key === "fine") shift.setFine(value);
+      else if (key === "window") shift.setWindow(value);
+      else if (key === "feedback") shift.setFeedback(value);
+      else if (key === "wet") shift.setWet(value);
       break;
     }
   }

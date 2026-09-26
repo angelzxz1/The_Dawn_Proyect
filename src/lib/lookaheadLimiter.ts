@@ -1,4 +1,5 @@
 import * as Tone from "tone";
+import { loadWorklet } from "./workletLoader";
 
 // A true brick-wall limiter. The native DynamicsCompressorNode can't be one:
 // its level detector is smoothed, so fast transients get through several dB
@@ -163,21 +164,8 @@ class DawnLookaheadLimiter extends AudioWorkletProcessor {
 registerProcessor("${PROCESSOR_NAME}", DawnLookaheadLimiter);
 `;
 
-let moduleUrl: string | null = null;
-const loaded = new WeakMap<object, Promise<void>>();
-
-/** Loads the limiter's worklet module into `context` (once per context).
- * An offline render must await this before rendering, so every limiter
- * created in it is actually in the graph. */
-export function loadLimiterWorklet(context: Tone.BaseContext): Promise<void> {
-  const raw = context.rawContext;
-  let promise = loaded.get(raw);
-  if (!promise) {
-    moduleUrl ??= URL.createObjectURL(new Blob([PROCESSOR_CODE], { type: "application/javascript" }));
-    promise = raw.audioWorklet!.addModule(moduleUrl);
-    loaded.set(raw, promise);
-  }
-  return promise;
+function loadLimiterWorklet(context: Tone.BaseContext): Promise<void> {
+  return loadWorklet(context, PROCESSOR_NAME, PROCESSOR_CODE);
 }
 
 export interface LimiterSettings {

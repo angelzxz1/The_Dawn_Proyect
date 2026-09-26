@@ -71,7 +71,6 @@ const ms = (v: number) => `${Math.round(v * 1000)}ms`;
 const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}Hz`);
 const ratio = (v: number) => `${v.toFixed(1)}:1`;
 const sec = (v: number) => `${v.toFixed(2)}s`;
-const semi = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(0)}st`;
 const msSpaced = (v: number) => `${Math.round(v * 1000)} ms`;
 const secSpaced = (v: number) => `${v.toFixed(2)} s`;
 const dbSpaced = (v: number) => `${v.toFixed(1)} dB`;
@@ -168,9 +167,13 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "release", label: "Release", min: 0.001, max: 1, default: 0.05, format: msSpaced },
     { key: "softClip", label: "Soft Clip", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "On" : "Off") },
   ],
+  // pitch/wet keep their original keys so saved pitch shifters load.
   pitchShift: [
-    { key: "pitch", label: "Pitch", min: -24, max: 24, default: 0, format: semi },
-    { key: "wet", label: "Mix", min: 0, max: 1, default: 1, format: pct },
+    { key: "pitch", label: "Pitch", min: -24, max: 24, default: 0, format: (v) => `${Math.round(v) > 0 ? "+" : ""}${Math.round(v)} st` },
+    { key: "fine", label: "Fine", min: -100, max: 100, default: 0, format: (v) => `${Math.round(v) > 0 ? "+" : ""}${Math.round(v)} ct` },
+    { key: "window", label: "Window", min: 0.02, max: 0.25, default: 0.1, format: msSpaced },
+    { key: "feedback", label: "Feedback", min: 0, max: 0.9, default: 0, format: pct },
+    { key: "wet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
   ],
 };
 

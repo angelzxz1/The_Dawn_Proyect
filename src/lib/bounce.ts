@@ -6,7 +6,7 @@
 import * as Tone from "tone";
 import { createInstrument, createEffectNode, applyEffectParam } from "./audioEngine";
 import { notesWithinClip } from "./project";
-import { loadLimiterWorklet } from "./lookaheadLimiter";
+import { workletsReady } from "./workletLoader";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
 
@@ -234,9 +234,9 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       Tone.getTransport().start();
     }
 
-    // Every limiter in this render (master and any per-track ones) only
-    // joins the graph once its worklet module loads in this offline context.
-    await Promise.all([...loadPromises, loadLimiterWorklet(Tone.getContext())]);
+    // Worklet-based effects (every limiter, pitch shifters) only join the
+    // graph once their module loads in this offline context.
+    await Promise.all([...loadPromises, workletsReady(Tone.getContext())]);
   }, duration);
 
   const raw = buffer.get();

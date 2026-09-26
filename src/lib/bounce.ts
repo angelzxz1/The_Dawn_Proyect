@@ -84,7 +84,17 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
 
   const buffer = await Tone.Offline(async () => {
     const masterMeter = new Tone.Meter();
-    const masterLimiter = new Tone.Limiter(params.masterLimiterThreshold).connect(masterMeter);
+    // Not Tone.Limiter - matches the live engine's ensureMaster(): its
+    // unset knee defaults to Tone.Compressor's own 30dB, which starts
+    // squashing the mix 15dB below this ceiling instead of staying
+    // transparent until the signal actually reaches it.
+    const masterLimiter = new Tone.Compressor({
+      threshold: params.masterLimiterThreshold,
+      ratio: 20,
+      attack: 0.003,
+      release: 0.01,
+      knee: 0,
+    }).connect(masterMeter);
     masterMeter.toDestination();
     const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan });
     const { entry: masterEntry } = buildOfflineEffectsChain(params.masterEffects, masterLimiter);

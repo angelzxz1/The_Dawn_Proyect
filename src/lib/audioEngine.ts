@@ -335,7 +335,21 @@ export function createEffectNode(type: EffectType, params: Record<string, number
         type: filterTypeFromKnob(params.type),
       });
     case "limiter":
-      return new Tone.Limiter(params.threshold);
+      // Not Tone.Limiter: it's just a Tone.Compressor with a fixed ratio/
+      // attack/release and no knee override, which leaves Tone.Compressor's
+      // own default 30dB knee in place - a limiter built that way starts
+      // audibly compressing 15dB *below* its displayed ceiling, nowhere near
+      // the brick-wall behavior "Ceiling: -3dB" implies. Building the same
+      // fast ratio/attack/release directly with an explicit knee of 0 gives
+      // a true hard-knee limiter that stays transparent until the signal
+      // actually reaches the ceiling.
+      return new Tone.Compressor({
+        threshold: params.threshold,
+        ratio: 20,
+        attack: 0.003,
+        release: 0.01,
+        knee: 0,
+      });
     case "pitchShift":
       return new Tone.PitchShift({ pitch: params.pitch, wet: params.wet });
   }
@@ -405,7 +419,7 @@ export function applyEffectParam(
       break;
     }
     case "limiter": {
-      const limiter = node as Tone.Limiter;
+      const limiter = node as Tone.Compressor;
       if (key === "threshold") limiter.threshold.value = value;
       break;
     }
@@ -541,17 +555,27 @@ class AudioEngine {
   // A brake-wall Limiter sits right before the meter/destination so nothing
   // downstream can clip no matter how hot the mix gets. ---
   private masterChannel: Tone.Channel | null = null;
-  private masterLimiter: Tone.Limiter | null = null;
+  private masterLimiter: Tone.Compressor | null = null;
   private masterMeter: Tone.Meter | null = null;
   /** The master bus's own effects chain (e.g. a final EQ or compressor
    * across the whole mix) - sits between the master channel and the
    * limiter, wired the same way a track's or bus's chain is. */
   private masterEffects: EffectNode[] = [];
 
-  private ensureMaster(): { channel: Tone.Channel; limiter: Tone.Limiter; meter: Tone.Meter } {
+  private ensureMaster(): { channel: Tone.Channel; limiter: Tone.Compressor; meter: Tone.Meter } {
     if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
       this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
-      this.masterLimiter = new Tone.Limiter(-1).connect(this.masterMeter);
+      // Not Tone.Limiter - see the "limiter" case in createEffectNode for
+      // why: its unset knee defaults to Tone.Compressor's own 30dB, which
+      // starts audibly squashing the mix 15dB below this -1dB ceiling
+      // instead of acting as a transparent-until-it-clips brake wall.
+      this.masterLimiter = new Tone.Compressor({
+        threshold: -1,
+        ratio: 20,
+        attack: 0.003,
+        release: 0.01,
+        knee: 0,
+      }).connect(this.masterMeter);
       this.masterMeter.toDestination();
       this.masterChannel = new Tone.Channel({ volume: 0, pan: 0 });
       this.rewireMaster();

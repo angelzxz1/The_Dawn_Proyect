@@ -25,7 +25,7 @@ import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
 import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
 import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
-import { LookaheadLimiter } from "./lookaheadLimiter";
+import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 
 /** Linearly interpolates an automation lane's value at time `t` - flat
@@ -678,7 +678,11 @@ class ReverbChain extends Tone.ToneAudioNode {
   }
 }
 
-export function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
+export function createEffectNode(type: EffectType, savedParams: Record<string, number>): Tone.ToneAudioNode {
+  // Params saved before an effect gained new controls lack those keys (the
+  // live engine fills them via addEffect's defaults, but the WAV export
+  // builds straight from saved params) - fill them in so nothing gets NaN.
+  const params = { ...defaultParams(type), ...savedParams };
   switch (type) {
     case "eq3":
       return new Tone.EQ3({
@@ -711,7 +715,12 @@ export function createEffectNode(type: EffectType, params: Record<string, number
       });
     case "limiter":
       // Not Tone.Limiter (a native compressor): see lookaheadLimiter.ts.
-      return new LookaheadLimiter(params.threshold);
+      return new LookaheadLimiter({
+        ceilingDb: params.threshold,
+        gainDb: params.gain,
+        release: params.release,
+        softClip: params.softClip >= 0.5,
+      });
     case "pitchShift":
       return new Tone.PitchShift({ pitch: params.pitch, wet: params.wet });
   }
@@ -796,6 +805,9 @@ export function applyEffectParam(
     case "limiter": {
       const limiter = node as LookaheadLimiter;
       if (key === "threshold") limiter.setCeiling(value);
+      else if (key === "gain") limiter.setGain(value);
+      else if (key === "release") limiter.setRelease(value);
+      else if (key === "softClip") limiter.setSoftClip(value >= 0.5);
       break;
     }
     case "pitchShift": {
@@ -947,7 +959,7 @@ class AudioEngine {
   private ensureMaster(): { channel: Tone.Channel; limiter: LookaheadLimiter; meter: Tone.Meter } {
     if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
       this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
-      this.masterLimiter = new LookaheadLimiter(-1).connect(this.masterMeter);
+      this.masterLimiter = new LookaheadLimiter({ ceilingDb: -1 }).connect(this.masterMeter);
       this.masterMeter.toDestination();
       // channelCount: 2 - see the comment on the per-track Channel below;
       // without it the whole mix gets folded to mono right before the
@@ -1378,6 +1390,16 @@ class AudioEngine {
     if (!effect || effect.type !== "compressor") return null;
     const comp = effect.node as CompressorChain;
     return { input: comp.inputDb, gainReduction: comp.reductionDb, output: comp.outputDb };
+  }
+
+  /** Live peak input (after the plugin's gain), output, and gain reduction
+   * for one Limiter effect instance, for its window's meters. Null if that
+   * effect isn't a limiter (or doesn't exist). */
+  getLimiterMeters(hostId: string, effectId: string): LimiterLevels | null {
+    const target = this.effectsHost(hostId);
+    const effect = target?.host.effects.find((e) => e.id === effectId);
+    if (!effect || effect.type !== "limiter") return null;
+    return (effect.node as LookaheadLimiter).meterLevels;
   }
 
   /** Live note-on, triggered immediately (not scheduled on the transport). */

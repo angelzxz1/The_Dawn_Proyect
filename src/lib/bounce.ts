@@ -87,8 +87,12 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     const masterMeter = new Tone.Meter();
     // Same LimiterChain the live engine's master uses, so the export
     // limits identically to playback.
+    // Same release as the live master limiter (LookaheadLimiter's default).
     const masterLimiter = createEffectNode("limiter", {
       threshold: params.masterLimiterThreshold,
+      gain: 0,
+      release: 0.1,
+      softClip: 0,
     }).connect(masterMeter);
     masterMeter.toDestination();
     // channelCount: 2 on every Channel here - see audioEngine.ts's

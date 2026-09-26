@@ -75,7 +75,9 @@ const semi = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(0)}st`;
 const plain = (v: number) => v.toFixed(1);
 const msSpaced = (v: number) => `${Math.round(v * 1000)} ms`;
 const secSpaced = (v: number) => `${v.toFixed(2)} s`;
-const hzSpaced = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`);
+const dbSpaced = (v: number) => `${v.toFixed(1)} dB`;
+const dbSigned = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+const hzSpaced =(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`);
 
 const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
   eq3: [
@@ -146,7 +148,14 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     // generic ValueBar UI (numbers only, no dropdowns) can still drive it.
     { key: "type", label: "Type", min: 0, max: 1, default: 0, format: plain },
   ],
-  limiter: [{ key: "threshold", label: "Ceiling", min: -30, max: 0, default: -3, format: db }],
+  // `threshold` keeps its original key (it's the Ceiling) so limiters saved
+  // before this plugin existed still load with their setting.
+  limiter: [
+    { key: "gain", label: "Gain", min: -12, max: 24, default: 0, format: dbSigned },
+    { key: "threshold", label: "Ceiling", min: -30, max: 0, default: -0.3, format: dbSpaced },
+    { key: "release", label: "Release", min: 0.001, max: 1, default: 0.05, format: msSpaced },
+    { key: "softClip", label: "Soft Clip", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "On" : "Off") },
+  ],
   pitchShift: [
     { key: "pitch", label: "Pitch", min: -24, max: 24, default: 0, format: semi },
     { key: "wet", label: "Mix", min: 0, max: 1, default: 1, format: pct },

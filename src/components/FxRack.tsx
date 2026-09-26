@@ -8,6 +8,7 @@ import { CompressorRackCard } from "./CompressorRackCard";
 import { DelayRackCard } from "./DelayRackCard";
 import { ReverbRackCard } from "./ReverbRackCard";
 import { LimiterRackCard } from "./LimiterRackCard";
+import { FilterRackCard } from "./FilterRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -49,7 +50,7 @@ interface FxRackProps {
 
 /** Effect types with a custom rack card + full window, instead of the
  * generic ValueBar-driven card. */
-const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor", "delay", "reverb", "limiter"];
+const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor", "delay", "reverb", "limiter", "filter"];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
 
@@ -215,7 +216,7 @@ export function FxRack({
               className={`flex shrink-0 ${
                 fx.type === "eq3"
                   ? "w-64 rounded-xl"
-                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter"
+                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter"
                     ? "w-72 rounded-xl"
                     : fx.type === "reverb"
                       ? "w-80 rounded-xl"
@@ -259,6 +260,16 @@ export function FxRack({
                   <DelayRackCard
                     params={fx.params}
                     bpm={bpm}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "filter" ? (
+                  <FilterRackCard
+                    params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
                     onRemove={() => onRemoveEffect(fx.id)}

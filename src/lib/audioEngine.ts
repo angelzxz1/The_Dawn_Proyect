@@ -27,6 +27,14 @@ import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
 import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
+import {
+  type FilterMode,
+  LFO_MAX_OCTAVES,
+  designFilter,
+  filterModeFromParam,
+  legacyFilterTypeToMode,
+  slopeIndexFromParam,
+} from "./filterModel";
 
 /** Linearly interpolates an automation lane's value at time `t` - flat
  * before the first point and after the last, matching how the lane's UI
@@ -163,15 +171,6 @@ export function createInstrument(
     onload: onSettled,
     onerror: onSettled,
   });
-}
-
-/** Maps the filter effect's single 0..1 "Type" knob onto Tone.Filter's
- * discrete filter types, so the generic number-only ValueBar UI can still
- * drive it: 0 = lowpass, 0.5 = highpass, 1 = bandpass. */
-function filterTypeFromKnob(v: number): BiquadFilterType {
-  if (v < 0.33) return "lowpass";
-  if (v < 0.67) return "highpass";
-  return "bandpass";
 }
 
 /** A Tone.Compressor plus everything the custom Compressor plugin UI needs
@@ -678,6 +677,119 @@ class ReverbChain extends Tone.ToneAudioNode {
   }
 }
 
+/** The Filter effect: one of seven biquad types, cascaded to 12/24/48dB
+ * per octave (see filterModel.ts for the stage design), with an LFO sweeping
+ * the cutoff and a dry/wet blend. The LFO drives every stage's `detune`
+ * param (cents), so it sweeps the cutoff evenly in octaves rather than in
+ * Hz. Stages are only rebuilt when the type or slope changes their count
+ * or kind; knob moves just update values. */
+class FilterChain extends Tone.ToneAudioNode {
+  readonly name = "FilterChain";
+  readonly input = new Tone.Gain();
+  readonly output = new Tone.Gain();
+  private readonly wetIn = new Tone.Gain();
+  private readonly dryGain: Tone.Gain;
+  private readonly wetGain: Tone.Gain;
+  private readonly lfo: Tone.LFO;
+  private stages: Tone.BiquadFilter[] = [];
+  private mode: FilterMode;
+  private frequency: number;
+  private q: number;
+  private gainDb: number;
+  private slope: number;
+
+  constructor(params: Record<string, number>) {
+    super();
+    this.mode = filterModeFromParam(params.mode);
+    this.frequency = params.frequency;
+    this.q = params.Q;
+    this.gainDb = params.gain;
+    this.slope = slopeIndexFromParam(params.slope);
+    this.dryGain = new Tone.Gain(1 - params.wet);
+    this.wetGain = new Tone.Gain(params.wet);
+    this.lfo = new Tone.LFO({ frequency: params.lfoRate, min: 0, max: 0 }).start();
+
+    this.input.connect(this.dryGain);
+    this.dryGain.connect(this.output);
+    this.input.connect(this.wetIn);
+    this.wetGain.connect(this.output);
+    this.setLfoDepth(params.lfoDepth);
+    this.applyDesign();
+  }
+
+  private applyDesign(): void {
+    const design = designFilter(this.mode, this.frequency, this.q, this.gainDb, this.slope);
+    const reusable =
+      design.length === this.stages.length && design.every((stage, i) => this.stages[i].type === stage.type);
+    if (!reusable) {
+      this.wetIn.disconnect();
+      this.lfo.disconnect();
+      this.stages.forEach((stage) => stage.dispose());
+      this.stages = design.map((d) => new Tone.BiquadFilter({ type: d.type, frequency: d.frequency, Q: d.nativeQ, gain: d.gain }));
+      this.wetIn.chain(...this.stages, this.wetGain);
+      this.stages.forEach((stage) => this.lfo.connect(stage.detune));
+    }
+    design.forEach((d, i) => {
+      const stage = this.stages[i];
+      stage.frequency.value = d.frequency;
+      stage.Q.value = d.nativeQ;
+      stage.gain.value = d.gain;
+    });
+  }
+
+  setFrequency(hz: number): void {
+    this.frequency = hz;
+    this.applyDesign();
+  }
+
+  setQ(q: number): void {
+    this.q = q;
+    this.applyDesign();
+  }
+
+  setGain(db: number): void {
+    this.gainDb = db;
+    this.applyDesign();
+  }
+
+  setMode(v: number): void {
+    this.mode = filterModeFromParam(v);
+    this.applyDesign();
+  }
+
+  setSlope(v: number): void {
+    this.slope = slopeIndexFromParam(v);
+    this.applyDesign();
+  }
+
+  setLfoRate(hz: number): void {
+    this.lfo.frequency.value = hz;
+  }
+
+  setLfoDepth(amount: number): void {
+    const cents = amount * LFO_MAX_OCTAVES * 1200;
+    this.lfo.min = -cents;
+    this.lfo.max = cents;
+  }
+
+  setWet(mix: number): void {
+    this.dryGain.gain.value = 1 - mix;
+    this.wetGain.gain.value = mix;
+  }
+
+  dispose(): this {
+    super.dispose();
+    this.lfo.dispose();
+    this.stages.forEach((stage) => stage.dispose());
+    this.wetIn.dispose();
+    this.dryGain.dispose();
+    this.wetGain.dispose();
+    this.input.dispose();
+    this.output.dispose();
+    return this;
+  }
+}
+
 export function createEffectNode(type: EffectType, savedParams: Record<string, number>): Tone.ToneAudioNode {
   // Params saved before an effect gained new controls lack those keys (the
   // live engine fills them via addEffect's defaults, but the WAV export
@@ -708,11 +820,7 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
     case "distortion":
       return new Tone.Distortion({ distortion: params.distortion, wet: params.wet });
     case "filter":
-      return new Tone.Filter({
-        frequency: params.frequency,
-        Q: params.Q,
-        type: filterTypeFromKnob(params.type),
-      });
+      return new FilterChain(params);
     case "limiter":
       // Not Tone.Limiter (a native compressor): see lookaheadLimiter.ts.
       return new LookaheadLimiter({
@@ -796,10 +904,17 @@ export function applyEffectParam(
       break;
     }
     case "filter": {
-      const filter = node as Tone.Filter;
-      if (key === "frequency") filter.frequency.value = value;
-      else if (key === "Q") filter.Q.value = value;
-      else if (key === "type") filter.type = filterTypeFromKnob(value);
+      const filter = node as FilterChain;
+      if (key === "frequency") filter.setFrequency(value);
+      else if (key === "Q") filter.setQ(value);
+      else if (key === "gain") filter.setGain(value);
+      else if (key === "mode") filter.setMode(value);
+      else if (key === "slope") filter.setSlope(value);
+      else if (key === "lfoRate") filter.setLfoRate(value);
+      else if (key === "lfoDepth") filter.setLfoDepth(value);
+      else if (key === "wet") filter.setWet(value);
+      // Automation recorded on the pre-plugin 0..1 "type" knob.
+      else if (key === "type") filter.setMode(legacyFilterTypeToMode(value));
       break;
     }
     case "limiter": {

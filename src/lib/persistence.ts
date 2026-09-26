@@ -6,6 +6,7 @@
 
 import type { BusConfig, ChannelConfig, NoteEvent, TimeSignature } from "./types";
 import type { EffectInstance } from "./effects";
+import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
 import type { ScaleSetting } from "./scales";
 import type { SnapResolution } from "./timeline";
 
@@ -60,6 +61,48 @@ export interface SerializedProject {
   snapResolution: SnapResolution;
   countInBars: number;
   metronomeEnabled: boolean;
+}
+
+/** Brings a project saved by an older version up to date. Currently: a
+ * Filter effect's old single "type" knob becomes the plugin's `mode` (plus
+ * its dB-style Q becomes linear) - including any automation lane recorded
+ * on that knob. */
+function migrateProject(project: SerializedProject): SerializedProject {
+  const legacyFilterIds = new Set<string>();
+  const migrate = (effects: EffectInstance[]) =>
+    effects.map((fx) => {
+      if (fx.type !== "filter") return fx;
+      const params = migrateLegacyFilterParams(fx.params);
+      if (params === fx.params) return fx;
+      legacyFilterIds.add(fx.id);
+      return { ...fx, params };
+    });
+
+  const channelEffects = Object.fromEntries(
+    Object.entries(project.channelEffects).map(([id, effects]) => [id, migrate(effects)])
+  );
+  const busEffects = project.busEffects
+    ? Object.fromEntries(Object.entries(project.busEffects).map(([id, effects]) => [id, migrate(effects)]))
+    : undefined;
+  const masterEffects = project.masterEffects ? migrate(project.masterEffects) : undefined;
+
+  const channels = project.channels.map((channel) => {
+    if (!channel.automationLanes?.length || legacyFilterIds.size === 0) return channel;
+    return {
+      ...channel,
+      automationLanes: channel.automationLanes.map((lane) =>
+        lane.target.kind === "effect" && lane.target.paramKey === "type" && legacyFilterIds.has(lane.target.effectId)
+          ? {
+              ...lane,
+              target: { ...lane.target, paramKey: "mode" },
+              points: lane.points.map((pt) => ({ ...pt, value: legacyFilterTypeToMode(pt.value) })),
+            }
+          : lane
+      ),
+    };
+  });
+
+  return { ...project, channels, channelEffects, busEffects, masterEffects };
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -130,7 +173,7 @@ export async function loadProject(): Promise<
       };
       req.onerror = () => reject(req.error);
     });
-    return { project, blobs };
+    return { project: migrateProject(project), blobs };
   } finally {
     db.close();
   }

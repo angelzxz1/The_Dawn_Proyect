@@ -83,6 +83,9 @@ interface ChannelNodes extends EffectsHost {
    * bus's input - independent of the dry signal, which always keeps going
    * to master regardless of any sends. */
   sends: Map<string, Tone.Gain>;
+  /** The user's own mute button state, tracked separately from
+   * `channel.mute` - see the comment on `setMute`/`setSolo` for why. */
+  userMuted: boolean;
 }
 
 /** A send/return bus - like a track channel's effects rack, but fed by
@@ -488,6 +491,59 @@ class DelayChain extends Tone.ToneAudioNode {
   }
 }
 
+/** A Tone.Compressor (fast attack, hard knee, no makeup) tuned to act as a
+ * limiter, plus a hard-clip safety stage right after it. The compressor
+ * alone isn't a guarantee: the native DynamicsCompressorNode's gain-reduction
+ * envelope can briefly overshoot back past unity while recovering from a
+ * heavily-attenuated peak (worse with knee 0 and ratio 20, and confirmed by
+ * rendering real notes through it - a decaying note's release tail measured
+ * *louder* coming out than going in, i.e. exactly "makes it louder" instead
+ * of limiting). A WaveShaper reconstructed to hard-clip at the threshold's
+ * linear gain catches that overshoot (and any other edge case) unconditionally,
+ * so the ceiling is never crossed regardless of the compressor's own
+ * transient behavior - the compressor still does the musical, mostly-
+ * transparent gain reduction; the clipper is only ever a backstop. */
+class LimiterChain extends Tone.ToneAudioNode {
+  readonly name = "LimiterChain";
+  readonly input: Tone.Gain;
+  readonly output: Tone.Gain;
+  private readonly compressor: Tone.Compressor;
+  private readonly clipper: Tone.WaveShaper;
+
+  constructor(params: Record<string, number>) {
+    super();
+    this.input = new Tone.Gain();
+    this.output = new Tone.Gain();
+    this.compressor = new Tone.Compressor({
+      threshold: params.threshold,
+      ratio: 20,
+      attack: 0.003,
+      release: 0.1,
+      knee: 0,
+    });
+    this.clipper = new Tone.WaveShaper((x) => x, 2048);
+    this.input.connect(this.compressor);
+    this.compressor.connect(this.clipper);
+    this.clipper.connect(this.output);
+    this.setThreshold(params.threshold);
+  }
+
+  setThreshold(db: number): void {
+    this.compressor.threshold.value = db;
+    const ceiling = Tone.dbToGain(db);
+    this.clipper.setMap((x) => Math.max(-ceiling, Math.min(ceiling, x)));
+  }
+
+  dispose(): this {
+    super.dispose();
+    this.compressor.dispose();
+    this.clipper.dispose();
+    this.input.dispose();
+    this.output.dispose();
+    return this;
+  }
+}
+
 export function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
   switch (type) {
     case "eq3":
@@ -520,21 +576,10 @@ export function createEffectNode(type: EffectType, params: Record<string, number
         type: filterTypeFromKnob(params.type),
       });
     case "limiter":
-      // Not Tone.Limiter: it's just a Tone.Compressor with a fixed ratio/
-      // attack/release and no knee override, which leaves Tone.Compressor's
-      // own default 30dB knee in place - a limiter built that way starts
-      // audibly compressing 15dB *below* its displayed ceiling, nowhere near
-      // the brick-wall behavior "Ceiling: -3dB" implies. Building the same
-      // fast ratio/attack/release directly with an explicit knee of 0 gives
-      // a true hard-knee limiter that stays transparent until the signal
-      // actually reaches the ceiling.
-      return new Tone.Compressor({
-        threshold: params.threshold,
-        ratio: 20,
-        attack: 0.003,
-        release: 0.01,
-        knee: 0,
-      });
+      // See LimiterChain's own comment for why this isn't a plain
+      // Tone.Compressor (or Tone.Limiter, which is one internally): neither
+      // guarantees the ceiling is never crossed.
+      return new LimiterChain(params);
     case "pitchShift":
       return new Tone.PitchShift({ pitch: params.pitch, wet: params.wet });
   }
@@ -610,8 +655,8 @@ export function applyEffectParam(
       break;
     }
     case "limiter": {
-      const limiter = node as Tone.Compressor;
-      if (key === "threshold") limiter.threshold.value = value;
+      const limiter = node as LimiterChain;
+      if (key === "threshold") limiter.setThreshold(value);
       break;
     }
     case "pitchShift": {
@@ -634,6 +679,13 @@ class AudioEngine {
   private micStream: MediaStream | null = null;
   private audioRecording: { channelId: string; recorder: MediaRecorder; chunks: Blob[] } | null =
     null;
+  /** Ids of channels the user currently has soloed - tracked here instead of
+   * via Tone.Channel's own `solo`, whose Solo instance is shared globally
+   * per-AudioContext across *every* Tone.Channel, including the master
+   * channel and every send/return bus. Those are never themselves soloed,
+   * so letting a track's solo touch that shared group silences the whole
+   * mix (master included) instead of isolating the soloed track. */
+  private soloedIds = new Set<string>();
 
   // --- Automation playback ---
   private automation = new Map<string, AutomationLane[]>();
@@ -746,27 +798,20 @@ class AudioEngine {
   // A brake-wall Limiter sits right before the meter/destination so nothing
   // downstream can clip no matter how hot the mix gets. ---
   private masterChannel: Tone.Channel | null = null;
-  private masterLimiter: Tone.Compressor | null = null;
+  private masterLimiter: LimiterChain | null = null;
   private masterMeter: Tone.Meter | null = null;
   /** The master bus's own effects chain (e.g. a final EQ or compressor
    * across the whole mix) - sits between the master channel and the
    * limiter, wired the same way a track's or bus's chain is. */
   private masterEffects: EffectNode[] = [];
 
-  private ensureMaster(): { channel: Tone.Channel; limiter: Tone.Compressor; meter: Tone.Meter } {
+  private ensureMaster(): { channel: Tone.Channel; limiter: LimiterChain; meter: Tone.Meter } {
     if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
       this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
-      // Not Tone.Limiter - see the "limiter" case in createEffectNode for
-      // why: its unset knee defaults to Tone.Compressor's own 30dB, which
-      // starts audibly squashing the mix 15dB below this -1dB ceiling
-      // instead of acting as a transparent-until-it-clips brake wall.
-      this.masterLimiter = new Tone.Compressor({
-        threshold: -1,
-        ratio: 20,
-        attack: 0.003,
-        release: 0.01,
-        knee: 0,
-      }).connect(this.masterMeter);
+      // LimiterChain, not a plain Tone.Compressor or Tone.Limiter - see its
+      // own comment. This is the one place that guarantee matters most:
+      // nothing downstream of it should ever be able to clip.
+      this.masterLimiter = new LimiterChain({ threshold: -1 }).connect(this.masterMeter);
       this.masterMeter.toDestination();
       // channelCount: 2 - see the comment on the per-track Channel below;
       // without it the whole mix gets folded to mono right before the
@@ -796,7 +841,7 @@ class AudioEngine {
 
   /** Ceiling the master limiter won't let the mix exceed, in dB (e.g. -1). */
   setMasterLimiterThreshold(db: number): void {
-    this.ensureMaster().limiter.threshold.value = db;
+    this.ensureMaster().limiter.setThreshold(db);
   }
 
   /** Current master output level, 0-1. */
@@ -848,6 +893,7 @@ class AudioEngine {
       effects: [],
       audioClips: new Map(),
       sends: new Map(),
+      userMuted: false,
     });
     this.rewireChannel(id);
   }
@@ -866,6 +912,8 @@ class AudioEngine {
     nodes.channel.dispose();
     nodes.meter.dispose();
     this.channels.delete(id);
+    const wasSoloed = this.soloedIds.delete(id);
+    if (wasSoloed) this.channels.forEach((n, channelId) => this.applyMuteSolo(channelId, n));
     this.automation.delete(id);
     this.sustainedChannels.delete(id);
     this.sustainPending.delete(id);
@@ -1154,17 +1202,25 @@ class AudioEngine {
     if (nodes) nodes.channel.pan.value = pan;
   }
 
-  /** Tone.Channel has built-in mute/solo - soloing any one channel silences
-   * every other channel that isn't also soloed, all handled internally by
-   * Tone's shared Solo group. */
+  /** A channel should be audible only if the user hasn't muted it AND
+   * either nothing is soloed or it's one of the soloed ones. Applied as the
+   * channel's Tone `mute` (not Tone.Channel's own `solo` - see the comment
+   * on `soloedIds`). */
+  private applyMuteSolo(id: string, nodes: ChannelNodes): void {
+    nodes.channel.mute = nodes.userMuted || (this.soloedIds.size > 0 && !this.soloedIds.has(id));
+  }
+
   setMute(id: string, muted: boolean): void {
     const nodes = this.channels.get(id);
-    if (nodes) nodes.channel.mute = muted;
+    if (!nodes) return;
+    nodes.userMuted = muted;
+    this.applyMuteSolo(id, nodes);
   }
 
   setSolo(id: string, solo: boolean): void {
-    const nodes = this.channels.get(id);
-    if (nodes) nodes.channel.solo = solo;
+    if (solo) this.soloedIds.add(id);
+    else this.soloedIds.delete(id);
+    this.channels.forEach((nodes, channelId) => this.applyMuteSolo(channelId, nodes));
   }
 
   /** Current output level for the channel's meter, 0-1. */

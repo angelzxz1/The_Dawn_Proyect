@@ -84,16 +84,12 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
 
   const buffer = await Tone.Offline(async () => {
     const masterMeter = new Tone.Meter();
-    // Not Tone.Limiter - matches the live engine's ensureMaster(): its
-    // unset knee defaults to Tone.Compressor's own 30dB, which starts
-    // squashing the mix 15dB below this ceiling instead of staying
-    // transparent until the signal actually reaches it.
-    const masterLimiter = new Tone.Compressor({
+    // Built via the live engine's own createEffectNode("limiter", ...) - see
+    // LimiterChain's comment in audioEngine.ts for why the export needs the
+    // same hard-knee compressor plus hard-clip backstop as live playback,
+    // not a plain Tone.Compressor or Tone.Limiter.
+    const masterLimiter = createEffectNode("limiter", {
       threshold: params.masterLimiterThreshold,
-      ratio: 20,
-      attack: 0.003,
-      release: 0.01,
-      knee: 0,
     }).connect(masterMeter);
     masterMeter.toDestination();
     // channelCount: 2 on every Channel here - see audioEngine.ts's

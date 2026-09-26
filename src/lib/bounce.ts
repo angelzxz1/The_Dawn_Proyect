@@ -96,14 +96,18 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       knee: 0,
     }).connect(masterMeter);
     masterMeter.toDestination();
-    const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan });
+    // channelCount: 2 on every Channel here - see audioEngine.ts's
+    // addChannel for why: Tone.Channel's Panner defaults to explicit
+    // mono, silently folding any stereo content (a stereo delay, etc.)
+    // down before panning, at each stage it passes through.
+    const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan, channelCount: 2 });
     const { entry: masterEntry } = buildOfflineEffectsChain(params.masterEffects, masterLimiter);
     master.connect(masterEntry);
 
     const buses = new Map<string, { input: Tone.Gain }>();
     params.buses.forEach((bus) => {
       const input = new Tone.Gain(1);
-      const channel = new Tone.Channel({ volume: 0, pan: 0 }).connect(master);
+      const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }).connect(master);
       const { entry } = buildOfflineEffectsChain(params.busEffects[bus.id] ?? [], channel);
       input.connect(entry);
       buses.set(bus.id, { input });
@@ -121,7 +125,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     }[] = [];
 
     audible.forEach((channel) => {
-      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan }).connect(master);
+      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2 }).connect(master);
       Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
         const bus = buses.get(busId);
         if (!bus) return;

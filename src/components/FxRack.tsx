@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, Settings2, Sl
 import { ValueBar } from "./ValueBar";
 import { EQThreeRackCard } from "./EQThreeRackCard";
 import { CompressorRackCard } from "./CompressorRackCard";
+import { DelayRackCard } from "./DelayRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -20,6 +21,9 @@ interface FxRackProps {
   instrument?: InstrumentType | null;
   synthParams?: SynthParams;
   effects: EffectInstance[];
+  /** The project's current tempo - only used by the Delay card/window's
+   * Sync mode (note-division knobs) and its "@ N BPM" readout. */
+  bpm: number;
   buses?: BusConfig[];
   sends?: Record<string, number>;
   onInstrumentChange?: (type: InstrumentType | null) => void;
@@ -43,7 +47,7 @@ interface FxRackProps {
 
 /** Effect types with a custom rack card + full window, instead of the
  * generic ValueBar-driven card. */
-const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor"];
+const CUSTOM_UI_TYPES: EffectType[] = ["eq3", "compressor", "delay"];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
 
@@ -106,6 +110,7 @@ export function FxRack({
   instrument,
   synthParams,
   effects,
+  bpm,
   buses = [],
   sends = {},
   onInstrumentChange,
@@ -208,7 +213,7 @@ export function FxRack({
               className={`flex shrink-0 ${
                 fx.type === "eq3"
                   ? "w-64 rounded-xl"
-                  : fx.type === "compressor"
+                  : fx.type === "compressor" || fx.type === "delay"
                     ? "w-72 rounded-xl"
                     : "w-40 rounded border border-border bg-surface-raised"
               } ${fx.bypass ? "opacity-50" : ""}`}
@@ -239,6 +244,17 @@ export function FxRack({
                 ) : fx.type === "compressor" ? (
                   <CompressorRackCard
                     params={fx.params}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "delay" ? (
+                  <DelayRackCard
+                    params={fx.params}
+                    bpm={bpm}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
                     onRemove={() => onRemoveEffect(fx.id)}

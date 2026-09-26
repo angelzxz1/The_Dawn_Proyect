@@ -46,6 +46,7 @@ import { FxRack } from "./FxRack";
 import { SynthWindow } from "./SynthWindow";
 import { EQThreeWindow } from "./EQThreeWindow";
 import { CompressorWindow } from "./CompressorWindow";
+import { DelayWindow } from "./DelayWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -3091,6 +3092,7 @@ export function Daw() {
           instrument={fxChannel?.instrument}
           synthParams={fxChannel?.synthParams}
           effects={rackEffects}
+          bpm={bpm}
           buses={buses}
           sends={fxChannel?.sends}
           onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
@@ -3144,6 +3146,29 @@ export function Daw() {
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           effectId={expandedEffectId}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "delay" && (
+        <DelayWindow
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          bpm={bpm}
           params={expandedEffect.params}
           bypass={!!expandedEffect.bypass}
           onBypassToggle={() =>

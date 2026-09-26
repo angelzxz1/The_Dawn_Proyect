@@ -6,6 +6,7 @@
 import * as Tone from "tone";
 import { createInstrument, createEffectNode, applyEffectParam } from "./audioEngine";
 import { notesWithinClip } from "./project";
+import { loadLimiterWorklet } from "./lookaheadLimiter";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
 
@@ -84,10 +85,8 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
 
   const buffer = await Tone.Offline(async () => {
     const masterMeter = new Tone.Meter();
-    // Built via the live engine's own createEffectNode("limiter", ...) - see
-    // LimiterChain's comment in audioEngine.ts for why the export needs the
-    // same hard-knee compressor plus hard-clip backstop as live playback,
-    // not a plain Tone.Compressor or Tone.Limiter.
+    // Same LimiterChain the live engine's master uses, so the export
+    // limits identically to playback.
     const masterLimiter = createEffectNode("limiter", {
       threshold: params.masterLimiterThreshold,
     }).connect(masterMeter);
@@ -231,7 +230,9 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       Tone.getTransport().start();
     }
 
-    await Promise.all(loadPromises);
+    // Every limiter in this render (master and any per-track ones) only
+    // joins the graph once its worklet module loads in this offline context.
+    await Promise.all([...loadPromises, loadLimiterWorklet(Tone.getContext())]);
   }, duration);
 
   const raw = buffer.get();

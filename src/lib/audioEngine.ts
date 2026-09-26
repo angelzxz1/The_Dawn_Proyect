@@ -24,6 +24,8 @@ import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
 import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
+import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
+import { LookaheadLimiter } from "./lookaheadLimiter";
 
 /** Linearly interpolates an automation lane's value at time `t` - flat
  * before the first point and after the last, matching how the lane's UI
@@ -245,6 +247,11 @@ class CompressorChain extends Tone.ToneAudioNode {
     this.refreshMakeup();
   }
 
+  setKnee(v: number): void {
+    this.compressor.knee.value = v;
+    this.refreshMakeup();
+  }
+
   setManualMakeup(v: number): void {
     this.manualMakeup = v;
     this.refreshMakeup();
@@ -264,10 +271,15 @@ class CompressorChain extends Tone.ToneAudioNode {
     this.outputTrim.volume.value = db;
   }
 
+  /** The makeup stage also cancels the native node's own hidden makeup gain
+   * (see nativeCompressorMakeup.ts), so the only makeup applied is the one
+   * the UI shows - otherwise it would stack on top of the plugin's. */
   private refreshMakeup(): void {
     const threshold = this.compressor.threshold.value;
     const ratio = this.compressor.ratio.value;
-    this.makeupGain.volume.value = this.autoMakeup ? autoMakeupDb(threshold, ratio) : this.manualMakeup;
+    const knee = this.compressor.knee.value;
+    const makeup = this.autoMakeup ? autoMakeupDb(threshold, ratio) : this.manualMakeup;
+    this.makeupGain.volume.value = makeup - nativeCompressorMakeupDb(threshold, knee, ratio);
   }
 
   /** Current gain reduction, in dB (always <= 0; 0 = no reduction). */
@@ -491,59 +503,6 @@ class DelayChain extends Tone.ToneAudioNode {
   }
 }
 
-/** A Tone.Compressor (fast attack, hard knee, no makeup) tuned to act as a
- * limiter, plus a hard-clip safety stage right after it. The compressor
- * alone isn't a guarantee: the native DynamicsCompressorNode's gain-reduction
- * envelope can briefly overshoot back past unity while recovering from a
- * heavily-attenuated peak (worse with knee 0 and ratio 20, and confirmed by
- * rendering real notes through it - a decaying note's release tail measured
- * *louder* coming out than going in, i.e. exactly "makes it louder" instead
- * of limiting). A WaveShaper reconstructed to hard-clip at the threshold's
- * linear gain catches that overshoot (and any other edge case) unconditionally,
- * so the ceiling is never crossed regardless of the compressor's own
- * transient behavior - the compressor still does the musical, mostly-
- * transparent gain reduction; the clipper is only ever a backstop. */
-class LimiterChain extends Tone.ToneAudioNode {
-  readonly name = "LimiterChain";
-  readonly input: Tone.Gain;
-  readonly output: Tone.Gain;
-  private readonly compressor: Tone.Compressor;
-  private readonly clipper: Tone.WaveShaper;
-
-  constructor(params: Record<string, number>) {
-    super();
-    this.input = new Tone.Gain();
-    this.output = new Tone.Gain();
-    this.compressor = new Tone.Compressor({
-      threshold: params.threshold,
-      ratio: 20,
-      attack: 0.003,
-      release: 0.1,
-      knee: 0,
-    });
-    this.clipper = new Tone.WaveShaper((x) => x, 2048);
-    this.input.connect(this.compressor);
-    this.compressor.connect(this.clipper);
-    this.clipper.connect(this.output);
-    this.setThreshold(params.threshold);
-  }
-
-  setThreshold(db: number): void {
-    this.compressor.threshold.value = db;
-    const ceiling = Tone.dbToGain(db);
-    this.clipper.setMap((x) => Math.max(-ceiling, Math.min(ceiling, x)));
-  }
-
-  dispose(): this {
-    super.dispose();
-    this.compressor.dispose();
-    this.clipper.dispose();
-    this.input.dispose();
-    this.output.dispose();
-    return this;
-  }
-}
-
 export function createEffectNode(type: EffectType, params: Record<string, number>): Tone.ToneAudioNode {
   switch (type) {
     case "eq3":
@@ -576,10 +535,8 @@ export function createEffectNode(type: EffectType, params: Record<string, number
         type: filterTypeFromKnob(params.type),
       });
     case "limiter":
-      // See LimiterChain's own comment for why this isn't a plain
-      // Tone.Compressor (or Tone.Limiter, which is one internally): neither
-      // guarantees the ceiling is never crossed.
-      return new LimiterChain(params);
+      // Not Tone.Limiter (a native compressor): see lookaheadLimiter.ts.
+      return new LookaheadLimiter(params.threshold);
     case "pitchShift":
       return new Tone.PitchShift({ pitch: params.pitch, wet: params.wet });
   }
@@ -607,7 +564,7 @@ export function applyEffectParam(
       else if (key === "ratio") comp.setRatio(value);
       else if (key === "attack") comp.compressor.attack.value = value;
       else if (key === "release") comp.compressor.release.value = value;
-      else if (key === "knee") comp.compressor.knee.value = value;
+      else if (key === "knee") comp.setKnee(value);
       else if (key === "makeup") comp.setManualMakeup(value);
       else if (key === "makeupAuto") comp.setAutoMakeup(value >= 0.5);
       else if (key === "dryWet") comp.setDryWet(value);
@@ -655,8 +612,8 @@ export function applyEffectParam(
       break;
     }
     case "limiter": {
-      const limiter = node as LimiterChain;
-      if (key === "threshold") limiter.setThreshold(value);
+      const limiter = node as LookaheadLimiter;
+      if (key === "threshold") limiter.setCeiling(value);
       break;
     }
     case "pitchShift": {
@@ -798,20 +755,17 @@ class AudioEngine {
   // A brake-wall Limiter sits right before the meter/destination so nothing
   // downstream can clip no matter how hot the mix gets. ---
   private masterChannel: Tone.Channel | null = null;
-  private masterLimiter: LimiterChain | null = null;
+  private masterLimiter: LookaheadLimiter | null = null;
   private masterMeter: Tone.Meter | null = null;
   /** The master bus's own effects chain (e.g. a final EQ or compressor
    * across the whole mix) - sits between the master channel and the
    * limiter, wired the same way a track's or bus's chain is. */
   private masterEffects: EffectNode[] = [];
 
-  private ensureMaster(): { channel: Tone.Channel; limiter: LimiterChain; meter: Tone.Meter } {
+  private ensureMaster(): { channel: Tone.Channel; limiter: LookaheadLimiter; meter: Tone.Meter } {
     if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
       this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
-      // LimiterChain, not a plain Tone.Compressor or Tone.Limiter - see its
-      // own comment. This is the one place that guarantee matters most:
-      // nothing downstream of it should ever be able to clip.
-      this.masterLimiter = new LimiterChain({ threshold: -1 }).connect(this.masterMeter);
+      this.masterLimiter = new LookaheadLimiter(-1).connect(this.masterMeter);
       this.masterMeter.toDestination();
       // channelCount: 2 - see the comment on the per-track Channel below;
       // without it the whole mix gets folded to mono right before the
@@ -841,7 +795,7 @@ class AudioEngine {
 
   /** Ceiling the master limiter won't let the mix exceed, in dB (e.g. -1). */
   setMasterLimiterThreshold(db: number): void {
-    this.ensureMaster().limiter.setThreshold(db);
+    this.ensureMaster().limiter.setCeiling(db);
   }
 
   /** Current master output level, 0-1. */

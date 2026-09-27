@@ -37,6 +37,8 @@ interface TransportBarProps {
   onPause: () => void;
   onStop: () => void;
   onRecord: () => void;
+  /** Rendered at the right end (the CPU meter / audio settings). */
+  status?: React.ReactNode;
 }
 
 export function TransportBar({
@@ -60,6 +62,7 @@ export function TransportBar({
   onPause,
   onStop,
   onRecord,
+  status,
 }: TransportBarProps) {
   const [bpmDraft, setBpmDraft] = useState(String(bpm));
   useEffect(() => setBpmDraft(String(bpm)), [bpm]);
@@ -229,6 +232,8 @@ export function TransportBar({
         · armed channel:{" "}
         <span className="text-foreground">{armedChannelName ?? "none"}</span>
       </div>
+
+      {status}
     </div>
   );
 }

@@ -114,6 +114,9 @@ export class PitchShifter extends Tone.ToneAudioNode {
   readonly output = new Tone.Gain();
   private readonly dryGain = new Tone.Gain();
   private readonly wetGain = new Tone.Gain();
+  /** The dry signal waits as long as the shifted one takes, so a Dry/Wet
+   * blend is a harmony in time rather than a slapback. */
+  private readonly dryDelay = new Tone.Delay(0, 0.5);
   private worklet: AudioWorkletNode | null = null;
   private settings: PitchShiftSettings;
   private isDisposed = false;
@@ -121,7 +124,8 @@ export class PitchShifter extends Tone.ToneAudioNode {
   constructor(settings: PitchShiftSettings) {
     super();
     this.settings = { ...settings };
-    this.input.connect(this.dryGain);
+    this.dryDelay.delayTime.value = this.latency;
+    this.input.chain(this.dryDelay, this.dryGain);
     this.dryGain.connect(this.output);
     this.wetGain.connect(this.output);
     this.setWet(settings.wet);
@@ -168,6 +172,14 @@ export class PitchShifter extends Tone.ToneAudioNode {
   setWindow(seconds: number): void {
     this.settings.window = seconds;
     this.setParam("window", seconds);
+    this.dryDelay.delayTime.value = this.latency;
+  }
+
+  /** Seconds the shifted signal lags the input: the read taps sit half a
+   * window (plus the interpolator's 2 samples) behind on average. */
+  get latency(): number {
+    const sr = this.context.sampleRate;
+    return (this.settings.window * sr) / 2 / sr + 2 / sr;
   }
 
   setFeedback(amount: number): void {
@@ -188,6 +200,7 @@ export class PitchShifter extends Tone.ToneAudioNode {
       this.worklet.port.postMessage("dispose");
       this.worklet.disconnect();
     }
+    this.dryDelay.dispose();
     this.dryGain.dispose();
     this.wetGain.dispose();
     this.input.dispose();

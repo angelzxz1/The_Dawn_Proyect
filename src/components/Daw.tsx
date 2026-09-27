@@ -58,6 +58,7 @@ import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
 import { ParamEqWindow } from "./ParamEqWindow";
 import { MultibandWindow } from "./MultibandWindow";
+import { AudioStatus } from "./AudioStatus";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -78,6 +79,7 @@ import {
   startFreshKeepingBackup,
 } from "@/lib/projectRecovery";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
+import { loadAudioPrefs } from "@/lib/audioPrefs";
 import {
   EFFECT_LABELS,
   automatableParamSpecs,
@@ -416,6 +418,8 @@ export function Daw() {
   // notes, independent of which track is merely clicked/selected.
   const armedChannel = channels.find((c) => c.armed) ?? null;
   const armedChannelId = armedChannel?.id ?? null;
+  // The armed MIDI track is played live, so it can skip delay compensation.
+  useEffect(() => audioEngine.setArmedChannel(armedChannelId), [armedChannelId]);
 
   const registeredChannelIds = useRef(new Set<string>());
   const registeredBusIds = useRef(new Set<string>());
@@ -2370,6 +2374,7 @@ export function Daw() {
         masterLimiterThreshold,
         masterEffects,
         contentEndSeconds: contentEnd,
+        delayCompensation: loadAudioPrefs().delayCompensation,
       });
       downloadWavBlob(blob, masterName);
     } finally {
@@ -2702,6 +2707,7 @@ export function Daw() {
 
       <div className="shrink-0">
         <TransportBar
+          status={<AudioStatus />}
           bpm={bpm}
           onBpmChange={handleBpmCommit}
           timeSignature={timeSignature}

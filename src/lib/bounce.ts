@@ -9,6 +9,8 @@ import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from
 import { NamAmpChain } from "./namAmp";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
+import { chainLatency, nodeLatency, planCompensation } from "./latency";
+import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
 
@@ -28,7 +30,12 @@ export interface BounceParams {
   /** Where the last bit of content ends, in seconds - the render runs a
    * couple of seconds past this for effect tails. */
   contentEndSeconds: number;
+  /** Plugin delay compensation, as in playback (default on). */
+  delayCompensation?: boolean;
 }
+
+/** Longest delay compensation can add to one path (s). */
+const MAX_COMPENSATION = 2;
 
 /** Linearly interpolates an automation lane's value at time `t` - flat
  * before the first point and after the last. Kept in sync with
@@ -67,7 +74,11 @@ function buildOfflineEffectsChain(
   effects: EffectInstance[],
   dest: Tone.ToneAudioNode,
   files: OfflineFiles
-): { entry: Tone.ToneAudioNode; nodesById: Map<string, { node: Tone.ToneAudioNode; type: EffectInstance["type"] }> } {
+): {
+  entry: Tone.ToneAudioNode;
+  nodesById: Map<string, { node: Tone.ToneAudioNode; type: EffectInstance["type"] }>;
+  latency: number;
+} {
   const built = effects.map((fx) => ({ fx, node: createEffectNode(fx.type, fx.params) }));
   built.forEach(({ fx, node }) => {
     Object.entries(fx.params).forEach(([key, value]) => applyEffectParam(node, fx.type, key, value));
@@ -82,7 +93,7 @@ function buildOfflineEffectsChain(
     active[i].node.connect(next);
   }
   const nodesById = new Map(built.map(({ fx, node }) => [fx.id, { node, type: fx.type }]));
-  return { entry: active[0]?.node ?? dest, nodesById };
+  return { entry: active[0]?.node ?? dest, nodesById, latency: chainLatency(active.map(({ node }) => ({ node }))) };
 }
 
 function isMidiClip(c: ClipInstance): c is MidiClipInstance {
@@ -91,7 +102,9 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
 
 /** Renders the project offline and resolves with a WAV file Blob. */
 export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
-  const duration = Math.max(1, params.contentEndSeconds + TAIL_SECONDS);
+  // Room for the mix's own latency, which is trimmed off the front after.
+  const duration = Math.max(1, params.contentEndSeconds + TAIL_SECONDS) + MAX_COMPENSATION;
+  let latency = 0;
 
   // Only the channels that would actually be heard in the real mix: if any
   // channel is soloed, everything else is silent; otherwise muted channels
@@ -128,16 +141,25 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     // mono, silently folding any stereo content (a stereo delay, etc.)
     // down before panning, at each stage it passes through.
     const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan, channelCount: 2 });
-    const { entry: masterEntry } = buildOfflineEffectsChain(params.masterEffects, masterLimiter, files);
+    const { entry: masterEntry, latency: masterLatency } = buildOfflineEffectsChain(params.masterEffects, masterLimiter, files);
     master.connect(masterEntry);
+
+    // Delay compensation, as the live engine does it (see latency.ts).
+    const direct = new Tone.Delay(0, MAX_COMPENSATION).connect(master);
+    const compensation: { channels: { id: string; latency: number; pdc: Tone.Delay }[]; buses: typeof compensation.channels } = {
+      channels: [],
+      buses: [],
+    };
 
     const buses = new Map<string, { input: Tone.Gain }>();
     params.buses.forEach((bus) => {
       const input = new Tone.Gain(1);
       const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }).connect(master);
-      const { entry } = buildOfflineEffectsChain(params.busEffects[bus.id] ?? [], channel, files);
+      const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
+      const { entry, latency: busLatency } = buildOfflineEffectsChain(params.busEffects[bus.id] ?? [], pdc, files);
       input.connect(entry);
       buses.set(bus.id, { input });
+      compensation.buses.push({ id: bus.id, latency: busLatency, pdc });
     });
 
     const loadPromises: Promise<void>[] = [];
@@ -152,7 +174,8 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     }[] = [];
 
     audible.forEach((channel) => {
-      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2 }).connect(master);
+      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2 }).connect(direct);
+      const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(strip);
       Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
         const bus = buses.get(busId);
         if (!bus) return;
@@ -160,11 +183,12 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
         strip.connect(send);
         send.connect(bus.input);
       });
-      const { entry: firstNode, nodesById } = buildOfflineEffectsChain(
+      const { entry: firstNode, nodesById, latency: trackLatency } = buildOfflineEffectsChain(
         params.channelEffects[channel.id] ?? [],
-        strip,
+        pdc,
         files
       );
+      compensation.channels.push({ id: channel.id, latency: trackLatency, pdc });
 
       (channel.automationLanes ?? []).forEach((lane) => {
         automationEntries.push({ lane, strip, effectNodesById: nodesById });
@@ -229,6 +253,17 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       }
     });
 
+    const plan = planCompensation({
+      enabled: params.delayCompensation ?? true,
+      channels: compensation.channels.map((c) => ({ id: c.id, latency: c.latency, live: false })),
+      buses: compensation.buses,
+      master: masterLatency + nodeLatency(masterLimiter),
+    });
+    compensation.channels.forEach((c) => (c.pdc.delayTime.value = plan.channel.get(c.id) ?? 0));
+    compensation.buses.forEach((b) => (b.pdc.delayTime.value = plan.bus.get(b.id) ?? 0));
+    direct.delayTime.value = plan.direct;
+    latency = plan.total;
+
     if (automationEntries.length > 0) {
       // Offline rendering is non-realtime, so a scheduled callback's own
       // `time` argument (the sample-accurate instant this tick represents)
@@ -270,51 +305,13 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
 
   const raw = buffer.get();
   if (!raw) throw new Error("Offline render produced no audio buffer");
-  return audioBufferToWav(raw);
-}
-
-/** Encodes a Web Audio AudioBuffer as a 16-bit PCM WAV file. */
-function audioBufferToWav(buffer: AudioBuffer): Blob {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const numFrames = buffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = numChannels * bytesPerSample;
-  const dataSize = numFrames * blockAlign;
-  const bufferLength = 44 + dataSize;
-
-  const arrayBuffer = new ArrayBuffer(bufferLength);
-  const view = new DataView(arrayBuffer);
-
-  const writeString = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true); // fmt chunk size
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * blockAlign, true); // byte rate
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bytesPerSample * 8, true); // bits per sample
-  writeString(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  const channelData = Array.from({ length: numChannels }, (_, i) => buffer.getChannelData(i));
-  let offset = 44;
-  for (let frame = 0; frame < numFrames; frame++) {
-    for (let ch = 0; ch < numChannels; ch++) {
-      const sample = Math.max(-1, Math.min(1, channelData[ch][frame]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
-  }
-
-  return new Blob([arrayBuffer], { type: "audio/wav" });
+  // The mix comes out `latency` late: trim that off so the file starts on
+  // the downbeat, and drop the spare room at the end.
+  const start = Math.round(latency * raw.sampleRate);
+  const frames = Math.round(Math.max(1, params.contentEndSeconds + TAIL_SECONDS) * raw.sampleRate);
+  const length = Math.min(frames, raw.length - start);
+  const channels = Array.from({ length: raw.numberOfChannels }, (_, ch) => raw.getChannelData(ch).subarray(start, start + length));
+  return encodeWav(channels, raw.sampleRate, 16);
 }
 
 export function downloadWavBlob(blob: Blob, name: string): void {

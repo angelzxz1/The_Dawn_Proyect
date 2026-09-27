@@ -198,6 +198,11 @@ export class LookaheadLimiter extends Tone.ToneAudioNode {
   private levelsAt = 0;
   private isDisposed = false;
 
+  /** Seconds the lookahead delays the audio (for delay compensation). */
+  get latency(): number {
+    return Math.round(this.context.sampleRate * LOOKAHEAD) / this.context.sampleRate;
+  }
+
   constructor(settings: Partial<LimiterSettings> & { ceilingDb: number }) {
     super();
     this.settings = { gainDb: 0, release: 0.1, softClip: false, ...settings };

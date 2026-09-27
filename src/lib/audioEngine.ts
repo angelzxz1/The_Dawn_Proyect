@@ -4,6 +4,9 @@ import { AudioContext as StdAudioContext } from "standardized-audio-context";
 /** The rate the app asks the browser to run audio at (see below). */
 export const PREFERRED_SAMPLE_RATE = 48000;
 
+/** Longest delay compensation can add to one path (s). */
+const MAX_COMPENSATION = 2;
+
 // Every live-triggered note (a keyboard/MIDI-controller key, a drum pad)
 // goes out via Tone.now(), which Tone.js defines as `currentTime +
 // context.lookAhead` - a deliberate scheduling safety margin meant for
@@ -54,6 +57,10 @@ import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
 import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
+import { measureNativeLatencies, nativeLatencies } from "./nativeLatency";
+import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
+import { InputRecorder, takeToWav } from "./inputRecorder";
+import { installCpuMeter } from "./cpuMeter";
 import { PitchShifter } from "./pitchShifter";
 import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGain } from "./irModel";
 import { decodeEffectFileAudio, readEffectFileText } from "./effectFiles";
@@ -143,6 +150,12 @@ interface ChannelNodes extends EffectsHost {
   /** The user's own mute button state, tracked separately from
    * `channel.mute` - see the comment on `setMute`/`setSolo` for why. */
   userMuted: boolean;
+  /** Delay compensation: between the effects chain and the strip (see
+   * latency.ts). */
+  pdc: Tone.Delay;
+  /** Where the strip's dry output goes: through the shared direct-path
+   * delay, or straight to the master (a live track skipping compensation). */
+  route: "direct" | "master" | null;
 }
 
 /** A send/return bus - like a track channel's effects rack, but fed by
@@ -154,6 +167,8 @@ interface BusNodes extends EffectsHost {
   input: Tone.Gain;
   channel: Tone.Channel;
   meter: Tone.Meter;
+  /** Delay compensation, between the effects chain and the strip. */
+  pdc: Tone.Delay;
 }
 
 export interface AudioClipTiming {
@@ -235,6 +250,7 @@ class CompressorChain extends Tone.ToneAudioNode {
   readonly compressor: Tone.Compressor;
   private readonly makeupGain: Tone.Volume;
   private readonly dryGain: Tone.Gain;
+  private readonly dryDelay: Tone.Delay;
   private readonly wetGain: Tone.Gain;
   private readonly outputTrim: Tone.Volume;
   private readonly inputMeter: Tone.Meter;
@@ -262,8 +278,11 @@ class CompressorChain extends Tone.ToneAudioNode {
     this.manualMakeup = params.makeup;
     this.autoMakeup = params.makeupAuto >= 0.5;
 
+    // The native compressor looks ahead (delays its output); the dry path
+    // waits the same, so a Dry/Wet blend doesn't comb-filter.
+    this.dryDelay = new Tone.Delay(this.latency, 0.1);
     this.input.connect(this.inputMeter);
-    this.input.connect(this.dryGain);
+    this.input.chain(this.dryDelay, this.dryGain);
     this.input.connect(this.compressor);
     this.compressor.connect(this.makeupGain);
     this.makeupGain.connect(this.wetGain);
@@ -328,6 +347,11 @@ class CompressorChain extends Tone.ToneAudioNode {
     this.makeupGain.volume.value = makeup - nativeCompressorMakeupDb(threshold, knee, ratio);
   }
 
+  /** Seconds the native compressor's lookahead delays the audio. */
+  get latency(): number {
+    return nativeLatencies(this.context.sampleRate).compressor / this.context.sampleRate;
+  }
+
   /** Current gain reduction, in dB (always <= 0; 0 = no reduction). */
   get reductionDb(): number {
     return this.compressor.reduction;
@@ -349,6 +373,7 @@ class CompressorChain extends Tone.ToneAudioNode {
     super.dispose();
     this.compressor.dispose();
     this.makeupGain.dispose();
+    this.dryDelay.dispose();
     this.dryGain.dispose();
     this.wetGain.dispose();
     this.outputTrim.dispose();
@@ -989,6 +1014,9 @@ class DistortionChain extends Tone.ToneAudioNode {
   private readonly outputGain: Tone.Volume;
   private readonly dryGain = new Tone.Gain();
   private readonly wetGain = new Tone.Gain();
+  /** Oversampling delays the shaped signal; the dry path waits the same so
+   * a Dry/Wet blend doesn't comb-filter. */
+  private readonly dryDelay = new Tone.Delay(0, 0.1);
   private shape: DistortionShape;
   private drive: number;
   private bias: number;
@@ -1001,8 +1029,7 @@ class DistortionChain extends Tone.ToneAudioNode {
     this.toneFilter = new Tone.Filter({ type: "lowpass", frequency: params.tone, Q: Math.SQRT1_2 });
     this.outputGain = new Tone.Volume(params.output);
 
-    this.input.connect(this.dryGain);
-    this.dryGain.connect(this.output);
+    this.input.chain(this.dryDelay, this.dryGain, this.output);
     this.input.chain(this.headroom, this.shaper, this.dcBlock, this.toneFilter, this.outputGain, this.wetGain, this.output);
     this.rebuildCurve();
     this.setOversample(params.oversample);
@@ -1038,6 +1065,15 @@ class DistortionChain extends Tone.ToneAudioNode {
 
   setOversample(v: number): void {
     this.shaper.oversample = oversampleFromParam(v);
+    this.dryDelay.delayTime.value = this.latency;
+  }
+
+  /** Seconds the oversampling filters delay the shaped signal. */
+  get latency(): number {
+    const sr = this.context.sampleRate;
+    const native = nativeLatencies(sr);
+    const o = this.shaper.oversample;
+    return (o === "4x" ? native.shaper4x : o === "2x" ? native.shaper2x : 0) / sr;
   }
 
   setWet(mix: number): void {
@@ -1052,6 +1088,7 @@ class DistortionChain extends Tone.ToneAudioNode {
     this.dcBlock.dispose();
     this.toneFilter.dispose();
     this.outputGain.dispose();
+    this.dryDelay.dispose();
     this.dryGain.dispose();
     this.wetGain.dispose();
     this.input.dispose();
@@ -1406,7 +1443,7 @@ class AudioEngine {
   private pendingLoads = 0;
   private readyListeners = new Set<() => void>();
   private micStream: MediaStream | null = null;
-  private audioRecording: { channelId: string; recorder: MediaRecorder; chunks: Blob[] } | null =
+  private audioRecording: { channelId: string; recorder: InputRecorder; startTime: number } | null =
     null;
   /** Ids of channels the user currently has soloed - tracked here instead of
    * via Tone.Channel's own `solo`, whose Solo instance is shared globally
@@ -1513,6 +1550,9 @@ class AudioEngine {
     if (!this.startPromise) {
       this.startPromise = Tone.start().then(() => {
         this.started = true;
+        // Browsers' own nodes hide some delay; measure it for compensation.
+        void measureNativeLatencies(Tone.getContext().sampleRate).then(() => this.updateCompensation());
+        void installCpuMeter();
       });
     }
     await this.startPromise;
@@ -1543,6 +1583,7 @@ class AudioEngine {
       // without it the whole mix gets folded to mono right before the
       // speakers, undoing any stereo width a stereo delay/reverb/etc. built.
       this.masterChannel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 });
+      this.directDelay = new Tone.Delay(0, MAX_COMPENSATION).connect(this.masterChannel);
       this.rewireMaster();
     }
     return { channel: this.masterChannel, limiter: this.masterLimiter, meter: this.masterMeter };
@@ -1555,6 +1596,119 @@ class AudioEngine {
     if (!this.masterChannel || !this.masterLimiter) return;
     this.masterChannel.disconnect();
     this.wireEffectsChain([this.masterChannel], this.masterEffects, this.masterLimiter);
+    this.updateCompensation();
+  }
+
+  // --- Latency: delay compensation (see latency.ts) ---
+
+  /** The tracks' shared delay into the master (aligns them with sends
+   * through latent bus effects). */
+  private directDelay: Tone.Delay | null = null;
+  /** The metronome and count-in go out through this, delayed by the mix's
+   * total latency so they stay on the beat you hear. */
+  private clickOut: Tone.Delay | null = null;
+  private delayCompensation = true;
+  private reducedLatencyMonitoring = true;
+  private armedChannelId: string | null = null;
+  private compensation: CompensationPlan = { channel: new Map(), bus: new Map(), direct: 0, total: 0, compensated: 0 };
+  private latencyListeners = new Set<() => void>();
+
+  private ensureClickOut(): Tone.Delay {
+    if (!this.clickOut) {
+      this.clickOut = new Tone.Delay(this.compensation.total, MAX_COMPENSATION).toDestination();
+    }
+    return this.clickOut;
+  }
+
+  private isLive(id: string, nodes: ChannelNodes): boolean {
+    return (
+      this.reducedLatencyMonitoring &&
+      (this.monitorNodes.has(id) || (nodes.channelType === "midi" && id === this.armedChannelId))
+    );
+  }
+
+  /** Recomputes and applies every compensation delay - after anything that
+   * changes a chain's latency (an effect added/removed/bypassed, a latency
+   * setting), a track going live, or the settings changing. */
+  private updateCompensation(): void {
+    const master = this.ensureMaster();
+    const plan = planCompensation({
+      enabled: this.delayCompensation,
+      channels: [...this.channels].map(([id, n]) => ({ id, latency: chainLatency(n.effects), live: this.isLive(id, n) })),
+      buses: [...this.buses].map(([id, b]) => ({ id, latency: chainLatency(b.effects) })),
+      master: chainLatency(this.masterEffects) + nodeLatency(master.limiter),
+    });
+    const setDelay = (delay: Tone.Delay | null, seconds: number) => {
+      if (delay && Math.abs(Number(delay.delayTime.value) - seconds) > 1e-7) delay.delayTime.value = seconds;
+    };
+    this.channels.forEach((n, id) => {
+      setDelay(n.pdc, plan.channel.get(id) ?? 0);
+      const route = this.isLive(id, n) ? "master" : "direct";
+      if (route !== n.route) {
+        if (n.route === "direct") n.channel.disconnect(this.directDelay!);
+        else if (n.route === "master") n.channel.disconnect(master.channel);
+        n.channel.connect(route === "direct" ? this.directDelay! : master.channel);
+        n.route = route;
+      }
+    });
+    this.buses.forEach((b, id) => setDelay(b.pdc, plan.bus.get(id) ?? 0));
+    setDelay(this.directDelay, plan.direct);
+    setDelay(this.clickOut, plan.total);
+    const changed = plan.total !== this.compensation.total || plan.compensated !== this.compensation.compensated;
+    this.compensation = plan;
+    if (changed) this.latencyListeners.forEach((fn) => fn());
+  }
+
+  /** Plugin delay compensation on/off (on by default). */
+  setDelayCompensation(enabled: boolean): void {
+    this.delayCompensation = enabled;
+    this.updateCompensation();
+  }
+
+  /** Whether monitored/armed tracks skip compensation to stay responsive. */
+  setReducedLatencyMonitoring(enabled: boolean): void {
+    this.reducedLatencyMonitoring = enabled;
+    this.updateCompensation();
+  }
+
+  /** The record-armed track - a MIDI one counts as played live. */
+  setArmedChannel(id: string | null): void {
+    if (this.armedChannelId === id) return;
+    this.armedChannelId = id;
+    this.updateCompensation();
+  }
+
+  /** Called whenever the latency figures change. Returns an unsubscribe. */
+  onLatencyChange(fn: () => void): () => void {
+    this.latencyListeners.add(fn);
+    return () => this.latencyListeners.delete(fn);
+  }
+
+  /** The browser's own context, under Tone's and standardized-audio-
+   * context's wrappers (which don't pass outputLatency through). */
+  private nativeContext(): AudioContext | null {
+    const raw = Tone.getContext().rawContext as unknown as { _nativeAudioContext?: AudioContext } & Partial<AudioContext>;
+    return raw._nativeAudioContext ?? (typeof raw.outputLatency === "number" ? (raw as AudioContext) : null);
+  }
+
+  /** Latency figures, in seconds. `output`: from the audio engine to the
+   * speakers (the browser's buffer plus the device's). `input`: from the
+   * mic to the engine, as the browser reports it (it may not know it all -
+   * a measured round trip replaces the estimate). `effects`: how late the
+   * mix leaves the master from compensation and master effects. */
+  getLatencyInfo(): { sampleRate: number; output: number; input: number; effects: number; compensated: number } {
+    const ctx = this.nativeContext();
+    const base = ctx?.baseLatency ?? 0;
+    const output = base + (ctx?.outputLatency ?? 0);
+    const track = this.micStream?.getAudioTracks()[0];
+    const settings = (track?.getSettings() ?? {}) as MediaTrackSettings & { latency?: number };
+    return {
+      sampleRate: Tone.getContext().sampleRate,
+      output,
+      input: typeof settings.latency === "number" ? settings.latency : 0,
+      effects: this.compensation.total,
+      compensated: this.compensation.compensated,
+    };
   }
 
   setMasterVolume(db: number): void {
@@ -1594,9 +1748,9 @@ class AudioEngine {
     // and - since it happens at both this channel and the master channel in
     // series - added a spurious ~6dB loss even on already-mono sources
     // (each equal-power mono-to-stereo pan stage costs ~3dB on its own).
-    const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 })
-      .connect(meter)
-      .connect(this.ensureMaster().channel);
+    const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }).connect(meter);
+    // Its dry route to the master is set by updateCompensation.
+    const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
     this.pendingLoads += 1;
     this.setReady(false);
     const onSettled = () => {
@@ -1620,6 +1774,8 @@ class AudioEngine {
       audioClips: new Map(),
       sends: new Map(),
       userMuted: false,
+      pdc,
+      route: null,
     });
     this.rewireChannel(id);
   }
@@ -1635,6 +1791,7 @@ class AudioEngine {
     });
     nodes.sends.forEach((gain) => gain.dispose());
     nodes.effects.forEach((e) => e.node.dispose());
+    nodes.pdc.dispose();
     nodes.channel.dispose();
     nodes.meter.dispose();
     this.channels.delete(id);
@@ -1650,6 +1807,7 @@ class AudioEngine {
     if (this.recording?.channelId === id) {
       this.recording = null;
     }
+    this.updateCompensation();
   }
 
   /** Wires `sources` through the non-bypassed entries of `effects`, in
@@ -1699,10 +1857,11 @@ class AudioEngine {
         ? [...[...nodes.audioClips.values()].map((c) => c.gain), ...(monitor ? [monitor] : [])]
         : [nodes.instrument];
     if (sources.length === 0) {
-      nodes.effects.forEach((e) => e.node.disconnect());
-      return; // audio channel with nothing loaded yet
+      nodes.effects.forEach((e) => e.node.disconnect()); // audio channel with nothing loaded yet
+    } else {
+      this.wireEffectsChain(sources, nodes.effects, nodes.pdc);
     }
-    this.wireEffectsChain(sources, nodes.effects, nodes.channel);
+    this.updateCompensation();
   }
 
   /** Same as `rewireChannel`, but for a bus: its "source" is always just
@@ -1711,7 +1870,8 @@ class AudioEngine {
     const bus = this.buses.get(id);
     if (!bus) return;
     bus.input.disconnect();
-    this.wireEffectsChain([bus.input], bus.effects, bus.channel);
+    this.wireEffectsChain([bus.input], bus.effects, bus.pdc);
+    this.updateCompensation();
   }
 
   /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums,
@@ -1915,6 +2075,8 @@ class AudioEngine {
     const effect = target?.host.effects.find((e) => e.id === effectId);
     if (!effect) return;
     this.safe(() => applyEffectParam(effect.node, effect.type, key, value));
+    // The settings that change how late an effect is.
+    if (key === "oversample" || (effect.type === "pitchShift" && key === "window")) this.updateCompensation();
   }
 
   // --- Send/return buses ---
@@ -1926,7 +2088,8 @@ class AudioEngine {
     const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }) // see addChannel's comment
       .connect(meter)
       .connect(this.ensureMaster().channel);
-    this.buses.set(id, { input, channel, meter, effects: [] });
+    const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
+    this.buses.set(id, { input, channel, meter, effects: [], pdc });
     this.rewireBus(id);
   }
 
@@ -1935,6 +2098,7 @@ class AudioEngine {
     if (!bus) return;
     bus.effects.forEach((e) => e.node.dispose());
     bus.input.dispose();
+    bus.pdc.dispose();
     bus.channel.dispose();
     bus.meter.dispose();
     this.buses.delete(id);
@@ -1945,6 +2109,7 @@ class AudioEngine {
         nodes.sends.delete(id);
       }
     });
+    this.updateCompensation();
   }
 
   setBusVolume(id: string, db: number): void {
@@ -2061,7 +2226,7 @@ class AudioEngine {
 
     if (this.recording && this.recording.channelId === channelId) {
       this.recording.open.set(note, {
-        time: Tone.getTransport().seconds,
+        time: Math.max(0, Tone.getTransport().seconds - this.midiRecordShift(channelId)),
         velocity,
       });
     }
@@ -2093,7 +2258,7 @@ class AudioEngine {
       if (open) {
         rec.open.delete(note);
         const duration = Math.max(
-          Tone.getTransport().seconds - open.time,
+          Tone.getTransport().seconds - this.midiRecordShift(channelId) - open.time,
           MIN_NOTE_DURATION
         );
         rec.events.push({
@@ -2273,7 +2438,7 @@ class AudioEngine {
     // Defensive hard-stop only - a caller that wants the take should have
     // already awaited finishAudioRecording() before calling stopAll().
     if (this.audioRecording) {
-      this.safe(() => this.audioRecording!.recorder.stop());
+      this.audioRecording.recorder.cancel();
       this.audioRecording = null;
     }
   }
@@ -2286,15 +2451,16 @@ class AudioEngine {
 
   private countInSynth: Tone.Synth | null = null;
 
-  /** Plays `beats` audible clicks (accenting every downbeat) scheduled by
-   * wall-clock time rather than the transport - the transport isn't running
-   * yet at this point - then resolves once they've finished playing. */
-  private playCountIn(beats: number): Promise<void> {
+  /** Plays `beats` audible clicks (accenting every downbeat) scheduled on
+   * the audio clock rather than the transport - the transport isn't running
+   * yet at this point - and resolves just before the downbeat after them,
+   * with its time, so the transport can start exactly on it. */
+  private playCountIn(beats: number): Promise<number> {
     if (!this.countInSynth) {
       this.countInSynth = new Tone.Synth({
         oscillator: { type: "square" },
         envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 },
-      }).toDestination();
+      }).connect(this.ensureClickOut());
       this.countInSynth.volume.value = -8;
     }
     const secPerBeat = 60 / Tone.getTransport().bpm.value;
@@ -2309,7 +2475,9 @@ class AudioEngine {
         )
       );
     }
-    return new Promise((resolve) => setTimeout(resolve, beats * secPerBeat * 1000));
+    const downbeat = now + beats * secPerBeat;
+    const wait = (downbeat - Tone.getContext().currentTime - 0.08) * 1000;
+    return new Promise((resolve) => setTimeout(() => resolve(Math.max(downbeat, Tone.now())), Math.max(0, wait)));
   }
 
   /** Arms a channel for recording and starts the transport (other channels'
@@ -2319,13 +2487,22 @@ class AudioEngine {
   async startRecording(channelId: string, countInBeats = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
-    if (countInBeats > 0) await this.playCountIn(countInBeats);
+    const startTime = countInBeats > 0 ? await this.playCountIn(countInBeats) : Tone.now();
     if (!this.channels.has(channelId)) return; // channel could've been removed mid-count-in
     this.recording = { channelId, open: new Map(), events: [] };
     const transport = Tone.getTransport();
     transport.stop();
     transport.position = 0;
-    transport.start();
+    transport.start(startTime);
+  }
+
+  /** How far to move a recorded MIDI note earlier: a live (armed) track
+   * skips delay compensation, so to sound in time you play it that much
+   * after the beat. */
+  private midiRecordShift(channelId: string): number {
+    const nodes = this.channels.get(channelId);
+    if (!nodes || !this.isLive(channelId, nodes) || !this.delayCompensation) return 0;
+    return Math.max(0, this.compensation.compensated - chainLatency(nodes.effects));
   }
 
   /**
@@ -2337,7 +2514,7 @@ class AudioEngine {
     const rec = this.recording;
     if (!rec) return [];
     const nodes = this.channels.get(rec.channelId);
-    const transportSeconds = Tone.getTransport().seconds;
+    const transportSeconds = Tone.getTransport().seconds - this.midiRecordShift(rec.channelId);
 
     rec.open.forEach((open, note) => {
       rec.events.push({
@@ -2370,6 +2547,19 @@ class AudioEngine {
   /** Per-channel live input-monitor taps - open only while that channel is
    * both armed and monitoring is enabled (see `setInputMonitoring`). */
   private monitorNodes = new Map<string, Tone.UserMedia>();
+
+  /** One long-lived graph input for the mic stream, shared by every
+   * capture (see InputRecorder.start). */
+  private micSource: MediaStreamAudioSourceNode | null = null;
+
+  private async ensureMicSource(): Promise<MediaStreamAudioSourceNode> {
+    const stream = await this.ensureMicStream();
+    if (!this.micSource || this.micSource.mediaStream !== stream) {
+      this.micSource?.disconnect();
+      this.micSource = Tone.getContext().createMediaStreamSource(stream) as unknown as MediaStreamAudioSourceNode;
+    }
+    return this.micSource;
+  }
 
   private async ensureMicStream(): Promise<MediaStream> {
     if (this.micStream) return this.micStream;
@@ -2413,6 +2603,8 @@ class AudioEngine {
       this.micStream.getTracks().forEach((track) => track.stop());
       this.micStream = null;
     }
+    this.micSource?.disconnect();
+    this.micSource = null;
     [...this.monitorNodes.keys()].forEach((channelId) => {
       void this.setInputMonitoring(channelId, false);
       void this.setInputMonitoring(channelId, true);
@@ -2433,12 +2625,6 @@ class AudioEngine {
       .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
   }
 
-  /** Turns a live input-monitor tap for `channelId` on or off - while on,
-   * the selected mic/interface input is audible in real time through that
-   * channel's volume/pan/mute, so an armed track can be heard while
-   * recording (or just while getting ready to). Taps in directly to the
-   * channel strip rather than through its effects chain, for lower
-   * latency and so unrelated effect changes never have to know about it. */
   /** Starts or stops hearing the audio input live through an audio
    * channel - through its effects, like a clip. Resolves false if the input
    * couldn't be opened (no permission, no device). */
@@ -2477,59 +2663,91 @@ class AudioEngine {
     return this.monitorNodes.has(channelId);
   }
 
-  private static readonly PREFERRED_MIME_TYPES = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-  ];
+  /** Recording latency correction: a measured round trip (replacing the
+   * browser's estimate) and a manual offset (ms, positive = earlier). */
+  private measuredRoundTrip: number | null = null;
+  private recordingOffsetMs = 0;
 
-  private pickRecorderMimeType(): string | undefined {
-    return AudioEngine.PREFERRED_MIME_TYPES.find(
-      (type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)
-    );
+  setRecordingCorrection(measuredRoundTrip: number | null, offsetMs: number): void {
+    this.measuredRoundTrip = measuredRoundTrip;
+    this.recordingOffsetMs = offsetMs;
+  }
+
+  /** The audio round trip (s): output to the speakers plus input from the
+   * mic - measured if available, else what the browser reports. */
+  getRoundTrip(): { seconds: number; measured: boolean } {
+    if (this.measuredRoundTrip !== null) return { seconds: this.measuredRoundTrip, measured: true };
+    const info = this.getLatencyInfo();
+    return { seconds: info.output + info.input, measured: false };
+  }
+
+  /** How late a recorded sound lands after the beat it was played to (s):
+   * the mix's latency to the speakers, through the air/cable, back in,
+   * plus the manual offset. The take is trimmed by this. */
+  getRecordingLatency(): number {
+    return this.compensation.total + this.getRoundTrip().seconds + this.recordingOffsetMs / 1000;
   }
 
   /**
    * Requests microphone access (prompting the user the first time) and
    * arms a channel to capture the input as an audio clip, starting the
-   * transport from the top like MIDI recording does.
+   * transport from the top like MIDI recording does. The input is captured
+   * sample-accurately (see inputRecorder.ts) from before the count-in, so
+   * the take can be lined up exactly.
    */
   async startAudioRecording(channelId: string, countInBeats = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
-    const stream = await this.ensureMicStream();
-    if (countInBeats > 0) await this.playCountIn(countInBeats);
-    if (!this.channels.has(channelId)) return;
-    const mimeType = this.pickRecorderMimeType();
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    this.audioRecording = { channelId, recorder, chunks };
-    recorder.start();
-
+    const recorder = await InputRecorder.start(Tone.getContext(), await this.ensureMicSource());
+    const startTime = countInBeats > 0 ? await this.playCountIn(countInBeats) : Tone.now() + 0.05;
+    if (!this.channels.has(channelId)) {
+      recorder.cancel();
+      return;
+    }
+    this.audioRecording = { channelId, recorder, startTime };
     const transport = Tone.getTransport();
     transport.stop();
     transport.position = 0;
-    transport.start();
+    transport.start(startTime);
   }
 
-  /** Stops the mic capture and returns the recorded take as a Blob, or
-   * null if nothing was being recorded. */
+  /** Stops the capture and returns the take as a WAV Blob - trimmed so its
+   * first sample is what was played on the downbeat - or null if nothing
+   * was being recorded. */
   async finishAudioRecording(): Promise<Blob | null> {
     const rec = this.audioRecording;
     if (!rec) return null;
     this.audioRecording = null;
-    if (rec.recorder.state === "inactive") {
-      return rec.chunks.length > 0 ? new Blob(rec.chunks, { type: rec.recorder.mimeType }) : null;
+    const samples = await rec.recorder.stop(rec.startTime + this.getRecordingLatency());
+    return samples.length > 0 ? takeToWav(samples, rec.recorder.sampleRate) : null;
+  }
+
+  /** Measures the real round trip: plays a few clicks straight to the
+   * output and listens for them on the input (speakers into the mic, or a
+   * cable from the interface's output to its input). Resolves with seconds,
+   * or null if they weren't heard clearly. */
+  async measureRoundTrip(): Promise<number | null> {
+    await this.ensureStarted();
+    const ctx = Tone.getContext();
+    const recorder = await InputRecorder.start(ctx, await this.ensureMicSource());
+    const sr = ctx.sampleRate;
+    const click = ctx.createBuffer(1, Math.round(0.004 * sr), sr);
+    const data = click.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = 0.5 * Math.sin((2 * Math.PI * 2500 * i) / sr) * Math.sin((Math.PI * i) / data.length);
     }
-    return new Promise((resolve) => {
-      rec.recorder.onstop = () => {
-        resolve(rec.chunks.length > 0 ? new Blob(rec.chunks, { type: rec.recorder.mimeType }) : null);
-      };
-      rec.recorder.stop();
-    });
+    const from = Tone.now() + 0.1;
+    const times = [0.3, 0.9, 1.5, 2.1, 2.7].map((t) => from + t);
+    for (const t of times) {
+      const src = ctx.createBufferSource();
+      src.buffer = click;
+      // Past the master (so no effects or compensation), not muted by it.
+      Tone.connect(src, Tone.getDestination());
+      src.start(t);
+    }
+    await new Promise((r) => setTimeout(r, (times[times.length - 1] - ctx.currentTime + 0.6) * 1000));
+    const samples = await recorder.stop(from);
+    return detectRoundTrip(samples, sr, times.map((t) => Math.round((t - from) * sr)), data);
   }
 
   get isAudioRecording(): boolean {
@@ -2582,7 +2800,7 @@ class AudioEngine {
         this.metronomeSynth = new Tone.Synth({
           oscillator: { type: "square" },
           envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 },
-        }).toDestination();
+        }).connect(this.ensureClickOut());
         this.metronomeSynth.volume.value = -14;
       }
       if (!this.metronomeLoop) {

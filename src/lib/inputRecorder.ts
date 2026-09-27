@@ -1,6 +1,7 @@
 import * as Tone from "tone";
 import { loadWorklet } from "./workletLoader";
 import { encodeWav } from "./wav";
+import { WaveformBuilder, type Waveform } from "./waveform";
 
 // Captures the audio input sample-accurately, inside the audio graph: an
 // AudioWorklet that copies every frame it's given and stamps each chunk
@@ -11,7 +12,8 @@ import { encodeWav } from "./wav";
 // stays lossless PCM instead of compressed Opus.
 
 const PROCESSOR_NAME = "dawn-input-recorder-v1";
-const CHUNK = 16384;
+// ~43 ms at 48 kHz: small enough that the timeline's live waveform keeps up.
+const CHUNK = 2048;
 
 const PROCESSOR_CODE = `
 class DawnInputRecorder extends AudioWorkletProcessor {
@@ -57,6 +59,7 @@ export class InputRecorder {
   private source: MediaStreamAudioSourceNode | null = null;
   private done: Promise<void> | null = null;
   private resolveDone: (() => void) | null = null;
+  private preview: { builder: WaveformBuilder; originFrame: number } | null = null;
   readonly sampleRate: number;
 
   private constructor(private readonly context: Tone.BaseContext) {
@@ -80,10 +83,27 @@ export class InputRecorder {
     rec.done = new Promise((resolve) => (rec.resolveDone = resolve));
     rec.node.port.onmessage = (e: MessageEvent<{ frame: number; data: Float32Array } | { done: true }>) => {
       if ("done" in e.data) rec.resolveDone?.();
-      else rec.chunks.push(e.data);
+      else {
+        rec.chunks.push(e.data);
+        rec.preview?.builder.add(e.data.frame - rec.preview.originFrame, e.data.data);
+      }
     };
     rec.source.connect(rec.node);
     return rec;
+  }
+
+  /** Starts building a live waveform of the take, from context time
+   * `fromSeconds` (where the finished take will start). */
+  startPreview(fromSeconds: number): void {
+    const originFrame = Math.round(fromSeconds * this.sampleRate);
+    const builder = new WaveformBuilder(this.sampleRate);
+    for (const c of this.chunks) builder.add(c.frame - originFrame, c.data);
+    this.preview = { builder, originFrame };
+  }
+
+  /** The live waveform so far, and a counter that changes as it grows. */
+  get previewWaveform(): { waveform: Waveform; version: number } | null {
+    return this.preview && { waveform: this.preview.builder.waveform, version: this.preview.builder.version };
   }
 
   /** Stops capturing and resolves with the audio from context time

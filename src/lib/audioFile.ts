@@ -3,6 +3,8 @@
 // (for Tone.Player) plus a downsampled peak array (for drawing a waveform
 // in the clip block) and its duration.
 
+import { seedWaveform } from "./waveform";
+
 const PEAK_BUCKETS = 240;
 
 export interface DecodedAudioClip {
@@ -44,8 +46,12 @@ export async function decodeAudioFile(source: Blob): Promise<DecodedAudioClip> {
     peaks.push(max);
   }
 
+  const url = URL.createObjectURL(source);
+  // The full-resolution waveform for drawing the clip, while the buffer's
+  // at hand.
+  seedWaveform(url, buffer);
   return {
-    url: URL.createObjectURL(source),
+    url,
     durationSeconds: buffer.duration,
     peaks,
   };

@@ -60,6 +60,7 @@ import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { measureNativeLatencies, nativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
 import { InputRecorder, takeToWav } from "./inputRecorder";
+import type { Waveform } from "./waveform";
 import { installCpuMeter } from "./cpuMeter";
 import { PitchShifter } from "./pitchShifter";
 import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGain } from "./irModel";
@@ -2533,6 +2534,28 @@ class AudioEngine {
     return events;
   }
 
+  /** What's being recorded right now, for drawing it on the timeline as it
+   * comes in: the take's waveform so far (audio), or its notes (MIDI). */
+  getRecordingPreview():
+    | { channelId: string; kind: "audio"; waveform: Waveform | null; version: number }
+    | { channelId: string; kind: "midi"; notes: NoteEvent[] }
+    | null {
+    if (this.audioRecording) {
+      const live = this.audioRecording.recorder.previewWaveform;
+      return { channelId: this.audioRecording.channelId, kind: "audio", waveform: live?.waveform ?? null, version: live?.version ?? 0 };
+    }
+    const rec = this.recording;
+    if (!rec) return null;
+    const now = Tone.getTransport().seconds - this.midiRecordShift(rec.channelId);
+    const held = [...rec.open].map(([note, open]) => ({
+      note,
+      time: open.time,
+      duration: Math.max(now - open.time, MIN_NOTE_DURATION),
+      velocity: open.velocity,
+    }));
+    return { channelId: rec.channelId, kind: "midi", notes: [...rec.events, ...held] };
+  }
+
   get isRecording(): boolean {
     return this.recording !== null || this.audioRecording !== null;
   }
@@ -2705,6 +2728,7 @@ class AudioEngine {
       return;
     }
     this.audioRecording = { channelId, recorder, startTime };
+    recorder.startPreview(startTime + this.getRecordingLatency());
     const transport = Tone.getTransport();
     transport.stop();
     transport.position = 0;

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ClipBlock } from "./ClipBlock";
+import { RecordingClip } from "./RecordingClip";
 import type { ClipInstance } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
@@ -19,6 +20,10 @@ interface TrackLaneProps {
   selected: boolean;
   /** Whether this track is record-armed - shows a small indicator dot. */
   armed: boolean;
+  /** Recording onto this track right now: the take is drawn as it comes in. */
+  recording?: boolean;
+  /** The engine id of this track (for reading the recording in progress). */
+  channelId: string;
   /** Which clips (by id) on this lane are selected - Delete/duplicate/drag
    * operate on all of them together. */
   selectedClipIds: Set<string>;
@@ -55,6 +60,8 @@ export function TrackLane({
   snapSeconds,
   selected,
   armed,
+  recording = false,
+  channelId,
   selectedClipIds,
   onSelectTrack,
   onSelectClip,
@@ -136,6 +143,7 @@ export function TrackLane({
           }}
         />
       ))}
+      {recording && <RecordingClip channelId={channelId} pxPerSecond={pxPerSecond} />}
       {clips.map((clip) => (
         <ClipBlock
           key={clip.id}
@@ -143,6 +151,8 @@ export function TrackLane({
           notes={clip.kind === "midi" ? clip.notes : []}
           audioPeaks={clip.kind === "audio" ? clip.peaks : undefined}
           audioFileName={clip.kind === "audio" ? clip.fileName : undefined}
+          audioUrl={clip.kind === "audio" ? clip.url : undefined}
+          loopLength={clip.loopLength}
           durationSeconds={clip.kind === "audio" ? clip.durationSeconds : undefined}
           sourceOffset={clip.kind === "audio" ? clip.sourceOffset : undefined}
           fadeIn={clip.kind === "audio" ? clip.fadeIn : undefined}

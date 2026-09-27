@@ -1054,6 +1054,8 @@ export function Daw() {
   // different track mid-take (blocked by the UI, but not by anything else)
   // can never redirect where Stop files the result.
   const recordingChannelRef = useRef<string | null>(null);
+  /** The same, as state, for drawing the take on its track. */
+  const [recordingChannelId, setRecordingChannelId] = useState<string | null>(null);
 
   const handleStop = useCallback(async () => {
     if (transportState === "recording") {
@@ -1080,6 +1082,7 @@ export function Daw() {
       }
     }
     setTransportState("stopped");
+    setRecordingChannelId(null);
     audioEngine.stopAll();
     audioEngine.seekTo(cursorSeconds);
     setActiveNotes(new Set());
@@ -1114,6 +1117,7 @@ export function Daw() {
     }
     if (!armedChannelId) return;
     recordingChannelRef.current = armedChannelId;
+    setRecordingChannelId(armedChannelId);
     if (channelTypeOf(armedChannelId) === "audio") {
       try {
         await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar);
@@ -1122,6 +1126,7 @@ export function Daw() {
         refreshInputDevices();
       } catch {
         recordingChannelRef.current = null;
+        setRecordingChannelId(null);
         setMicError(
           "Couldn't access the microphone - check the browser's permission prompt or site settings."
         );
@@ -2856,10 +2861,7 @@ export function Daw() {
                   channel={channel}
                   color={trackColorForIndex(channel.colorIndex)}
                   selected={channel.id === selectedChannelId}
-                  recording={
-                    transportState === "recording" &&
-                    channel.id === recordingChannelRef.current
-                  }
+                  recording={transportState === "recording" && channel.id === recordingChannelId}
                   hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
                   hasClipContent={clipsOf(channel.id).length > 0}
                   effectsCount={(channelEffects[channel.id] ?? []).length}
@@ -2957,6 +2959,8 @@ export function Daw() {
                   snapSeconds={snapSeconds}
                   selected={channel.id === selectedChannelId}
                   armed={channel.id === armedChannelId}
+                  recording={transportState === "recording" && channel.id === recordingChannelId}
+                  channelId={channel.id}
                   selectedClipIds={selectedClipIds}
                   onSelectTrack={() => {
                     setSelectedChannelId(channel.id);

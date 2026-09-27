@@ -5,6 +5,7 @@ import { Repeat } from "lucide-react";
 import type { ClipType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 
 interface ClipBlockProps {
   clipType?: ClipType;
@@ -15,6 +16,10 @@ interface ClipBlockProps {
    * of the waveform. */
   audioPeaks?: number[];
   audioFileName?: string;
+  /** The audio source, for drawing its full-resolution waveform. */
+  audioUrl?: string;
+  /** When set, the audio region repeats every this many seconds. */
+  loopLength?: number | null;
   /** Full duration of the audio clip's source file, in seconds. */
   durationSeconds?: number;
   /** Where within the source buffer this clip's content starts, in
@@ -60,7 +65,7 @@ const MIN_RESIZE_SECONDS = 0.15;
 const FADE_HANDLE_PX = 10;
 const GAIN_DRAG_RANGE_PX = 100; // vertical pixels for a full +/-24dB sweep
 
-function noteNameToMidi(name: string): number {
+export function noteNameToMidi(name: string): number {
   const match = name.match(/^([A-G]#?)(-?\d+)$/);
   if (!match) return 60;
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -77,6 +82,8 @@ export function ClipBlock({
   notes,
   audioPeaks,
   audioFileName,
+  audioUrl,
+  loopLength = null,
   durationSeconds = 0,
   sourceOffset = 0,
   fadeIn = 0,
@@ -238,14 +245,7 @@ export function ClipBlock({
     [notes, length]
   );
 
-  /** The slice of the full-source `audioPeaks` array this clip's current
-   * [sourceOffset, sourceOffset + length) window covers. */
-  const visiblePeaks = useMemo(() => {
-    if (!audioPeaks || audioPeaks.length === 0 || durationSeconds <= 0) return [];
-    const startIdx = Math.floor((sourceOffset / durationSeconds) * audioPeaks.length);
-    const endIdx = Math.ceil(((sourceOffset + length) / durationSeconds) * audioPeaks.length);
-    return audioPeaks.slice(Math.max(0, startIdx), Math.min(audioPeaks.length, endIdx));
-  }, [audioPeaks, durationSeconds, sourceOffset, length]);
+  const waveform = useWaveform(clipType === "audio" ? audioUrl : undefined, audioPeaks, durationSeconds);
 
   const widthPx = length * pxPerSecond;
   const fadeInPx = Math.min(widthPx, fadeIn * pxPerSecond);
@@ -307,21 +307,24 @@ export function ClipBlock({
         )}
       </div>
       <div className="relative flex-1">
-        {clipType === "audio"
-          ? visiblePeaks.map((peak, i, arr) => (
-              <div
-                key={i}
-                className="absolute bottom-0 rounded-t-sm"
-                style={{
-                  left: `${(i / arr.length) * 100}%`,
-                  width: `${100 / arr.length}%`,
-                  height: `${Math.max(peak, 0.04) * laneHeight}px`,
-                  background: color.accent,
-                  opacity: 0.75,
-                }}
-              />
-            ))
-          : visibleNotes.map((n, i) => {
+        {clipType === "audio" ? (
+          <WaveformCanvas
+            waveform={waveform}
+            width={widthPx}
+            height={laneHeight}
+            view={{
+              pxPerSecond,
+              sourceOffset,
+              loopLength,
+              length,
+              gain: Math.pow(10, gainDb / 20),
+              fadeIn,
+              fadeOut,
+              color: color.accent,
+            }}
+          />
+        ) : (
+          visibleNotes.map((n, i) => {
               const midi = noteNameToMidi(n.note);
               const x = (n.time / length) * 100;
               const w = Math.max((n.duration / length) * 100, 0.5);
@@ -340,7 +343,8 @@ export function ClipBlock({
                   }}
                 />
               );
-            })}
+            })
+        )}
         {clipType === "audio" && (fadeInPx > 0 || fadeOutPx > 0) && (
           <svg
             className="pointer-events-none absolute inset-0 h-full w-full"

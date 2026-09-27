@@ -10,6 +10,15 @@ import {
   MAX_EQ_BANDS,
   defaultBandFreq,
 } from "./paramEqModel";
+import {
+  MB_BAND_DEFAULTS,
+  MB_DEFAULT_BANDS,
+  MB_DEFAULT_CROSSOVERS,
+  MB_MAX_BANDS,
+  MB_MODES,
+  MB_MODE_LABELS,
+  mbBandCount,
+} from "./multibandModel";
 
 export type EffectType =
   | "eq3"
@@ -24,7 +33,8 @@ export type EffectType =
   | "irLoader"
   | "namAmp"
   | "gate"
-  | "paramEq";
+  | "paramEq"
+  | "multiband";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -40,12 +50,13 @@ export const EFFECT_TYPES: EffectType[] = [
   "namAmp",
   "gate",
   "paramEq",
+  "multiband",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
  * - the sidebar renders one collapsible section per group. */
 export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
-  { name: "Dynamics", types: ["compressor", "limiter", "gate"] },
+  { name: "Dynamics", types: ["compressor", "multiband", "limiter", "gate"] },
   { name: "EQ & Filter", types: ["paramEq", "eq3", "filter"] },
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
@@ -67,6 +78,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   namAmp: "NAM Amp",
   gate: "Noise Gate",
   paramEq: "Parametric EQ",
+  multiband: "Multiband Compressor",
 };
 
 /** Effect types that take an uploaded file (an impulse response, ...) in
@@ -251,6 +263,7 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "range", label: "Range", min: -80, max: 0, default: -80, format: (v) => (v <= -79.95 ? "-∞ dB" : dbSpaced(v)) },
   ],
   paramEq: paramEqSpecs(),
+  multiband: multibandSpecs(),
 };
 
 /** The Parametric EQ's params: MAX_EQ_BANDS bands, each stored as flat
@@ -279,11 +292,54 @@ function paramEqSpecs(): ParamSpec[] {
   return specs;
 }
 
+/** The Multiband Compressor's params: the band count, up to
+ * MB_MAX_BANDS - 1 crossovers (`x<n>`), each band's dynamics as flat
+ * `b<n>Thresh/Ratio/...` keys, mix/output, and two view settings. */
+function multibandSpecs(): ParamSpec[] {
+  const hzFine = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 1 : 2)} kHz` : `${Math.round(v)} Hz`);
+  const time = (v: number) => (v < 0.01 ? `${(v * 1000).toFixed(1)} ms` : msSpaced(v));
+  const specs: ParamSpec[] = [
+    { key: "bands", label: "Bands", min: 1, max: MB_MAX_BANDS, default: MB_DEFAULT_BANDS, format: (v) => `${Math.round(v)}`, automatable: false },
+  ];
+  for (let k = 0; k < MB_MAX_BANDS - 1; k++) {
+    specs.push({ key: `x${k + 1}`, label: `Crossover ${k + 1}`, min: 20, max: 20000, default: MB_DEFAULT_CROSSOVERS[k], format: hzFine });
+  }
+  for (let i = 0; i < MB_MAX_BANDS; i++) {
+    const n = i + 1;
+    const d = MB_BAND_DEFAULTS;
+    specs.push(
+      { key: `b${n}Thresh`, label: `Band ${n} Threshold`, min: -60, max: 0, default: d.Thresh, format: dbSpaced },
+      { key: `b${n}Ratio`, label: `Band ${n} Ratio`, min: 1, max: 20, default: d.Ratio, format: (v) => `${v.toFixed(v < 10 ? 1 : 0)}:1` },
+      { key: `b${n}Attack`, label: `Band ${n} Attack`, min: 0.0001, max: 0.5, default: d.Attack, format: time },
+      { key: `b${n}Release`, label: `Band ${n} Release`, min: 0.005, max: 2, default: d.Release, format: time },
+      { key: `b${n}Knee`, label: `Band ${n} Knee`, min: 0, max: 24, default: d.Knee, format: dbSpaced },
+      { key: `b${n}Range`, label: `Band ${n} Range`, min: 0, max: 60, default: d.Range, format: dbSpaced },
+      { key: `b${n}Gain`, label: `Band ${n} Gain`, min: -24, max: 24, default: d.Gain, format: dbSigned },
+      { key: `b${n}Mode`, label: `Band ${n} Mode`, min: 0, max: MB_MODES.length - 1, default: d.Mode, format: (v) => MB_MODE_LABELS[MB_MODES[Math.round(v)]] ?? "Compress", automatable: false },
+      { key: `b${n}Bypass`, label: `Band ${n} Bypass`, min: 0, max: 1, default: d.Bypass, format: (v) => (v >= 0.5 ? "Bypassed" : "On"), automatable: false }
+    );
+  }
+  specs.push(
+    { key: "mix", label: "Mix", min: 0, max: 1, default: 1, format: pct },
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
+    { key: "scale", label: "Display Range", min: 6, max: 48, default: 24, format: (v) => `±${Math.round(v)} dB`, automatable: false },
+    { key: "analyzer", label: "Analyzer", min: 0, max: 2, default: 2, format: (v) => ["Off", "Post", "Pre + Post"][Math.round(v)] ?? "Off", automatable: false }
+  );
+  return specs;
+}
+
 /** The params an effect offers as automation targets: continuous ones, and
- * for the Parametric EQ only the bands that exist. */
+ * for the Parametric EQ and Multiband Compressor only the bands (and
+ * crossovers) that exist. */
 export function automatableParamSpecs(fx: EffectInstance): ParamSpec[] {
+  const bandCount = fx.type === "multiband" ? mbBandCount(fx.params) : 0;
   return paramSpecs(fx.type).filter((spec) => {
     if (spec.automatable === false) return false;
+    if (fx.type === "multiband") {
+      const m = /^([bx])(\d+)/.exec(spec.key);
+      if (!m) return true;
+      return m[1] === "b" ? Number(m[2]) <= bandCount : Number(m[2]) < bandCount;
+    }
     const band = fx.type === "paramEq" ? /^b(\d+)/.exec(spec.key) : null;
     return !band || (fx.params[`b${band[1]}On`] ?? 0) >= 0.5;
   });

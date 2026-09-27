@@ -16,6 +16,7 @@ import { IrLoaderRackCard } from "./IrLoaderRackCard";
 import { NamAmpRackCard } from "./NamAmpRackCard";
 import { GateRackCard } from "./GateRackCard";
 import { ParamEqRackCard } from "./ParamEqRackCard";
+import { MultibandRackCard } from "./MultibandRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -24,6 +25,9 @@ import type { TrackColor } from "@/lib/colors";
 
 interface FxRackProps {
   channelName: string;
+  /** The engine id of the channel/bus/master whose effects these are - for
+   * cards that show live readings (the Multiband's gain). */
+  hostId?: string;
   /** Omitted for a bus's rack - buses have no instrument slot and can't
    * themselves send to another bus (keeps the send graph acyclic). */
   channelType?: ChannelType;
@@ -75,6 +79,7 @@ const CUSTOM_UI_TYPES: EffectType[] = [
   "namAmp",
   "gate",
   "paramEq",
+  "multiband",
 ];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
@@ -133,6 +138,7 @@ function DropGap({
  */
 export function FxRack({
   channelName,
+  hostId,
   channelType,
   color,
   instrument,
@@ -245,7 +251,7 @@ export function FxRack({
                   ? "w-64 rounded-xl"
                   : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp" || fx.type === "gate"
                     ? "w-72 rounded-xl"
-                    : fx.type === "reverb" || fx.type === "paramEq"
+                    : fx.type === "reverb" || fx.type === "paramEq" || fx.type === "multiband"
                       ? "w-80 rounded-xl"
                       : "w-40 rounded border border-border bg-surface-raised"
               } ${fx.bypass ? "opacity-50" : ""}`}
@@ -346,6 +352,18 @@ export function FxRack({
                   />
                 ) : fx.type === "paramEq" ? (
                   <ParamEqRackCard
+                    params={fx.params}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "multiband" ? (
+                  <MultibandRackCard
+                    hostId={hostId}
+                    effectId={fx.id}
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}

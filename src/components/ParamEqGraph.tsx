@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { audioEngine } from "@/lib/audioEngine";
+import { spectrumPath } from "./spectrumPath";
 import {
   EQ_SHAPES,
   EQ_SHAPE_LABELS,
@@ -22,12 +23,6 @@ const LOG_SPAN = Math.log(F_MAX / F_MIN);
 const CURVE_POINTS = 300;
 const CURVE_FREQS = Array.from({ length: CURVE_POINTS }, (_, i) => F_MIN * Math.exp((i / (CURVE_POINTS - 1)) * LOG_SPAN));
 const GRID_HZ = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
-const SPECTRUM_POINTS = 220;
-/** Analyzer display: tilt (dB/oct, pivoting at 1 kHz) so typical music
- * reads roughly flat, and the dB range mapped onto the graph's height. */
-const SPECTRUM_TILT = 4.5;
-const SPECTRUM_TOP_DB = -6;
-const SPECTRUM_BOTTOM_DB = -96;
 const Q_MIN = 0.025;
 const Q_MAX = 40;
 const NODE_R = 7;
@@ -138,32 +133,15 @@ export function ParamEqGraph({
       return;
     }
     let frame: number;
-    const toPath = (data: Float32Array | null) => {
-      if (!data || !data.length) return "";
-      const binHz = sampleRate / 2 / data.length;
-      let d = `M0,${height}`;
-      for (let p = 0; p < SPECTRUM_POINTS; p++) {
-        const f0 = F_MIN * Math.exp((p / SPECTRUM_POINTS) * LOG_SPAN);
-        const f1 = F_MIN * Math.exp(((p + 1) / SPECTRUM_POINTS) * LOG_SPAN);
-        const from = Math.max(1, Math.floor(f0 / binHz));
-        const to = Math.min(data.length - 1, Math.max(from, Math.ceil(f1 / binHz)));
-        let peak = -Infinity;
-        for (let k = from; k <= to; k++) if (data[k] > peak) peak = data[k];
-        const fc = Math.sqrt(f0 * f1);
-        const level = peak + SPECTRUM_TILT * Math.log2(fc / 1000);
-        const t = Math.max(0, Math.min(1, (level - SPECTRUM_BOTTOM_DB) / (SPECTRUM_TOP_DB - SPECTRUM_BOTTOM_DB)));
-        d += ` L${xForHz(geometry, fc).toFixed(1)},${(height - t * height).toFixed(1)}`;
-      }
-      return `${d} L${width},${height} Z`;
-    };
+    const toPath = (data: Float32Array | null) => spectrumPath(data, sampleRate, width, height, F_MIN, F_MAX);
     const draw = () => {
-      prePath.current?.setAttribute("d", analyzer === 2 ? toPath(audioEngine.getEqSpectrum(hostId, effectId, "pre")) : "");
-      postPath.current?.setAttribute("d", toPath(audioEngine.getEqSpectrum(hostId, effectId, "post")));
+      prePath.current?.setAttribute("d", analyzer === 2 ? toPath(audioEngine.getSpectrum(hostId, effectId, "pre")) : "");
+      postPath.current?.setAttribute("d", toPath(audioEngine.getSpectrum(hostId, effectId, "post")));
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [analyzer, hostId, effectId, geometry, height, width, sampleRate]);
+  }, [analyzer, hostId, effectId, height, width, sampleRate]);
 
   // Scroll: Q of the hovered band (else the selected one).
   const wheelState = useRef({ hover, selected, bands, onBandChange, onGestureStart });

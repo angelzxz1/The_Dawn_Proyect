@@ -259,7 +259,7 @@ export function PluginKnob({
         startEditing();
       }}
       disabled={disabled}
-      className="min-w-[60px] rounded border border-border bg-[#14151A] px-2 py-0.5 text-center font-mono text-xs font-medium text-[#F4EDE2] disabled:opacity-60"
+      className="min-w-[60px] whitespace-nowrap rounded border border-border bg-[#14151A] px-2 py-0.5 text-center font-mono text-xs font-medium text-[#F4EDE2] disabled:opacity-60"
     >
       {formatValue(value)}
     </button>
@@ -267,7 +267,7 @@ export function PluginKnob({
 
   if (layout === "inline") {
     return (
-      <div className="flex items-center gap-2.5">
+      <div className="flex shrink-0 items-center gap-2.5">
         {knobEl}
         <div className="flex flex-col gap-1">
           {labelEl}

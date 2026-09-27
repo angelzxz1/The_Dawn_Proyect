@@ -57,6 +57,7 @@ import { IrLoaderWindow } from "./IrLoaderWindow";
 import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
 import { ParamEqWindow } from "./ParamEqWindow";
+import { MultibandWindow } from "./MultibandWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -3272,6 +3273,7 @@ export function Daw() {
       {(fxChannel || fxBus || fxMasterOpen) && (
         <FxRack
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          hostId={fxHostId}
           channelType={fxChannel?.type}
           color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
@@ -3354,6 +3356,30 @@ export function Daw() {
 
       {expandedEffectId && expandedEffect?.type === "paramEq" && (
         <ParamEqWindow
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "multiband" && (
+        <MultibandWindow
           hostId={fxHostId}
           effectId={expandedEffectId}
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Circle, Headphones, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
+import { Circle, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/lib/types";
 
@@ -27,11 +27,6 @@ interface TransportBarProps {
   recordingMode?: "midi" | "audio";
   /** Name of the record-armed channel, or null if none is armed. */
   armedChannelName: string | null;
-  /** Whether the armed audio track's input is currently monitored live -
-   * only in effect while `recordingMode` is "audio" (the button still
-   * shows otherwise - clicking it then arms an audio track). */
-  monitoringEnabled: boolean;
-  onToggleMonitoring: () => void;
   loopEnabled: boolean;
   onToggleLoop: () => void;
   /** Bars of audible pre-roll clicks played before recording actually
@@ -57,8 +52,6 @@ export function TransportBar({
   canRecord,
   recordingMode = "midi",
   armedChannelName,
-  monitoringEnabled,
-  onToggleMonitoring,
   loopEnabled,
   onToggleLoop,
   countInBars,
@@ -68,7 +61,6 @@ export function TransportBar({
   onStop,
   onRecord,
 }: TransportBarProps) {
-  const monitoringActive = monitoringEnabled && recordingMode === "audio";
   const [bpmDraft, setBpmDraft] = useState(String(bpm));
   useEffect(() => setBpmDraft(String(bpm)), [bpm]);
   const commitBpm = () => {
@@ -143,26 +135,6 @@ export function TransportBar({
           }`}
         >
           {metronomeEnabled ? <Volume2 size={15} /> : <Volume1 size={15} />}
-        </button>
-        <button
-          type="button"
-          onClick={onToggleMonitoring}
-          aria-pressed={monitoringActive}
-          title={
-            monitoringActive
-              ? `Monitoring on - hearing ${armedChannelName}'s live input through its effects (click to stop)`
-              : recordingMode === "audio"
-                ? `Hear ${armedChannelName}'s live input through its effects (use headphones to avoid feedback)`
-                : "Hear your instrument live - arms an audio track and plays its input through its effects (use headphones)"
-          }
-          className={`flex h-9 items-center justify-center gap-1.5 rounded-full border px-3 text-xs transition-colors ${
-            monitoringActive
-              ? "border-accent bg-accent/20 text-accent"
-              : "border-border text-muted hover:bg-surface-raised"
-          }`}
-        >
-          <Headphones size={15} />
-          {monitoringActive ? "Live" : "Monitor"}
         </button>
         <button
           type="button"

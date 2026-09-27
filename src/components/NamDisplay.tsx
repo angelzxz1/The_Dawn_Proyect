@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Headphones } from "lucide-react";
 import { audioEngine } from "@/lib/audioEngine";
 import { filterResponseDb } from "@/lib/filterModel";
 import { toneStackStages } from "@/lib/namModel";
@@ -18,15 +17,6 @@ interface NamDisplayProps {
   treble: number;
   /** Gain applied by Normalize, or null when it isn't (off, or no loudness). */
   normalizeDb: number | null;
-  live: NamLiveInput;
-}
-
-/** Whether you can play through this amp live: "on"/"off" on an audio
- * track, "midi" on a MIDI track and "other" on a bus or the master, which
- * have no input of their own. */
-export interface NamLiveInput {
-  state: "on" | "off" | "midi" | "other";
-  onToggle: () => void;
 }
 
 const CURVE_W = 420;
@@ -57,7 +47,7 @@ function Badge({ children, tone = "default" }: { children: React.ReactNode; tone
 
 /** The amp window's display: which model is loaded (and what it says about
  * itself), the tone stack's curve, and the level going into the model. */
-export function NamDisplay({ hostId, effectId, model, fileName, bass, middle, treble, normalizeDb, live }: NamDisplayProps) {
+export function NamDisplay({ hostId, effectId, model, fileName, bass, middle, treble, normalizeDb }: NamDisplayProps) {
   const meterFill = useRef<HTMLDivElement>(null);
   const meterText = useRef<HTMLSpanElement>(null);
 
@@ -193,38 +183,7 @@ export function NamDisplay({ hostId, effectId, model, fileName, bass, middle, tr
         <span ref={meterText} className="w-16 text-right font-mono text-[11px]" style={{ color: "#9A9AA4" }}>
           —
         </span>
-        {live.state === "on" || live.state === "off" ? (
-          <button
-            type="button"
-            onClick={live.onToggle}
-            aria-pressed={live.state === "on"}
-            title={
-              live.state === "on"
-                ? "Stop hearing your input through the amp"
-                : "Arm this track and hear your guitar through the amp live (use headphones)"
-            }
-            className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide"
-            style={
-              live.state === "on"
-                ? { background: "rgba(230,173,94,0.18)", color: "#E6AD5E", border: "1px solid #E6AD5E" }
-                : { background: "#23242B", color: "#F4EDE2", border: "1px solid #2E2F37" }
-            }
-          >
-            <Headphones size={14} />
-            {live.state === "on" ? "Live" : "Play live"}
-          </button>
-        ) : null}
       </div>
-      {live.state === "midi" && (
-        <p className="-mt-1 text-[11px]" style={{ color: "#8A8A94" }}>
-          To play a guitar through this amp, put it on an audio track - MIDI tracks don&apos;t take an audio input.
-        </p>
-      )}
-      {live.state === "other" && (
-        <p className="-mt-1 text-[11px]" style={{ color: "#8A8A94" }}>
-          To play a guitar through this amp live, put it on an audio track.
-        </p>
-      )}
     </div>
   );
 }

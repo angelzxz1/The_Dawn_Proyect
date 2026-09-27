@@ -8,6 +8,7 @@ import {
   Circle,
   Download,
   FileAudio,
+  Headphones,
   Sliders,
   Trash2,
   Upload,
@@ -44,6 +45,10 @@ interface TrackHeaderProps {
    * time. Only the armed channel is what Record captures and the only one
    * that sounds for incoming notes. */
   onArmToggle?: () => void;
+  /** Audio tracks only: whether this track's input is heard live, through
+   * its effects (the headphones button). */
+  monitoring?: boolean;
+  onMonitorToggle?: () => void;
   /** Opens the FX window (instrument slot + effects chain). */
   onOpenFx?: () => void;
   onImportMidi?: (file: File) => void;
@@ -137,6 +142,8 @@ export function TrackHeader({
   onMuteToggle,
   onSoloToggle,
   onArmToggle,
+  monitoring = false,
+  onMonitorToggle,
   onOpenFx,
   onImportMidi,
   onExportMidi,
@@ -255,6 +262,26 @@ export function TrackHeader({
           >
             {channel.name}
           </span>
+        )}
+        {!isMaster && !isMidi && (
+          <button
+            type="button"
+            title={
+              monitoring
+                ? "Monitoring - hearing this track's input live through its effects. Click to stop."
+                : "Monitor - hear this track's input live through its effects (use headphones)"
+            }
+            aria-pressed={monitoring}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMonitorToggle?.();
+            }}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+              monitoring ? "border-accent bg-accent/25 text-accent" : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            <Headphones size={10} />
+          </button>
         )}
         {!isMaster && (
           <button

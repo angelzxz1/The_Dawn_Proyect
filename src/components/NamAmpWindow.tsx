@@ -3,7 +3,7 @@
 import { Power, X } from "lucide-react";
 import { PluginKnob, type KnobMode } from "./PluginKnob";
 import { PluginIcon } from "./PluginIcon";
-import { NamDisplay, type NamLiveInput } from "./NamDisplay";
+import { NamDisplay } from "./NamDisplay";
 import { NamFileSlot, useNamModel } from "./NamFileSlot";
 import { paramSpecs, type EffectFileRef, type ParamSpec } from "@/lib/effects";
 import { normalizationDb } from "@/lib/namModel";
@@ -22,7 +22,6 @@ interface NamAmpWindowProps {
   onParamDragStart?: () => void;
   onLoadFile: (file: File) => Promise<string | null>;
   onClearFile: () => void;
-  live: NamLiveInput;
 }
 
 export const NAM_AMP_KNOBS: { key: string; mode: KnobMode }[] = [
@@ -100,7 +99,6 @@ export function NamAmpWindow({
   onParamDragStart,
   onLoadFile,
   onClearFile,
-  live,
 }: NamAmpWindowProps) {
   const value = (key: string) => namAmpParam(params, key);
   const model = useNamModel(file);
@@ -156,7 +154,6 @@ export function NamAmpWindow({
           middle={value("middle")}
           treble={value("treble")}
           normalizeDb={normalizeDb}
-          live={live}
         />
 
         <div className="flex items-center gap-6">

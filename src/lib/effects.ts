@@ -13,7 +13,8 @@ export type EffectType =
   | "limiter"
   | "pitchShift"
   | "irLoader"
-  | "namAmp";
+  | "namAmp"
+  | "gate";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -27,12 +28,13 @@ export const EFFECT_TYPES: EffectType[] = [
   "pitchShift",
   "irLoader",
   "namAmp",
+  "gate",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
  * - the sidebar renders one collapsible section per group. */
 export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
-  { name: "Dynamics", types: ["compressor", "limiter"] },
+  { name: "Dynamics", types: ["compressor", "limiter", "gate"] },
   { name: "EQ & Filter", types: ["eq3", "filter"] },
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
@@ -52,6 +54,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   pitchShift: "Pitch Shift",
   irLoader: "IR Loader",
   namAmp: "NAM Amp",
+  gate: "Noise Gate",
 };
 
 /** Effect types that take an uploaded file (an impulse response, ...) in
@@ -223,6 +226,14 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
     { key: "normalize", label: "Normalize", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "On" : "Off") },
     { key: "size", label: "Size", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "Full" : "Lite") },
+  ],
+  // Range at -80 dB means fully closed (silence).
+  gate: [
+    { key: "threshold", label: "Threshold", min: -100, max: 0, default: -60, format: dbSpaced },
+    { key: "attack", label: "Attack", min: 0.0001, max: 0.05, default: 0.001, format: (v) => (v < 0.001 ? `${(v * 1000).toFixed(2)} ms` : msSpaced(v)) },
+    { key: "hold", label: "Hold", min: 0, max: 0.5, default: 0.05, format: msSpaced },
+    { key: "release", label: "Release", min: 0.005, max: 2, default: 0.15, format: msSpaced },
+    { key: "range", label: "Range", min: -80, max: 0, default: -80, format: (v) => (v <= -79.95 ? "-∞ dB" : dbSpaced(v)) },
   ],
 };
 

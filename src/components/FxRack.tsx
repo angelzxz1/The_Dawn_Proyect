@@ -14,6 +14,7 @@ import { PitchShiftRackCard } from "./PitchShiftRackCard";
 import { DistortionRackCard } from "./DistortionRackCard";
 import { IrLoaderRackCard } from "./IrLoaderRackCard";
 import { NamAmpRackCard } from "./NamAmpRackCard";
+import { GateRackCard } from "./GateRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -71,6 +72,7 @@ const CUSTOM_UI_TYPES: EffectType[] = [
   "distortion",
   "irLoader",
   "namAmp",
+  "gate",
 ];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
@@ -239,7 +241,7 @@ export function FxRack({
               className={`flex shrink-0 ${
                 fx.type === "eq3"
                   ? "w-64 rounded-xl"
-                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp"
+                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp" || fx.type === "gate"
                     ? "w-72 rounded-xl"
                     : fx.type === "reverb"
                       ? "w-80 rounded-xl"
@@ -332,6 +334,16 @@ export function FxRack({
                   />
                 ) : fx.type === "limiter" ? (
                   <LimiterRackCard
+                    params={fx.params}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "gate" ? (
+                  <GateRackCard
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}

@@ -58,6 +58,7 @@ import { PitchShifter } from "./pitchShifter";
 import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGain } from "./irModel";
 import { decodeEffectFileAudio, readEffectFileText } from "./effectFiles";
 import { NamAmpChain } from "./namAmp";
+import { NoiseGate, gateSettingsFromParams, type GateReading } from "./noiseGate";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
@@ -1241,6 +1242,8 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
       return new IrLoaderChain(params);
     case "namAmp":
       return new NamAmpChain(params);
+    case "gate":
+      return new NoiseGate(gateSettingsFromParams(params));
   }
 }
 
@@ -1368,6 +1371,15 @@ export function applyEffectParam(
       else if (key === "output") amp.setOutput(value);
       else if (key === "normalize") amp.setNormalize(value >= 0.5);
       else if (key === "size") amp.setSize(value);
+      break;
+    }
+    case "gate": {
+      const gate = node as NoiseGate;
+      if (key === "threshold") gate.configure({ thresholdDb: value });
+      else if (key === "attack") gate.configure({ attack: value });
+      else if (key === "hold") gate.configure({ hold: value });
+      else if (key === "release") gate.configure({ release: value });
+      else if (key === "range") gate.configure({ rangeDb: value });
       break;
     }
   }
@@ -1849,6 +1861,13 @@ class AudioEngine {
       return node.setModel(fileId, json);
     }
     return null;
+  }
+
+  /** Recent level readings of one Noise Gate, for its window's graph.
+   * Null if that effect isn't a gate. */
+  getGateHistory(hostId: string, effectId: string): GateReading[] | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof NoiseGate ? effect.node.history : null;
   }
 
   /** Level going into one NAM Amp's model (after its Input knob), in dB -

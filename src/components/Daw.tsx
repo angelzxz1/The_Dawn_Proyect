@@ -55,6 +55,7 @@ import { PitchShiftWindow } from "./PitchShiftWindow";
 import { DistortionWindow } from "./DistortionWindow";
 import { IrLoaderWindow } from "./IrLoaderWindow";
 import { NamAmpWindow } from "./NamAmpWindow";
+import { GateWindow } from "./GateWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -308,10 +309,10 @@ export function Daw() {
    * mount and whenever the OS reports a device was plugged/unplugged. */
   const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([]);
   const [selectedInputDeviceId, setSelectedInputDeviceId] = useState<string | null>(null);
-  /** Whether the currently record-armed audio track's input is monitored
-   * live (heard through its volume/pan while armed) - a view/session-only
-   * toggle, not part of the undo-tracked document. */
-  const [inputMonitoringEnabled, setInputMonitoringEnabled] = useState(false);
+  /** Audio tracks whose input is heard live (through their effects) - each
+   * track's headphones button. Session-only: not part of the undo-tracked
+   * document, and never reopened on load (that would prompt for the mic). */
+  const [monitoredChannelIds, setMonitoredChannelIds] = useState<ReadonlySet<string>>(() => new Set());
   /** Which channel (if any) currently has its automation lane expanded
    * under its track in the arrangement - a view-only toggle, not part of
    * the undo-tracked document. */
@@ -986,50 +987,54 @@ export function Daw() {
       );
   }, [refreshInputDevices]);
 
-  // Live input monitoring follows whichever audio channel is currently
-  // armed - opens a monitor tap on it while enabled, and tears it back
-  // down (on disarm, a device change already handles reopening itself, or
-  // toggling monitoring off) so a stale tap never outlives its channel.
-  useEffect(() => {
-    if (!armedChannelId || channelTypeOf(armedChannelId) !== "audio" || !inputMonitoringEnabled) {
-      return;
-    }
-    const channelId = armedChannelId;
-    let cancelled = false;
-    void audioEngine.setInputMonitoring(channelId, true).then((ok) => {
-      if (cancelled) return;
-      if (ok) {
-        setMicError(null);
-        return;
-      }
-      setInputMonitoringEnabled(false);
-      setMicError(
-        "Couldn't open your audio input - allow microphone access in the browser, and pick your interface in the track's Input menu."
-      );
-    });
-    return () => {
-      cancelled = true;
-      void audioEngine.setInputMonitoring(channelId, false);
-    };
-  }, [armedChannelId, inputMonitoringEnabled, channelTypeOf]);
-
-  /** Arms an audio track (disarming any other) and hears its input live -
-   * through its effects - or turns that back off if it's already on. */
-  const toggleLiveInput = useCallback(
-    (channelId: string) => {
-      if (transportState === "recording") return;
-      if (armedChannelId === channelId && inputMonitoringEnabled) {
-        setInputMonitoringEnabled(false);
-        return;
-      }
-      if (armedChannelId !== channelId) {
-        pushHistory();
-        setChannels((prev) => prev.map((c) => ({ ...c, armed: c.id === channelId })));
-      }
-      setInputMonitoringEnabled(true);
-    },
-    [transportState, armedChannelId, inputMonitoringEnabled, pushHistory]
+  // Opens/closes the engine's live input for each monitored audio track.
+  // Only tracks that exist (and are audio tracks) count, so deleting one -
+  // or undoing its creation - stops its monitoring, and redo resumes it.
+  const monitoredAudioIds = useMemo(
+    () => [...monitoredChannelIds].filter((id) => channels.some((c) => c.id === id && c.type === "audio")),
+    [monitoredChannelIds, channels]
   );
+  const openMonitorsRef = useRef(new Set<string>());
+  useEffect(() => {
+    const open = openMonitorsRef.current;
+    monitoredAudioIds.forEach((id) => {
+      if (open.has(id)) return;
+      open.add(id);
+      void audioEngine.setInputMonitoring(id, true).then((ok) => {
+        if (ok) {
+          setMicError(null);
+          return;
+        }
+        open.delete(id);
+        setMonitoredChannelIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setMicError(
+          "Couldn't open your audio input - allow microphone access in the browser, and pick your interface in the track's Input menu."
+        );
+      });
+    });
+    [...open].forEach((id) => {
+      if (monitoredAudioIds.includes(id)) return;
+      open.delete(id);
+      void audioEngine.setInputMonitoring(id, false);
+    });
+  }, [monitoredAudioIds]);
+  useEffect(() => {
+    const open = openMonitorsRef.current;
+    return () => open.forEach((id) => void audioEngine.setInputMonitoring(id, false));
+  }, []);
+
+  const handleMonitorToggle = useCallback((channelId: string) => {
+    setMonitoredChannelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(channelId)) next.delete(channelId);
+      else next.add(channelId);
+      return next;
+    });
+  }, []);
 
   // Which channel a recording-in-progress targets - captured once at
   // Record time (not read live from `armedChannelId`) so re-arming a
@@ -2700,24 +2705,6 @@ export function Daw() {
           canRecord={transportState === "recording" || !!armedChannelId}
           recordingMode={armedChannel?.type === "audio" ? "audio" : "midi"}
           armedChannelName={armedChannel?.name ?? null}
-          monitoringEnabled={inputMonitoringEnabled}
-          onToggleMonitoring={() => {
-            // With an audio track armed this just flips monitoring; otherwise
-            // it arms the audio track whose effects are open (or the first
-            // one) so the button always does something useful.
-            if (armedChannel?.type === "audio") {
-              setInputMonitoringEnabled((v) => !v);
-              return;
-            }
-            const target = fxChannel?.type === "audio" ? fxChannel : channels.find((c) => c.type === "audio");
-            if (!target) {
-              setMicError(
-                "To hear your instrument live, add an audio track - a guitar goes into an audio track, not a MIDI one."
-              );
-              return;
-            }
-            toggleLiveInput(target.id);
-          }}
           loopEnabled={loopEnabled}
           onToggleLoop={() => setLoopEnabled((v) => !v)}
           countInBars={countInBars}
@@ -2885,6 +2872,8 @@ export function Daw() {
                   onMuteToggle={() => handleMuteToggle(channel.id)}
                   onSoloToggle={() => handleSoloToggle(channel.id)}
                   onArmToggle={() => handleArmToggle(channel.id)}
+                  monitoring={monitoredChannelIds.has(channel.id)}
+                  onMonitorToggle={() => handleMonitorToggle(channel.id)}
                   onOpenFx={() => openFx(channel.id)}
                   onImportMidi={(file) => void handleImportMidi(channel.id, file)}
                   onExportMidi={() => handleExportChannelMidi(channel.id)}
@@ -3355,6 +3344,30 @@ export function Daw() {
         />
       )}
 
+      {expandedEffectId && expandedEffect?.type === "gate" && (
+        <GateWindow
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
       {expandedEffectId && expandedEffect?.type === "namAmp" && (
         <NamAmpWindow
           hostId={fxHostId}
@@ -3379,17 +3392,6 @@ export function Daw() {
           onParamDragStart={pushHistory}
           onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
           onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
-          live={{
-            state:
-              fxChannel?.type === "audio"
-                ? armedChannelId === fxChannel.id && inputMonitoringEnabled
-                  ? "on"
-                  : "off"
-                : fxChannel
-                  ? "midi"
-                  : "other",
-            onToggle: () => fxChannel && toggleLiveInput(fxChannel.id),
-          }}
         />
       )}
 

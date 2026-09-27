@@ -59,6 +59,7 @@ import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGa
 import { decodeEffectFileAudio, readEffectFileText } from "./effectFiles";
 import { NamAmpChain } from "./namAmp";
 import { NoiseGate, gateSettingsFromParams, type GateReading } from "./noiseGate";
+import { ParamEqChain } from "./paramEq";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
@@ -1244,6 +1245,8 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
       return new NamAmpChain(params);
     case "gate":
       return new NoiseGate(gateSettingsFromParams(params));
+    case "paramEq":
+      return new ParamEqChain(params);
   }
 }
 
@@ -1382,6 +1385,9 @@ export function applyEffectParam(
       else if (key === "range") gate.configure({ rangeDb: value });
       break;
     }
+    case "paramEq":
+      (node as ParamEqChain).setParam(key, value);
+      break;
   }
 }
 
@@ -1861,6 +1867,19 @@ class AudioEngine {
       return node.setModel(fileId, json);
     }
     return null;
+  }
+
+  /** One Parametric EQ's spectrum before or after it (dB per FFT bin), for
+   * its window's analyzer. Null if that effect isn't the EQ. */
+  getEqSpectrum(hostId: string, effectId: string, which: "pre" | "post"): Float32Array | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof ParamEqChain ? effect.node.spectrum(which) : null;
+  }
+
+  /** Auditions one band of a Parametric EQ (0-based), or -1 for none. */
+  setEqSolo(hostId: string, effectId: string, band: number): void {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    if (effect?.node instanceof ParamEqChain) effect.node.setSolo(band);
   }
 
   /** Recent level readings of one Noise Gate, for its window's graph.

@@ -56,6 +56,7 @@ import { DistortionWindow } from "./DistortionWindow";
 import { IrLoaderWindow } from "./IrLoaderWindow";
 import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
+import { ParamEqWindow } from "./ParamEqWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -76,7 +77,14 @@ import {
   startFreshKeepingBackup,
 } from "@/lib/projectRecovery";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
-import { EFFECT_LABELS, paramSpecs, type EffectFileRef, type EffectInstance, type EffectType } from "@/lib/effects";
+import {
+  EFFECT_LABELS,
+  automatableParamSpecs,
+  paramSpecs,
+  type EffectFileRef,
+  type EffectInstance,
+  type EffectType,
+} from "@/lib/effects";
 import {
   discardEffectFile,
   effectFileBlob,
@@ -175,7 +183,7 @@ function automationTargetOptions(
     { target: { kind: "pan" }, label: "Pan" },
   ];
   channelEffects.forEach((fx) => {
-    paramSpecs(fx.type).forEach((spec) => {
+    automatableParamSpecs(fx).forEach((spec) => {
       options.push({
         target: { kind: "effect", effectId: fx.id, paramKey: spec.key },
         label: `${EFFECT_LABELS[fx.type]}: ${spec.label}`,
@@ -3325,6 +3333,30 @@ export function Daw() {
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           effectId={expandedEffectId}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "paramEq" && (
+        <ParamEqWindow
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           params={expandedEffect.params}
           bypass={!!expandedEffect.bypass}
           onBypassToggle={() =>

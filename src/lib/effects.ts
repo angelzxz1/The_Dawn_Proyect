@@ -2,6 +2,15 @@
 // window UI. Every effect's live params are plain numbers so a single
 // generic ValueBar-driven UI can drive any of them.
 
+import {
+  EQ_PLACEMENTS,
+  EQ_PLACEMENT_LABELS,
+  EQ_SHAPES,
+  EQ_SHAPE_LABELS,
+  MAX_EQ_BANDS,
+  defaultBandFreq,
+} from "./paramEqModel";
+
 export type EffectType =
   | "eq3"
   | "compressor"
@@ -14,7 +23,8 @@ export type EffectType =
   | "pitchShift"
   | "irLoader"
   | "namAmp"
-  | "gate";
+  | "gate"
+  | "paramEq";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -29,13 +39,14 @@ export const EFFECT_TYPES: EffectType[] = [
   "irLoader",
   "namAmp",
   "gate",
+  "paramEq",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
  * - the sidebar renders one collapsible section per group. */
 export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
   { name: "Dynamics", types: ["compressor", "limiter", "gate"] },
-  { name: "EQ & Filter", types: ["eq3", "filter"] },
+  { name: "EQ & Filter", types: ["paramEq", "eq3", "filter"] },
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
   { name: "Reverb & Delay", types: ["reverb", "delay"] },
@@ -55,6 +66,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   irLoader: "IR Loader",
   namAmp: "NAM Amp",
   gate: "Noise Gate",
+  paramEq: "Parametric EQ",
 };
 
 /** Effect types that take an uploaded file (an impulse response, ...) in
@@ -87,6 +99,9 @@ export interface ParamSpec {
   max: number;
   default: number;
   format: (v: number) => string;
+  /** False for settings that aren't continuous (a filter shape, a view
+   * option) - they're left out of the automation lane's target list. */
+  automatable?: boolean;
 }
 
 const db = (v: number) => `${v.toFixed(1)}dB`;
@@ -235,7 +250,44 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "release", label: "Release", min: 0.005, max: 2, default: 0.15, format: msSpaced },
     { key: "range", label: "Range", min: -80, max: 0, default: -80, format: (v) => (v <= -79.95 ? "-∞ dB" : dbSpaced(v)) },
   ],
+  paramEq: paramEqSpecs(),
 };
+
+/** The Parametric EQ's params: MAX_EQ_BANDS bands, each stored as flat
+ * `b<n>On/Shape/Freq/Gain/Q/Slope/Place` keys (On: 0 no band, 1 active, 2
+ * bypassed), plus output gain and two view settings. */
+function paramEqSpecs(): ParamSpec[] {
+  const hzFine = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 1 : 2)} kHz` : `${v.toFixed(v < 100 ? 1 : 0)} Hz`);
+  const specs: ParamSpec[] = [];
+  for (let i = 0; i < MAX_EQ_BANDS; i++) {
+    const n = i + 1;
+    specs.push(
+      { key: `b${n}On`, label: `Band ${n} On`, min: 0, max: 2, default: 0, format: (v) => ["Off", "On", "Bypassed"][Math.round(v)] ?? "Off", automatable: false },
+      { key: `b${n}Shape`, label: `Band ${n} Shape`, min: 0, max: EQ_SHAPES.length - 1, default: 0, format: (v) => EQ_SHAPE_LABELS[EQ_SHAPES[Math.round(v)]] ?? "Bell", automatable: false },
+      { key: `b${n}Freq`, label: `Band ${n} Freq`, min: 10, max: 22000, default: defaultBandFreq(i), format: hzFine },
+      { key: `b${n}Gain`, label: `Band ${n} Gain`, min: -30, max: 30, default: 0, format: dbSigned },
+      { key: `b${n}Q`, label: `Band ${n} Q`, min: 0.025, max: 40, default: 1, format: (v) => v.toFixed(v < 10 ? 2 : 1) },
+      { key: `b${n}Slope`, label: `Band ${n} Slope`, min: 6, max: 96, default: 12, format: (v) => `${Math.round(v)} dB/oct`, automatable: false },
+      { key: `b${n}Place`, label: `Band ${n} Placement`, min: 0, max: EQ_PLACEMENTS.length - 1, default: 0, format: (v) => EQ_PLACEMENT_LABELS[EQ_PLACEMENTS[Math.round(v)]] ?? "Stereo", automatable: false }
+    );
+  }
+  specs.push(
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
+    { key: "scale", label: "Display Range", min: 3, max: 30, default: 12, format: (v) => `±${Math.round(v)} dB`, automatable: false },
+    { key: "analyzer", label: "Analyzer", min: 0, max: 2, default: 2, format: (v) => ["Off", "Post", "Pre + Post"][Math.round(v)] ?? "Off", automatable: false }
+  );
+  return specs;
+}
+
+/** The params an effect offers as automation targets: continuous ones, and
+ * for the Parametric EQ only the bands that exist. */
+export function automatableParamSpecs(fx: EffectInstance): ParamSpec[] {
+  return paramSpecs(fx.type).filter((spec) => {
+    if (spec.automatable === false) return false;
+    const band = fx.type === "paramEq" ? /^b(\d+)/.exec(spec.key) : null;
+    return !band || (fx.params[`b${band[1]}On`] ?? 0) >= 0.5;
+  });
+}
 
 export function paramSpecs(type: EffectType): ParamSpec[] {
   return PARAM_SPECS[type];

@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EFFECT_TYPES, paramSpecs, type EffectInstance } from "./effects";
+import { EFFECT_TYPES, FILE_EFFECT_TYPES, paramSpecs, type EffectInstance } from "./effects";
 import { PROJECT_VERSION, normalizeProject, type SerializedProject } from "./projectSchema";
 import { SCALE_NAMES, SCALE_ROOTS } from "./scales";
 import { SNAP_RESOLUTIONS } from "./timeline";
@@ -41,6 +41,11 @@ function expectValidProject(p: SerializedProject) {
       effectIds.add(fx.id);
       expect(EFFECT_TYPES).toContain(fx.type);
       expect(typeof fx.bypass).toBe("boolean");
+      if (fx.file) {
+        expect(FILE_EFFECT_TYPES).toContain(fx.type);
+        expect(typeof fx.file.id).toBe("string");
+        expect(typeof fx.file.name).toBe("string");
+      }
       const specs = paramSpecs(fx.type);
       expect(Object.keys(fx.params).sort()).toEqual(specs.map((s) => s.key).sort());
       specs.forEach((s) => {
@@ -212,6 +217,23 @@ describe("damaged saved data", () => {
     expect(project.clipsByChannel["ch-2"]).toEqual([]); // c2 was already used on ch-1
     expect(project.channels[1].synthParams).toEqual(defaultSynthParams());
     expect(project.channelEffects["ch-2"][0].params.mode).toBe(1);
+  });
+
+  it("keeps an IR Loader's file reference, and only there", () => {
+    const project = normalizeProject({
+      channels: [{ id: "ch-1", type: "audio" }],
+      channelEffects: {
+        "ch-1": [
+          { id: "fx-1", type: "irLoader", params: {}, file: { id: "file-abc", name: "4x12 SM57.wav" } },
+          { id: "fx-2", type: "irLoader", params: {}, file: { name: "no id" } },
+          { id: "fx-3", type: "irLoader", params: {}, file: "broken" },
+          { id: "fx-4", type: "reverb", params: {}, file: { id: "file-xyz", name: "x.wav" } },
+        ],
+      },
+    })!;
+    expectValidProject(project);
+    const files = project.channelEffects["ch-1"].map((fx) => fx.file);
+    expect(files).toEqual([{ id: "file-abc", name: "4x12 SM57.wav" }, undefined, undefined, undefined]);
   });
 
   it("never throws on randomly damaged versions of the fixtures", () => {

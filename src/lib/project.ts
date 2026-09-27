@@ -100,6 +100,7 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
         audioEngine.setEffectParam(bus.id, fx.id, key, value)
       );
       if (fx.bypass) audioEngine.setEffectBypass(bus.id, fx.id, true);
+      if (fx.file) void audioEngine.setEffectFile(bus.id, fx.id, fx.file.id);
     });
   });
 
@@ -117,6 +118,7 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
         audioEngine.setEffectParam(channel.id, fx.id, key, value)
       );
       if (fx.bypass) audioEngine.setEffectBypass(channel.id, fx.id, true);
+      if (fx.file) void audioEngine.setEffectFile(channel.id, fx.id, fx.file.id);
     });
 
     Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
@@ -163,5 +165,6 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
       audioEngine.setEffectParam("master", fx.id, key, value)
     );
     if (fx.bypass) audioEngine.setEffectBypass("master", fx.id, true);
+    if (fx.file) void audioEngine.setEffectFile("master", fx.id, fx.file.id);
   });
 }

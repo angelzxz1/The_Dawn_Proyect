@@ -9,7 +9,7 @@
 // valid (an effect type that no longer exists, a clip on a deleted track)
 // are dropped.
 
-import { EFFECT_TYPES, paramSpecs, type EffectInstance, type EffectType } from "./effects";
+import { EFFECT_TYPES, FILE_EFFECT_TYPES, paramSpecs, type EffectInstance, type EffectType } from "./effects";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, type SnapResolution } from "./timeline";
@@ -138,7 +138,13 @@ function normalizeEffect(raw: unknown): EffectInstance | null {
   const params = Object.fromEntries(
     paramSpecs(type).map((spec) => [spec.key, num(saved[spec.key], spec.default, spec.min, spec.max)])
   );
-  return { id, type, params, bypass: bool(r.bypass, false) };
+  const effect: EffectInstance = { id, type, params, bypass: bool(r.bypass, false) };
+  // A file effect's file itself is restored from the audio store on load;
+  // if it's gone, the effect still loads (empty) and names what's missing.
+  const file = obj(r.file);
+  const fileId = nonEmptyId(file.id);
+  if (FILE_EFFECT_TYPES.includes(type) && fileId) effect.file = { id: fileId, name: str(file.name, "file") };
+  return effect;
 }
 
 function normalizeEffects(raw: unknown, seenIds: Set<string>): EffectInstance[] {

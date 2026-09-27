@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "savedAt": 1790500000000,
+  "channels": [
+    { "id": "ch-1", "name": "Guitar DI", "volume": -3, "pan": 0, "colorIndex": 2, "type": "audio", "instrument": null, "muted": false, "solo": false, "armed": true, "sends": {},
+      "automationLanes": [
+        { "id": "auto-1", "target": { "kind": "effect", "effectId": "fx-1", "paramKey": "highCut" }, "points": [ { "id": "pt-1", "time": 0, "value": 20000 }, { "id": "pt-2", "time": 4, "value": 6000 } ] }
+      ] }
+  ],
+  "clipsByChannel": {
+    "ch-1": [ { "id": "clip-1", "kind": "audio", "offset": 0, "length": 8, "fileName": "riff-di.wav", "durationSeconds": 8, "peaks": [0.3, 0.7, 0.5], "sourceOffset": 0, "fadeIn": 0, "fadeOut": 0, "gainDb": 0, "loopLength": null } ]
+  },
+  "channelEffects": {
+    "ch-1": [
+      { "id": "fx-1", "type": "irLoader", "params": { "lowCut": 80, "highCut": 20000, "output": -2, "wet": 1, "normalize": 1 }, "bypass": false, "file": { "id": "file-3f2a", "name": "V30 4x12 SM57.wav" } },
+      { "id": "fx-2", "type": "irLoader", "params": { "lowCut": 20, "highCut": 20000, "output": 0, "wet": 1, "normalize": 1 }, "bypass": false }
+    ]
+  },
+  "buses": [],
+  "busEffects": {},
+  "bpm": 110,
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "masterVolume": 0,
+  "masterPan": 0,
+  "masterName": "Master",
+  "masterLimiterThreshold": -1,
+  "masterEffects": [],
+  "scaleSetting": { "root": "E", "scale": "Natural Minor", "enabled": false },
+  "snapResolution": "bar",
+  "countInBars": 0,
+  "metronomeEnabled": false
+}

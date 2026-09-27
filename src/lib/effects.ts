@@ -11,7 +11,8 @@ export type EffectType =
   | "distortion"
   | "filter"
   | "limiter"
-  | "pitchShift";
+  | "pitchShift"
+  | "irLoader";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -23,6 +24,7 @@ export const EFFECT_TYPES: EffectType[] = [
   "filter",
   "limiter",
   "pitchShift",
+  "irLoader",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
@@ -33,6 +35,7 @@ export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
   { name: "Reverb & Delay", types: ["reverb", "delay"] },
+  { name: "Amp & Cab", types: ["irLoader"] },
 ];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
@@ -45,7 +48,20 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   filter: "Filter",
   limiter: "Limiter",
   pitchShift: "Pitch Shift",
+  irLoader: "IR Loader",
 };
+
+/** Effect types that take an uploaded file (an impulse response, ...) in
+ * addition to their knobs. */
+export const FILE_EFFECT_TYPES: EffectType[] = ["irLoader"];
+
+/** An uploaded file an effect uses. The file itself is stored alongside the
+ * project's audio (see effectFiles.ts); the effect only keeps a reference. */
+export interface EffectFileRef {
+  id: string;
+  /** The uploaded file's name, shown in the plugin. */
+  name: string;
+}
 
 export interface EffectInstance {
   id: string;
@@ -54,6 +70,8 @@ export interface EffectInstance {
   /** Skipped in the signal chain (as if unplugged) without losing its
    * params or its position in the chain, so it can be flipped back on. */
   bypass?: boolean;
+  /** Only for FILE_EFFECT_TYPES - absent until a file is loaded. */
+  file?: EffectFileRef;
 }
 
 export interface ParamSpec {
@@ -182,6 +200,14 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "window", label: "Window", min: 0.02, max: 0.25, default: 0.1, format: msSpaced },
     { key: "feedback", label: "Feedback", min: 0, max: 0.9, default: 0, format: pct },
     { key: "wet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
+  ],
+  // Low/High Cut at their extremes (20 Hz / 20 kHz) are effectively off.
+  irLoader: [
+    { key: "lowCut", label: "Low Cut", min: 20, max: 500, default: 20, format: (v) => (v <= 20.5 ? "Off" : hzSpaced(v)) },
+    { key: "highCut", label: "High Cut", min: 1000, max: 20000, default: 20000, format: (v) => (v >= 19999 ? "Off" : hzSpaced(v)) },
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
+    { key: "wet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
+    { key: "normalize", label: "Normalize", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "On" : "Off") },
   ],
 };
 

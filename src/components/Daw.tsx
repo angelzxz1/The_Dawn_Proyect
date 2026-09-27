@@ -53,6 +53,7 @@ import { FilterWindow } from "./FilterWindow";
 import { ChorusWindow } from "./ChorusWindow";
 import { PitchShiftWindow } from "./PitchShiftWindow";
 import { DistortionWindow } from "./DistortionWindow";
+import { IrLoaderWindow } from "./IrLoaderWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -73,7 +74,9 @@ import {
   startFreshKeepingBackup,
 } from "@/lib/projectRecovery";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
-import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
+import { EFFECT_LABELS, paramSpecs, type EffectFileRef, type EffectInstance, type EffectType } from "@/lib/effects";
+import { effectFileBlob, importAudioEffectFile, referencedEffectFiles, registerEffectFile } from "@/lib/effectFiles";
+import { MAX_IR_SECONDS } from "@/lib/irModel";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
@@ -1900,6 +1903,39 @@ export function Daw() {
     [pushHistory]
   );
 
+  const setEffectFile = useCallback(
+    (hostId: string, effectId: string, file: EffectFileRef | null) => {
+      pushHistory();
+      const update = (list: EffectInstance[]) =>
+        list.map((e) => {
+          if (e.id !== effectId) return e;
+          const next = { ...e };
+          if (file) next.file = file;
+          else delete next.file;
+          return next;
+        });
+      if (hostId === "master") setMasterEffects(update);
+      else if (liveProjectRef.current.channels.some((c) => c.id === hostId))
+        setChannelEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
+      else setBusEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
+      void audioEngine.setEffectFile(hostId, effectId, file?.id ?? null);
+    },
+    [pushHistory]
+  );
+
+  /** Loads an uploaded file (an IR) into a file-based effect on a track, a
+   * bus or the master bus. Resolves with an error message if the file can't
+   * be used, leaving the effect unchanged. */
+  const handleLoadEffectFile = useCallback(
+    async (hostId: string, effectId: string, file: File): Promise<string | null> => {
+      const result = await importAudioEffectFile(file, audioEngine.sampleRate, MAX_IR_SECONDS);
+      if ("error" in result) return result.error;
+      setEffectFile(hostId, effectId, result.ref);
+      return null;
+    },
+    [setEffectFile]
+  );
+
   /** Adds an effect (from the EffectBrowser sidebar, dragged or clicked) to
    * whichever target - a track, a bus, or the master bus - the FX rack
    * currently shows. */
@@ -2317,6 +2353,14 @@ export function Daw() {
               }
         );
       });
+      // Audio clips plus every uploaded effect file (IRs) still in use.
+      const blobsToSave = new Map(audioBlobsRef.current);
+      referencedEffectFiles([...Object.values(channelEffects), ...Object.values(busEffects), masterEffects]).forEach(
+        (ref) => {
+          const blob = effectFileBlob(ref.id);
+          if (blob) blobsToSave.set(ref.id, blob);
+        }
+      );
       await saveProject(
         {
           version: PROJECT_VERSION,
@@ -2338,7 +2382,7 @@ export function Daw() {
           countInBars,
           metronomeEnabled,
         },
-        audioBlobsRef.current
+        blobsToSave
       );
       setSaveStatus("saved");
     } catch {
@@ -2437,6 +2481,12 @@ export function Daw() {
             if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
           });
           bumpEffectIdCounter(maxEffectN);
+          referencedEffectFiles([...Object.values(project.channelEffects), ...Object.values(busEffects), masterEffects]).forEach(
+            (ref) => {
+              const blob = blobs.get(ref.id);
+              if (blob) registerEffectFile(ref.id, blob);
+            }
+          );
 
           setChannels(project.channels);
           setClipsByChannel(restoredClips);
@@ -3171,6 +3221,8 @@ export function Daw() {
           onParamDragStart={pushHistory}
           onParamChange={fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange}
           onOpenEffectWindow={setExpandedEffectId}
+          onLoadEffectFile={(effectId, file) => handleLoadEffectFile(fxHostId, effectId, file)}
+          onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
         />
       )}
 
@@ -3228,6 +3280,31 @@ export function Daw() {
             )
           }
           onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "irLoader" && (
+        <IrLoaderWindow
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEffect.params}
+          file={expandedEffect.file}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+          onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
+          onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
         />
       )}
 

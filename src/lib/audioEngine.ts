@@ -1,4 +1,8 @@
 import * as Tone from "tone";
+import { AudioContext as StdAudioContext } from "standardized-audio-context";
+
+/** The rate the app asks the browser to run audio at (see below). */
+export const PREFERRED_SAMPLE_RATE = 48000;
 
 // Every live-triggered note (a keyboard/MIDI-controller key, a drum pad)
 // goes out via Tone.now(), which Tone.js defines as `currentTime +
@@ -10,6 +14,30 @@ import * as Tone from "tone";
 // 10ms keeps enough margin that sequenced clip/automation playback still
 // schedules safely, while cutting live playing latency by ~90ms.
 if (typeof window !== "undefined") {
+  // Amp models (NAM) are trained at 48 kHz and the engine runs them at the
+  // context's rate without resampling - at 44.1 kHz a model's tone shifts
+  // audibly (several dB in some bands). So the app runs at 48 kHz and the
+  // browser resamples to/from the audio device. Firefox is the exception:
+  // it refuses to connect a microphone whose rate differs from the
+  // context's, which would break input monitoring, so there the context
+  // keeps the device's rate (the amp plugin says when that doesn't match).
+  if (!/Firefox\//.test(navigator.userAgent)) {
+    try {
+      Tone.setContext(
+        new Tone.Context({
+          // Tone types this as the native class but itself wraps contexts
+          // in standardized-audio-context, as here.
+          context: new StdAudioContext({
+            sampleRate: PREFERRED_SAMPLE_RATE,
+            latencyHint: "interactive",
+          }) as unknown as AudioContext,
+          latencyHint: "interactive",
+        })
+      );
+    } catch {
+      // A browser that can't run at that rate keeps its default context.
+    }
+  }
   Tone.getContext().lookAhead = 0.01;
 }
 
@@ -28,7 +56,8 @@ import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { PitchShifter } from "./pitchShifter";
 import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGain } from "./irModel";
-import { decodeEffectFileAudio } from "./effectFiles";
+import { decodeEffectFileAudio, readEffectFileText } from "./effectFiles";
+import { NamAmpChain } from "./namAmp";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
@@ -1210,6 +1239,8 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
       });
     case "irLoader":
       return new IrLoaderChain(params);
+    case "namAmp":
+      return new NamAmpChain(params);
   }
 }
 
@@ -1328,6 +1359,15 @@ export function applyEffectParam(
       else if (key === "output") ir.setOutput(value);
       else if (key === "wet") ir.setWet(value);
       else if (key === "normalize") ir.setNormalize(value >= 0.5);
+      break;
+    }
+    case "namAmp": {
+      const amp = node as NamAmpChain;
+      if (key === "input") amp.setInput(value);
+      else if (key === "bass" || key === "middle" || key === "treble") amp.setTone(key, value);
+      else if (key === "output") amp.setOutput(value);
+      else if (key === "normalize") amp.setNormalize(value >= 0.5);
+      else if (key === "size") amp.setSize(value);
       break;
     }
   }
@@ -1780,17 +1820,36 @@ class AudioEngine {
     return Tone.getContext().sampleRate;
   }
 
-  /** Loads an uploaded file (see effectFiles.ts) into a file-based effect,
-   * or clears it with null. Decoding is async; if another file is asked for
-   * before this one finishes, only the newest request takes effect. */
-  async setEffectFile(id: string, effectId: string, fileId: string | null): Promise<void> {
+  /** Loads an uploaded file (see effectFiles.ts) into a file-based effect -
+   * an IR into the IR Loader, a model into the NAM Amp - or clears it with
+   * null. If another file is asked for before this one finishes, only the
+   * newest request takes effect. Resolves with an error message if the file
+   * couldn't be used (the effect keeps what it had). */
+  async setEffectFile(id: string, effectId: string, fileId: string | null): Promise<string | null> {
     const effect = this.effectsHost(id)?.host.effects.find((e) => e.id === effectId);
-    if (!effect || !(effect.node instanceof IrLoaderChain)) return;
+    if (!effect) return null;
     effect.fileId = fileId;
-    const buffer = fileId ? await decodeEffectFileAudio(fileId, this.sampleRate) : null;
-    if (effect.fileId !== fileId) return;
     const node = effect.node;
-    this.safe(() => node.setImpulse(buffer));
+    if (node instanceof IrLoaderChain) {
+      const buffer = fileId ? await decodeEffectFileAudio(fileId, this.sampleRate) : null;
+      if (effect.fileId !== fileId) return null;
+      this.safe(() => node.setImpulse(buffer));
+      return fileId && !buffer ? "Couldn't read the IR file." : null;
+    }
+    if (node instanceof NamAmpChain) {
+      const json = fileId ? await readEffectFileText(fileId) : null;
+      if (effect.fileId !== fileId) return null;
+      if (fileId && json === null) return "The model file is missing.";
+      return node.setModel(fileId, json);
+    }
+    return null;
+  }
+
+  /** Level going into one NAM Amp's model (after its Input knob), in dB -
+   * for the amp window's input meter. Null if that effect isn't an amp. */
+  getNamInputLevel(hostId: string, effectId: string): number | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof NamAmpChain ? effect.node.inputLevelDb : null;
   }
 
   setEffectParam(id: string, effectId: string, key: string, value: number): void {

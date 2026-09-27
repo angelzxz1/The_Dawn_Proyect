@@ -13,6 +13,7 @@ import { ChorusRackCard } from "./ChorusRackCard";
 import { PitchShiftRackCard } from "./PitchShiftRackCard";
 import { DistortionRackCard } from "./DistortionRackCard";
 import { IrLoaderRackCard } from "./IrLoaderRackCard";
+import { NamAmpRackCard } from "./NamAmpRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -69,6 +70,7 @@ const CUSTOM_UI_TYPES: EffectType[] = [
   "pitchShift",
   "distortion",
   "irLoader",
+  "namAmp",
 ];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
@@ -237,7 +239,7 @@ export function FxRack({
               className={`flex shrink-0 ${
                 fx.type === "eq3"
                   ? "w-64 rounded-xl"
-                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader"
+                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp"
                     ? "w-72 rounded-xl"
                     : fx.type === "reverb"
                       ? "w-80 rounded-xl"
@@ -337,6 +339,19 @@ export function FxRack({
                     onExpand={() => onOpenEffectWindow?.(fx.id)}
                     onParamChange={(key, v) => onParamChange(fx.id, key, v)}
                     onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "namAmp" ? (
+                  <NamAmpRackCard
+                    params={fx.params}
+                    file={fx.file}
+                    bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                    onLoadFile={(file) => onLoadEffectFile?.(fx.id, file) ?? Promise.resolve("Can't load files here.")}
+                    onClearFile={() => onClearEffectFile?.(fx.id)}
                   />
                 ) : fx.type === "irLoader" ? (
                   <IrLoaderRackCard

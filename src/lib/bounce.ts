@@ -5,7 +5,8 @@
 
 import * as Tone from "tone";
 import { createInstrument, createEffectNode, applyEffectParam, IrLoaderChain } from "./audioEngine";
-import { decodeEffectFileAudio, referencedEffectFiles } from "./effectFiles";
+import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "./effectFiles";
+import { NamAmpChain } from "./namAmp";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
@@ -53,15 +54,27 @@ function interpolateAutomation(points: { time: number; value: number }[], t: num
  * engine's audioEngine.ts `wireEffectsChain`) feeding into `dest`, and
  * returns its entry point plus a lookup from effect id to its live node (so
  * automation can later reach into it by the same id the UI uses). */
+interface OfflineFiles {
+  /** Decoded IRs, by effect-file id. */
+  audio: Map<string, AudioBuffer | null>;
+  /** NAM model contents, by effect-file id. */
+  text: Map<string, string | null>;
+  /** Amp model loads still in flight - the render waits for these. */
+  loads: Promise<unknown>[];
+}
+
 function buildOfflineEffectsChain(
   effects: EffectInstance[],
   dest: Tone.ToneAudioNode,
-  files: Map<string, AudioBuffer | null>
+  files: OfflineFiles
 ): { entry: Tone.ToneAudioNode; nodesById: Map<string, { node: Tone.ToneAudioNode; type: EffectInstance["type"] }> } {
   const built = effects.map((fx) => ({ fx, node: createEffectNode(fx.type, fx.params) }));
   built.forEach(({ fx, node }) => {
     Object.entries(fx.params).forEach(([key, value]) => applyEffectParam(node, fx.type, key, value));
-    if (fx.file && node instanceof IrLoaderChain) node.setImpulse(files.get(fx.file.id) ?? null);
+    if (fx.file && node instanceof IrLoaderChain) node.setImpulse(files.audio.get(fx.file.id) ?? null);
+    if (fx.file && node instanceof NamAmpChain) {
+      files.loads.push(node.setModel(fx.file.id, files.text.get(fx.file.id) ?? null));
+    }
   });
   const active = built.filter(({ fx }) => !fx.bypass);
   for (let i = 0; i < active.length; i++) {
@@ -89,15 +102,14 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
   // Uploaded effect files (IRs) are decoded up front, at the rate the
   // offline render runs at (Tone.Offline's default: the live context's).
   const sampleRate = Tone.getContext().sampleRate;
-  const files = new Map<string, AudioBuffer | null>();
-  const fileRefs = referencedEffectFiles([
-    params.masterEffects,
-    ...Object.values(params.busEffects),
-    ...Object.values(params.channelEffects),
+  const files: OfflineFiles = { audio: new Map(), text: new Map(), loads: [] };
+  const allEffects = [params.masterEffects, ...Object.values(params.busEffects), ...Object.values(params.channelEffects)];
+  const refsOfType = (type: EffectInstance["type"]) =>
+    referencedEffectFiles(allEffects.map((list) => list.filter((fx) => fx.type === type)));
+  await Promise.all([
+    ...refsOfType("irLoader").map(async (ref) => files.audio.set(ref.id, await decodeEffectFileAudio(ref.id, sampleRate))),
+    ...refsOfType("namAmp").map(async (ref) => files.text.set(ref.id, await readEffectFileText(ref.id))),
   ]);
-  await Promise.all(
-    fileRefs.map(async (ref) => files.set(ref.id, await decodeEffectFileAudio(ref.id, sampleRate)))
-  );
 
   const buffer = await Tone.Offline(async () => {
     const masterMeter = new Tone.Meter();
@@ -253,7 +265,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
 
     // Worklet-based effects (every limiter, pitch shifters) only join the
     // graph once their module loads in this offline context.
-    await Promise.all([...loadPromises, workletsReady(Tone.getContext())]);
+    await Promise.all([...loadPromises, ...files.loads, workletsReady(Tone.getContext())]);
   }, duration);
 
   const raw = buffer.get();

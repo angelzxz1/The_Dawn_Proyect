@@ -12,7 +12,8 @@ export type EffectType =
   | "filter"
   | "limiter"
   | "pitchShift"
-  | "irLoader";
+  | "irLoader"
+  | "namAmp";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -25,6 +26,7 @@ export const EFFECT_TYPES: EffectType[] = [
   "limiter",
   "pitchShift",
   "irLoader",
+  "namAmp",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
@@ -35,7 +37,7 @@ export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
   { name: "Reverb & Delay", types: ["reverb", "delay"] },
-  { name: "Amp & Cab", types: ["irLoader"] },
+  { name: "Amp & Cab", types: ["namAmp", "irLoader"] },
 ];
 
 export const EFFECT_LABELS: Record<EffectType, string> = {
@@ -49,11 +51,12 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   limiter: "Limiter",
   pitchShift: "Pitch Shift",
   irLoader: "IR Loader",
+  namAmp: "NAM Amp",
 };
 
 /** Effect types that take an uploaded file (an impulse response, ...) in
  * addition to their knobs. */
-export const FILE_EFFECT_TYPES: EffectType[] = ["irLoader"];
+export const FILE_EFFECT_TYPES: EffectType[] = ["irLoader", "namAmp"];
 
 /** An uploaded file an effect uses. The file itself is stored alongside the
  * project's audio (see effectFiles.ts); the effect only keeps a reference. */
@@ -208,6 +211,18 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
     { key: "wet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
     { key: "normalize", label: "Normalize", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "On" : "Off") },
+  ],
+  // Mirrors the official NAM plugin: Input/Output in dB, a Bass/Middle/
+  // Treble tone stack on 0-10 knobs (5 = flat), output normalized to the
+  // model's reported loudness, and A2 models' Full/Lite size.
+  namAmp: [
+    { key: "input", label: "Input", min: -20, max: 20, default: 0, format: dbSigned },
+    { key: "bass", label: "Bass", min: 0, max: 10, default: 5, format: (v) => v.toFixed(1) },
+    { key: "middle", label: "Middle", min: 0, max: 10, default: 5, format: (v) => v.toFixed(1) },
+    { key: "treble", label: "Treble", min: 0, max: 10, default: 5, format: (v) => v.toFixed(1) },
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
+    { key: "normalize", label: "Normalize", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "On" : "Off") },
+    { key: "size", label: "Size", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "Full" : "Lite") },
   ],
 };
 

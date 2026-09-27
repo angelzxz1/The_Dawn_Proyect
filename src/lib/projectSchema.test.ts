@@ -219,7 +219,7 @@ describe("damaged saved data", () => {
     expect(project.channelEffects["ch-2"][0].params.mode).toBe(1);
   });
 
-  it("keeps an IR Loader's file reference, and only there", () => {
+  it("keeps file references on file-based effects only", () => {
     const project = normalizeProject({
       channels: [{ id: "ch-1", type: "audio" }],
       channelEffects: {
@@ -228,12 +228,21 @@ describe("damaged saved data", () => {
           { id: "fx-2", type: "irLoader", params: {}, file: { name: "no id" } },
           { id: "fx-3", type: "irLoader", params: {}, file: "broken" },
           { id: "fx-4", type: "reverb", params: {}, file: { id: "file-xyz", name: "x.wav" } },
+          { id: "fx-5", type: "namAmp", params: { input: 99, size: 0 }, file: { id: "file-nam", name: "Deluxe A2.nam" } },
         ],
       },
     })!;
     expectValidProject(project);
     const files = project.channelEffects["ch-1"].map((fx) => fx.file);
-    expect(files).toEqual([{ id: "file-abc", name: "4x12 SM57.wav" }, undefined, undefined, undefined]);
+    expect(files).toEqual([
+      { id: "file-abc", name: "4x12 SM57.wav" },
+      undefined,
+      undefined,
+      undefined,
+      { id: "file-nam", name: "Deluxe A2.nam" },
+    ]);
+    const amp = project.channelEffects["ch-1"][4];
+    expect(amp.params).toMatchObject({ input: 20, size: 0, bass: 5, normalize: 1 });
   });
 
   it("never throws on randomly damaged versions of the fixtures", () => {

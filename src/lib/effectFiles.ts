@@ -6,9 +6,11 @@
 // and saving only writes the ones the project still references.
 
 import type { EffectFileRef, EffectInstance } from "./effects";
+import { MAX_NAM_BYTES, parseNamFile } from "./namModel";
 
 const files = new Map<string, Blob>();
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
+const texts = new Map<string, Promise<string | null>>();
 
 export function newEffectFileId(): string {
   const random =
@@ -29,6 +31,21 @@ export function effectFileBlob(id: string): Blob | undefined {
 function forgetEffectFile(id: string): void {
   files.delete(id);
   [...decoded.keys()].filter((k) => k.startsWith(`${id}@`)).forEach((k) => decoded.delete(k));
+  texts.delete(id);
+}
+
+/** The file's contents as text (a .nam model is JSON), or null if missing. */
+export function readEffectFileText(id: string): Promise<string | null> {
+  const cached = texts.get(id);
+  if (cached) return cached;
+  const blob = files.get(id);
+  if (!blob) return Promise.resolve(null);
+  const promise = blob.text().catch(() => {
+    texts.delete(id);
+    return null;
+  });
+  texts.set(id, promise);
+  return promise;
 }
 
 export function hasEffectFile(id: string): boolean {
@@ -83,4 +100,27 @@ export async function importAudioEffectFile(
     return { error: `"${file.name}" is ${buffer.duration.toFixed(1)} s long - an IR can be up to ${maxSeconds} s.` };
   }
   return { ref: { id, name: file.name } };
+}
+
+/** Adds an uploaded .nam file to the registry if it looks like a NAM model
+ * (the engine does the full check when it loads it). */
+export async function importNamModelFile(file: File): Promise<{ ref: EffectFileRef } | { error: string }> {
+  if (file.size > MAX_NAM_BYTES) return { error: `"${file.name}" is too large for a NAM model (max 50 MB).` };
+  let json: string;
+  try {
+    json = await file.text();
+  } catch {
+    return { error: `Couldn't read "${file.name}".` };
+  }
+  const parsed = parseNamFile(json);
+  if ("error" in parsed) return { error: `"${file.name}" ${parsed.error}` };
+  const id = newEffectFileId();
+  registerEffectFile(id, file);
+  texts.set(id, Promise.resolve(json));
+  return { ref: { id, name: file.name } };
+}
+
+/** Drops a file that was imported but then couldn't be used. */
+export function discardEffectFile(id: string): void {
+  forgetEffectFile(id);
 }

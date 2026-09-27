@@ -54,6 +54,7 @@ import { ChorusWindow } from "./ChorusWindow";
 import { PitchShiftWindow } from "./PitchShiftWindow";
 import { DistortionWindow } from "./DistortionWindow";
 import { IrLoaderWindow } from "./IrLoaderWindow";
+import { NamAmpWindow } from "./NamAmpWindow";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
@@ -75,7 +76,14 @@ import {
 } from "@/lib/projectRecovery";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
 import { EFFECT_LABELS, paramSpecs, type EffectFileRef, type EffectInstance, type EffectType } from "@/lib/effects";
-import { effectFileBlob, importAudioEffectFile, referencedEffectFiles, registerEffectFile } from "@/lib/effectFiles";
+import {
+  discardEffectFile,
+  effectFileBlob,
+  importAudioEffectFile,
+  importNamModelFile,
+  referencedEffectFiles,
+  registerEffectFile,
+} from "@/lib/effectFiles";
 import { MAX_IR_SECONDS } from "@/lib/irModel";
 import type { ScaleSetting } from "@/lib/scales";
 import {
@@ -1928,6 +1936,24 @@ export function Daw() {
    * be used, leaving the effect unchanged. */
   const handleLoadEffectFile = useCallback(
     async (hostId: string, effectId: string, file: File): Promise<string | null> => {
+      const project = liveProjectRef.current;
+      const effects =
+        hostId === "master" ? project.masterEffects : project.channelEffects[hostId] ?? project.busEffects[hostId] ?? [];
+      const effect = effects.find((e) => e.id === effectId);
+      if (effect?.type === "namAmp") {
+        // The engine is the real judge of a model file, so it's loaded there
+        // first; only a model that loads becomes part of the project.
+        const result = await importNamModelFile(file);
+        if ("error" in result) return result.error;
+        const error = await audioEngine.setEffectFile(hostId, effectId, result.ref.id);
+        if (error) {
+          discardEffectFile(result.ref.id);
+          void audioEngine.setEffectFile(hostId, effectId, effect.file?.id ?? null);
+          return `Couldn't load "${file.name}": ${error}`;
+        }
+        setEffectFile(hostId, effectId, result.ref);
+        return null;
+      }
       const result = await importAudioEffectFile(file, audioEngine.sampleRate, MAX_IR_SECONDS);
       if ("error" in result) return result.error;
       setEffectFile(hostId, effectId, result.ref);
@@ -3280,6 +3306,33 @@ export function Daw() {
             )
           }
           onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "namAmp" && (
+        <NamAmpWindow
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEffect.params}
+          file={expandedEffect.file}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+          onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
+          onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
         />
       )}
 

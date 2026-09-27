@@ -58,6 +58,8 @@ import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
 import { ParamEqWindow } from "./ParamEqWindow";
 import { MultibandWindow } from "./MultibandWindow";
+import { UtilityWindow } from "./UtilityWindow";
+import { TunerWindow } from "./TunerWindow";
 import { AudioStatus } from "./AudioStatus";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
@@ -3366,6 +3368,54 @@ export function Daw() {
 
       {expandedEffectId && expandedEffect?.type === "paramEq" && (
         <ParamEqWindow
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "utility" && (
+        <UtilityWindow
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+        />
+      )}
+
+      {expandedEffectId && expandedEffect?.type === "tuner" && (
+        <TunerWindow
           hostId={fxHostId}
           effectId={expandedEffectId}
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}

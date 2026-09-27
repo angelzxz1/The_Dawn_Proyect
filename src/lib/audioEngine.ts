@@ -69,6 +69,8 @@ import { NamAmpChain } from "./namAmp";
 import { NoiseGate, gateSettingsFromParams, type GateReading } from "./noiseGate";
 import { ParamEqChain } from "./paramEq";
 import { MultibandChain, type MultibandMeters } from "./multiband";
+import { UtilityChain, type UtilityMeters } from "./utility";
+import { TunerChain } from "./tuner";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
@@ -1288,6 +1290,10 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
       return new ParamEqChain(params);
     case "multiband":
       return new MultibandChain(params);
+    case "utility":
+      return new UtilityChain(params);
+    case "tuner":
+      return new TunerChain(params);
   }
 }
 
@@ -1431,6 +1437,12 @@ export function applyEffectParam(
       break;
     case "multiband":
       (node as MultibandChain).setParam(key, value);
+      break;
+    case "utility":
+      (node as UtilityChain).setParam(key, value);
+      break;
+    case "tuner":
+      if (key === "mute") (node as TunerChain).setMute(value >= 0.5);
       break;
   }
 }
@@ -2048,6 +2060,19 @@ class AudioEngine {
   setBandSolo(hostId: string, effectId: string, band: number): void {
     const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
     if (effect?.node instanceof ParamEqChain || effect?.node instanceof MultibandChain) effect.node.setSolo(band);
+  }
+
+  /** One Utility's output meters and scope points (null if it isn't one,
+   * or no audio is flowing). */
+  getUtilityMeters(hostId: string, effectId: string): UtilityMeters | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof UtilityChain ? effect.node.meters : null;
+  }
+
+  /** The latest audio going into one Tuner, for pitch detection. */
+  getTunerWaveform(hostId: string, effectId: string): Float32Array | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof TunerChain ? effect.node.waveform : null;
   }
 
   /** Each band's live gain and level in one Multiband Compressor, for its

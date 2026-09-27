@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "savedAt": 1768000000000,
+  "channels": [
+    { "id": "ch-1", "name": "Lead", "volume": -4, "pan": 0, "colorIndex": 3, "type": "midi", "instrument": "synth",
+      "synthParams": { "mode": "subtractive", "oscillatorType": "sawtooth", "attack": 0.01, "decay": 0.2, "sustain": 0.6, "release": 0.4, "filterCutoff": 2400, "filterResonance": 2, "harmonicity": 3, "modulationIndex": 10, "detune": 0 },
+      "muted": false, "solo": true, "armed": true,
+      "sends": { "bus-1": -12 },
+      "automationLanes": [
+        { "id": "auto-1", "target": { "kind": "volume" }, "points": [ { "id": "pt-1", "time": 0, "value": -12 }, { "id": "pt-2", "time": 4, "value": 0 } ] },
+        { "id": "auto-2", "target": { "kind": "effect", "effectId": "fx-1", "paramKey": "type" }, "points": [ { "id": "pt-3", "time": 0, "value": 0 }, { "id": "pt-4", "time": 2, "value": 0.5 } ] },
+        { "id": "auto-3", "target": { "kind": "effect", "effectId": "fx-1", "paramKey": "frequency" }, "points": [ { "id": "pt-5", "time": 0, "value": 300 }, { "id": "pt-6", "time": 2, "value": 8000 } ] }
+      ] },
+    { "id": "ch-2", "name": "Pad", "volume": -8, "pan": 0.3, "colorIndex": 4, "type": "midi", "instrument": "synth",
+      "synthParams": { "mode": "fm", "oscillatorType": "sine", "attack": 0.5, "decay": 1, "sustain": 0.8, "release": 2, "filterCutoff": 5000, "filterResonance": 1, "harmonicity": 2, "modulationIndex": 4, "detune": 7 },
+      "muted": false, "solo": false, "sends": { "bus-1": -6 } }
+  ],
+  "clipsByChannel": {
+    "ch-1": [ { "id": "clip-1", "kind": "midi", "offset": 0, "length": 4, "notes": [ { "note": "A3", "time": 0, "duration": 1, "velocity": 0.8 } ], "loopLength": 2 } ],
+    "ch-2": [ { "id": "clip-2", "kind": "midi", "offset": 4, "length": 8, "notes": [ { "note": "F#3", "time": 0, "duration": 4, "velocity": 0.6 } ] } ]
+  },
+  "channelEffects": {
+    "ch-1": [
+      { "id": "fx-1", "type": "filter", "params": { "frequency": 1200, "Q": 1, "type": 0 }, "bypass": false },
+      { "id": "fx-2", "type": "distortion", "params": { "distortion": 0.4, "wet": 1 }, "bypass": true }
+    ],
+    "ch-2": [
+      { "id": "fx-3", "type": "chorus", "params": { "frequency": 1.5, "delayTime": 3.5, "depth": 0.7, "wet": 0.5 } },
+      { "id": "fx-4", "type": "pitchShift", "params": { "pitch": 12, "wet": 1 } },
+      { "id": "fx-5", "type": "limiter", "params": { "threshold": -3 } }
+    ]
+  },
+  "buses": [ { "id": "bus-1", "name": "Reverb Bus", "colorIndex": 5 } ],
+  "busEffects": { "bus-1": [ { "id": "fx-6", "type": "reverb", "params": { "decay": 4, "wet": 1 } } ] },
+  "bpm": 96,
+  "timeSignature": { "numerator": 3, "denominator": 4 },
+  "masterVolume": -2,
+  "masterPan": 0,
+  "masterName": "Mix",
+  "masterLimiterThreshold": -1,
+  "scaleSetting": { "root": "A", "scale": "Natural Minor", "enabled": true },
+  "snapResolution": "1/4",
+  "countInBars": 0,
+  "metronomeEnabled": true
+}

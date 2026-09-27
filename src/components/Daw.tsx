@@ -65,6 +65,13 @@ import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
 import { loadProject, saveProject, type SerializedClip } from "@/lib/persistence";
+import { PROJECT_VERSION } from "@/lib/projectSchema";
+import {
+  clearRecoveryNotice,
+  downloadLatestBackup,
+  readRecoveryNotice,
+  startFreshKeepingBackup,
+} from "@/lib/projectRecovery";
 import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import type { ScaleSetting } from "@/lib/scales";
@@ -365,6 +372,10 @@ export function Daw() {
   const audioBlobsRef = useRef(new Map<string, Blob>());
   const projectLoadedRef = useRef(false);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
+  // Set when the last saved project couldn't be opened and the studio
+  // started fresh (the old project is kept as a backup in this browser).
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(() => readRecoveryNotice());
+  const [backupDownloadFailed, setBackupDownloadFailed] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [isExporting, setIsExporting] = useState(false);
   const samplesReady = useSyncExternalStore(
@@ -2308,7 +2319,7 @@ export function Daw() {
       });
       await saveProject(
         {
-          version: 1,
+          version: PROJECT_VERSION,
           savedAt: Date.now(),
           channels,
           clipsByChannel: serializedClips,
@@ -2361,100 +2372,112 @@ export function Daw() {
       const result = await loadProject().catch(() => null);
       if (cancelled) return;
       if (result) {
-        const { project, blobs } = result;
-        const restoredClips: Record<string, ClipInstance[]> = {};
-        let maxEffectN = 0;
-        Object.entries(project.clipsByChannel).forEach(([chId, clips]) => {
-          restoredClips[chId] = clips.map((c) => {
-            bumpCounterFromId(c.id, "clip");
-            if (c.kind === "audio") {
-              const blob = blobs.get(c.id);
-              const url = blob ? URL.createObjectURL(blob) : "";
-              if (blob) audioBlobsRef.current.set(c.id, blob);
-              const restored: AudioClipInstance = {
+        try {
+          // normalizeProject returns null for data that isn't a project at
+          // all; anything else has already been repaired into a valid shape.
+          if (!result.project) throw new Error("the saved data isn't a project");
+          const { project, blobs } = result;
+          const restoredClips: Record<string, ClipInstance[]> = {};
+          let maxEffectN = 0;
+          Object.entries(project.clipsByChannel).forEach(([chId, clips]) => {
+            restoredClips[chId] = clips.map((c) => {
+              bumpCounterFromId(c.id, "clip");
+              if (c.kind === "audio") {
+                const blob = blobs.get(c.id);
+                const url = blob ? URL.createObjectURL(blob) : "";
+                if (blob) audioBlobsRef.current.set(c.id, blob);
+                const restored: AudioClipInstance = {
+                  id: c.id,
+                  kind: "audio",
+                  offset: c.offset,
+                  length: c.length,
+                  url,
+                  fileName: c.fileName,
+                  durationSeconds: c.durationSeconds,
+                  peaks: c.peaks,
+                  sourceOffset: c.sourceOffset,
+                  fadeIn: c.fadeIn,
+                  fadeOut: c.fadeOut,
+                  gainDb: c.gainDb,
+                  loopLength: c.loopLength,
+                };
+                return restored;
+              }
+              const restored: MidiClipInstance = {
                 id: c.id,
-                kind: "audio",
+                kind: "midi",
                 offset: c.offset,
                 length: c.length,
-                url,
-                fileName: c.fileName,
-                durationSeconds: c.durationSeconds,
-                peaks: c.peaks,
-                sourceOffset: c.sourceOffset,
-                fadeIn: c.fadeIn,
-                fadeOut: c.fadeOut,
-                gainDb: c.gainDb,
+                notes: c.notes,
                 loopLength: c.loopLength,
               };
               return restored;
-            }
-            const restored: MidiClipInstance = {
-              id: c.id,
-              kind: "midi",
-              offset: c.offset,
-              length: c.length,
-              notes: c.notes,
-              loopLength: c.loopLength,
-            };
-            return restored;
+            });
           });
-        });
-        project.channels.forEach((c) => bumpCounterFromId(c.id, "ch"));
-        const buses = project.buses ?? [];
-        const busEffects = project.busEffects ?? {};
-        const masterEffects = project.masterEffects ?? [];
-        buses.forEach((b) => {
-          const match = b.id.match(/^bus-(\d+)$/);
-          if (match) busCounter = Math.max(busCounter, parseInt(match[1], 10));
-        });
-        project.channels.forEach((c) =>
-          (c.automationLanes ?? []).forEach((lane) => {
-            const match = lane.id.match(/^auto-(\d+)$/);
-            if (match) automationLaneCounter = Math.max(automationLaneCounter, parseInt(match[1], 10));
-          })
-        );
-        [
-          ...Object.values(project.channelEffects).flat(),
-          ...Object.values(busEffects).flat(),
-          ...masterEffects,
-        ].forEach((fx) => {
-          const match = fx.id.match(/^fx-(\d+)$/);
-          if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
-        });
-        bumpEffectIdCounter(maxEffectN);
+          project.channels.forEach((c) => bumpCounterFromId(c.id, "ch"));
+          const buses = project.buses ?? [];
+          const busEffects = project.busEffects ?? {};
+          const masterEffects = project.masterEffects ?? [];
+          buses.forEach((b) => {
+            const match = b.id.match(/^bus-(\d+)$/);
+            if (match) busCounter = Math.max(busCounter, parseInt(match[1], 10));
+          });
+          project.channels.forEach((c) =>
+            (c.automationLanes ?? []).forEach((lane) => {
+              const match = lane.id.match(/^auto-(\d+)$/);
+              if (match) automationLaneCounter = Math.max(automationLaneCounter, parseInt(match[1], 10));
+            })
+          );
+          [
+            ...Object.values(project.channelEffects).flat(),
+            ...Object.values(busEffects).flat(),
+            ...masterEffects,
+          ].forEach((fx) => {
+            const match = fx.id.match(/^fx-(\d+)$/);
+            if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
+          });
+          bumpEffectIdCounter(maxEffectN);
 
-        setChannels(project.channels);
-        setClipsByChannel(restoredClips);
-        setChannelEffects(project.channelEffects);
-        setBuses(buses);
-        setBusEffects(busEffects);
-        setBpm(project.bpm);
-        setTimeSignature(project.timeSignature);
-        setMasterVolume(project.masterVolume);
-        setMasterPan(project.masterPan);
-        setMasterName(project.masterName);
-        setMasterLimiterThreshold(project.masterLimiterThreshold);
-        setMasterEffects(masterEffects);
-        setScaleSetting(project.scaleSetting);
-        setSnapResolution(project.snapResolution);
-        setCountInBars(project.countInBars);
-        setMetronomeEnabled(project.metronomeEnabled);
-        hydrateEngine(
-          {
-            channels: project.channels,
-            clipsByChannel: restoredClips,
-            channelEffects: project.channelEffects,
-            buses,
-            busEffects,
-            bpm: project.bpm,
-            timeSignature: project.timeSignature,
-            masterVolume: project.masterVolume,
-            masterPan: project.masterPan,
-            masterName: project.masterName,
-            masterEffects,
-          },
-          registeredChannelIds.current
-        );
+          setChannels(project.channels);
+          setClipsByChannel(restoredClips);
+          setChannelEffects(project.channelEffects);
+          setBuses(buses);
+          setBusEffects(busEffects);
+          setBpm(project.bpm);
+          setTimeSignature(project.timeSignature);
+          setMasterVolume(project.masterVolume);
+          setMasterPan(project.masterPan);
+          setMasterName(project.masterName);
+          setMasterLimiterThreshold(project.masterLimiterThreshold);
+          setMasterEffects(masterEffects);
+          setScaleSetting(project.scaleSetting);
+          setSnapResolution(project.snapResolution);
+          setCountInBars(project.countInBars);
+          setMetronomeEnabled(project.metronomeEnabled);
+          hydrateEngine(
+            {
+              channels: project.channels,
+              clipsByChannel: restoredClips,
+              channelEffects: project.channelEffects,
+              buses,
+              busEffects,
+              bpm: project.bpm,
+              timeSignature: project.timeSignature,
+              masterVolume: project.masterVolume,
+              masterPan: project.masterPan,
+              masterName: project.masterName,
+              masterEffects,
+            },
+            registeredChannelIds.current
+          );
+        } catch (err) {
+          // Never leave the studio stuck on a project it can't open: keep a
+          // backup of it, start fresh, and say what happened.
+          await startFreshKeepingBackup(
+            `Couldn't open the saved project (${err instanceof Error ? err.message : String(err)}).`
+          );
+          return;
+        }
       }
       projectLoadedRef.current = true;
       setIsLoadingProject(false);
@@ -2497,6 +2520,43 @@ export function Daw() {
             <Loader2 size={16} className="animate-spin" />
             Loading project…
           </div>
+        </div>
+      )}
+      {recoveryNotice && (
+        <div
+          role="alert"
+          className="fixed left-1/2 top-3 z-[90] flex w-[min(640px,calc(100vw-32px))] -translate-x-1/2 items-start gap-3 rounded-lg border border-border bg-surface-raised p-3 text-sm shadow-2xl"
+        >
+          <div className="flex-1">
+            <p className="font-medium">The studio started with a fresh project.</p>
+            <p className="mt-1 text-xs text-muted">
+              {recoveryNotice} A backup of it is kept in this browser.
+              {backupDownloadFailed && " (No backup was found to download.)"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void downloadLatestBackup()
+                .then((found) => setBackupDownloadFailed(!found))
+                .catch(() => setBackupDownloadFailed(true));
+            }}
+            className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-surface"
+          >
+            <Download size={13} />
+            Download backup
+          </button>
+          <button
+            type="button"
+            title="Dismiss"
+            onClick={() => {
+              clearRecoveryNotice();
+              setRecoveryNotice(null);
+            }}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
       <EffectBrowser onAddEffect={handleSidebarAddEffect} />

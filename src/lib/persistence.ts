@@ -4,105 +4,25 @@
 // only the underlying Blob is stored - a fresh URL gets minted for each
 // audio clip when the project is loaded back.
 
-import type { BusConfig, ChannelConfig, NoteEvent, TimeSignature } from "./types";
-import type { EffectInstance } from "./effects";
-import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
-import type { ScaleSetting } from "./scales";
-import type { SnapResolution } from "./timeline";
+import { normalizeProject, type SerializedProject } from "./projectSchema";
+
+export type { SerializedClip, SerializedProject } from "./projectSchema";
 
 const DB_NAME = "dawn-project-db";
 const DB_VERSION = 1;
 const META_STORE = "meta";
 const BLOB_STORE = "audioBlobs";
 const PROJECT_KEY = "current";
+const BACKUP_PREFIX = "backup:";
+const MAX_BACKUPS = 3;
 
-interface SerializedMidiClip {
-  id: string;
-  kind: "midi";
-  offset: number;
-  length: number;
-  notes: NoteEvent[];
-  loopLength?: number | null;
-}
-
-interface SerializedAudioClip {
-  id: string;
-  kind: "audio";
-  offset: number;
-  length: number;
-  fileName: string;
-  durationSeconds: number;
-  peaks: number[];
-  sourceOffset: number;
-  fadeIn: number;
-  fadeOut: number;
-  gainDb: number;
-  loopLength?: number | null;
-}
-
-export type SerializedClip = SerializedMidiClip | SerializedAudioClip;
-
-export interface SerializedProject {
-  version: 1;
-  savedAt: number;
-  channels: ChannelConfig[];
-  clipsByChannel: Record<string, SerializedClip[]>;
-  channelEffects: Record<string, EffectInstance[]>;
-  buses?: BusConfig[];
-  busEffects?: Record<string, EffectInstance[]>;
-  bpm: number;
-  timeSignature: TimeSignature;
-  masterVolume: number;
-  masterPan: number;
-  masterName: string;
-  masterLimiterThreshold: number;
-  masterEffects?: EffectInstance[];
-  scaleSetting: ScaleSetting;
-  snapResolution: SnapResolution;
-  countInBars: number;
-  metronomeEnabled: boolean;
-}
-
-/** Brings a project saved by an older version up to date. Currently: a
- * Filter effect's old single "type" knob becomes the plugin's `mode` (plus
- * its dB-style Q becomes linear) - including any automation lane recorded
- * on that knob. */
-function migrateProject(project: SerializedProject): SerializedProject {
-  const legacyFilterIds = new Set<string>();
-  const migrate = (effects: EffectInstance[]) =>
-    effects.map((fx) => {
-      if (fx.type !== "filter") return fx;
-      const params = migrateLegacyFilterParams(fx.params);
-      if (params === fx.params) return fx;
-      legacyFilterIds.add(fx.id);
-      return { ...fx, params };
-    });
-
-  const channelEffects = Object.fromEntries(
-    Object.entries(project.channelEffects).map(([id, effects]) => [id, migrate(effects)])
-  );
-  const busEffects = project.busEffects
-    ? Object.fromEntries(Object.entries(project.busEffects).map(([id, effects]) => [id, migrate(effects)]))
-    : undefined;
-  const masterEffects = project.masterEffects ? migrate(project.masterEffects) : undefined;
-
-  const channels = project.channels.map((channel) => {
-    if (!channel.automationLanes?.length || legacyFilterIds.size === 0) return channel;
-    return {
-      ...channel,
-      automationLanes: channel.automationLanes.map((lane) =>
-        lane.target.kind === "effect" && lane.target.paramKey === "type" && legacyFilterIds.has(lane.target.effectId)
-          ? {
-              ...lane,
-              target: { ...lane.target, paramKey: "mode" },
-              points: lane.points.map((pt) => ({ ...pt, value: legacyFilterTypeToMode(pt.value) })),
-            }
-          : lane
-      ),
-    };
-  });
-
-  return { ...project, channels, channelEffects, busEffects, masterEffects };
+/** A saved project that couldn't be opened, kept exactly as it was stored
+ * (with its audio) so nothing is lost when the app starts fresh instead. */
+export interface ProjectBackup {
+  createdAt: number;
+  reason: string;
+  project: unknown;
+  blobs: [string, Blob][];
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -144,18 +64,21 @@ export async function saveProject(
   }
 }
 
+/** The stored project, cleaned up for the current version (see
+ * projectSchema.ts). `project` is null if what's stored isn't readable as
+ * a project at all; `raw` is always exactly what was stored, for backups. */
 export async function loadProject(): Promise<
-  { project: SerializedProject; blobs: Map<string, Blob> } | null
+  { raw: unknown; project: SerializedProject | null; blobs: Map<string, Blob> } | null
 > {
   const db = await openDb();
   try {
-    const project = await new Promise<SerializedProject | undefined>((resolve, reject) => {
+    const raw = await new Promise<unknown>((resolve, reject) => {
       const tx = db.transaction(META_STORE, "readonly");
       const req = tx.objectStore(META_STORE).get(PROJECT_KEY);
-      req.onsuccess = () => resolve(req.result as SerializedProject | undefined);
+      req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
-    if (!project) return null;
+    if (raw === undefined) return null;
 
     const blobs = new Map<string, Blob>();
     await new Promise<void>((resolve, reject) => {
@@ -173,7 +96,65 @@ export async function loadProject(): Promise<
       };
       req.onerror = () => reject(req.error);
     });
-    return { project: migrateProject(project), blobs };
+    let project: SerializedProject | null = null;
+    try {
+      project = normalizeProject(raw);
+    } catch {
+      project = null;
+    }
+    return { raw, project, blobs };
+  } finally {
+    db.close();
+  }
+}
+
+/** Stores `raw` (and its audio) as a backup, keeping only the newest few. */
+export async function backupProject(raw: unknown, blobs: Map<string, Blob>, reason: string): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(META_STORE, "readwrite");
+      const store = tx.objectStore(META_STORE);
+      const backup: ProjectBackup = { createdAt: Date.now(), reason, project: raw, blobs: [...blobs] };
+      store.put(backup, `${BACKUP_PREFIX}${backup.createdAt}`);
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        const backups = keysReq.result
+          .map(String)
+          .filter((k) => k.startsWith(BACKUP_PREFIX))
+          .sort();
+        backups.slice(0, Math.max(0, backups.length - MAX_BACKUPS)).forEach((k) => store.delete(k));
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** The most recent backup, if any. */
+export async function latestBackup(): Promise<ProjectBackup | null> {
+  const db = await openDb();
+  try {
+    return await new Promise<ProjectBackup | null>((resolve, reject) => {
+      const tx = db.transaction(META_STORE, "readonly");
+      const store = tx.objectStore(META_STORE);
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        const latest = keysReq.result
+          .map(String)
+          .filter((k) => k.startsWith(BACKUP_PREFIX))
+          .sort()
+          .pop();
+        if (!latest) return resolve(null);
+        const req = store.get(latest);
+        req.onsuccess = () => resolve((req.result as ProjectBackup) ?? null);
+        req.onerror = () => reject(req.error);
+      };
+      keysReq.onerror = () => reject(keysReq.error);
+    });
   } finally {
     db.close();
   }
@@ -184,7 +165,8 @@ export async function clearSavedProject(): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([META_STORE, BLOB_STORE], "readwrite");
-      tx.objectStore(META_STORE).clear();
+      // Only the current project - backups live in the same store.
+      tx.objectStore(META_STORE).delete(PROJECT_KEY);
       tx.objectStore(BLOB_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);

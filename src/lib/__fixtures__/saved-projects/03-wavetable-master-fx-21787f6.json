@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "savedAt": 1769000000000,
+  "channels": [
+    { "id": "ch-4", "name": "Wave Lead", "volume": -5, "pan": 0, "colorIndex": 0, "type": "midi", "instrument": "synth",
+      "synthParams": {
+        "oscA": { "wavetable": "classic", "position": 0.6, "octave": 0, "semitone": 0, "fineCents": 0, "level": 0.8, "unisonVoices": 3, "unisonSpread": 18 },
+        "oscB": { "wavetable": "classic", "position": 0.6, "octave": 0, "semitone": 0, "fineCents": 8, "level": 0.5, "unisonVoices": 1, "unisonSpread": 0 },
+        "oscBEnabled": true, "subLevel": 0.15, "subOctaveDown": 1,
+        "filterType": "lowpass", "filterCutoff": 2600, "filterResonance": 1.5, "filterEnvAmount": 1.2,
+        "ampAttack": 0.01, "ampDecay": 0.15, "ampSustain": 0.7, "ampRelease": 0.2,
+        "filterAttack": 0.01, "filterDecay": 0.25, "filterSustain": 0.4, "filterRelease": 0.3,
+        "lfoRate": 5, "lfoAmount": 0.05, "lfoTarget": "pitch", "glide": 0
+      },
+      "muted": false, "solo": false, "armed": false, "sends": {},
+      "automationLanes": [
+        { "id": "auto-7", "target": { "kind": "pan" }, "points": [ { "id": "pt-9", "time": 2, "value": 0.5 }, { "id": "pt-8", "time": 0, "value": -0.5 } ] }
+      ] },
+    { "id": "ch-5", "name": "Guitar", "volume": -2, "pan": -0.4, "colorIndex": 6, "type": "audio", "instrument": null, "muted": false, "solo": false, "armed": false, "sends": {} }
+  ],
+  "clipsByChannel": {
+    "ch-4": [ { "id": "clip-9", "kind": "midi", "offset": 0, "length": 4, "notes": [ { "note": "D#5", "time": 0.25, "duration": 0.25, "velocity": 0.75 } ], "loopLength": null } ],
+    "ch-5": [ { "id": "clip-10", "kind": "audio", "offset": 2, "length": 6, "fileName": "riff.mp3", "durationSeconds": 12.5, "peaks": [0.2, 0.5, 0.9, 0.6, 0.1], "sourceOffset": 1.5, "fadeIn": 0.05, "fadeOut": 0.5, "gainDb": -3, "loopLength": null } ]
+  },
+  "channelEffects": {
+    "ch-4": [ { "id": "fx-11", "type": "delay", "params": { "delayTime": 0.375, "feedback": 0.4, "wet": 0.25 }, "bypass": false } ],
+    "ch-5": []
+  },
+  "buses": [],
+  "busEffects": {},
+  "bpm": 128,
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "masterVolume": 0,
+  "masterPan": 0,
+  "masterName": "Master",
+  "masterLimiterThreshold": -0.5,
+  "masterEffects": [
+    { "id": "fx-12", "type": "eq3", "params": { "low": 1, "mid": 0, "high": 2, "lowFrequency": 250, "highFrequency": 4000 }, "bypass": false },
+    { "id": "fx-13", "type": "compressor", "params": { "threshold": -18, "ratio": 2, "attack": 0.01, "release": 0.15 }, "bypass": false },
+    { "id": "fx-14", "type": "limiter", "params": { "threshold": -1 }, "bypass": false }
+  ],
+  "scaleSetting": { "root": "D", "scale": "Dorian", "enabled": false },
+  "snapResolution": "1/8",
+  "countInBars": 2,
+  "metronomeEnabled": false
+}

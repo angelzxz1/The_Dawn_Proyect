@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "savedAt": 1767000000000,
+  "channels": [
+    { "id": "ch-1", "name": "Piano", "volume": -6, "pan": 0, "colorIndex": 0, "type": "midi", "instrument": "piano", "muted": false, "solo": false },
+    { "id": "ch-2", "name": "Drums", "volume": 0, "pan": -0.2, "colorIndex": 1, "type": "midi", "instrument": "drums", "muted": false, "solo": false },
+    { "id": "ch-3", "name": "Vocals", "volume": -3, "pan": 0.1, "colorIndex": 2, "type": "audio", "instrument": null, "muted": true, "solo": false }
+  ],
+  "clipsByChannel": {
+    "ch-1": [
+      { "id": "clip-1", "kind": "midi", "offset": 0, "length": 4, "notes": [
+        { "note": "C4", "time": 0, "duration": 0.5, "velocity": 0.8 },
+        { "note": "E4", "time": 0.5, "duration": 0.5, "velocity": 0.7 },
+        { "note": "G4", "time": 1, "duration": 1, "velocity": 0.9 }
+      ] }
+    ],
+    "ch-2": [
+      { "id": "clip-2", "kind": "midi", "offset": 0, "length": 2, "notes": [
+        { "note": "C2", "time": 0, "duration": 0.1, "velocity": 1 },
+        { "note": "D2", "time": 0.5, "duration": 0.1, "velocity": 0.9 }
+      ] }
+    ],
+    "ch-3": [
+      { "id": "clip-3", "kind": "audio", "offset": 1, "length": 3.2, "fileName": "take1.wav", "durationSeconds": 3.2, "peaks": [0.1, 0.4, 0.8, 0.3] }
+    ]
+  },
+  "channelEffects": {
+    "ch-1": [
+      { "id": "fx-1", "type": "eq3", "params": { "low": 2, "mid": -3, "high": 1, "lowFrequency": 400, "highFrequency": 2500 } },
+      { "id": "fx-2", "type": "reverb", "params": { "decay": 2, "wet": 0.3 } }
+    ],
+    "ch-2": [
+      { "id": "fx-3", "type": "compressor", "params": { "threshold": -24, "ratio": 4, "attack": 0.02, "release": 0.2 } }
+    ],
+    "ch-3": [
+      { "id": "fx-4", "type": "delay", "params": { "delayTime": 0.25, "feedback": 0.35, "wet": 0.35 } }
+    ]
+  },
+  "bpm": 120,
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "masterVolume": 0,
+  "masterPan": 0,
+  "masterName": "Master",
+  "masterLimiterThreshold": -1,
+  "scaleSetting": { "root": "C", "scale": "Major", "enabled": false },
+  "snapResolution": "bar",
+  "countInBars": 1,
+  "metronomeEnabled": false
+}

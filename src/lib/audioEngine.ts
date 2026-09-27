@@ -1619,8 +1619,10 @@ class AudioEngine {
     this.automation.delete(id);
     this.sustainedChannels.delete(id);
     this.sustainPending.delete(id);
-    this.monitorNodes.get(id)?.dispose();
-    this.monitorNodes.delete(id);
+    // An open monitor input is kept (just unplugged): undo/redo tears every
+    // channel down and rebuilds it with the same id, and addChannel plugs
+    // the input back in. Turning monitoring off is what closes it.
+    this.monitorNodes.get(id)?.disconnect();
     if (this.recording?.channelId === id) {
       this.recording = null;
     }
@@ -1662,11 +1664,15 @@ class AudioEngine {
     // is currently active.
     nodes.instrument.disconnect();
     nodes.audioClips.forEach(({ gain }) => gain.disconnect());
+    const monitor = this.monitorNodes.get(id);
+    monitor?.disconnect();
 
+    // Live input (monitoring) is a source like a clip, so it's heard
+    // through the track's effects - an amp, a cab IR - not around them.
     type Connectable = { connect: (n: Tone.InputNode) => unknown };
     const sources: Connectable[] =
       nodes.channelType === "audio"
-        ? [...nodes.audioClips.values()].map((c) => c.gain)
+        ? [...[...nodes.audioClips.values()].map((c) => c.gain), ...(monitor ? [monitor] : [])]
         : [nodes.instrument];
     if (sources.length === 0) {
       nodes.effects.forEach((e) => e.node.disconnect());
@@ -2355,8 +2361,8 @@ class AudioEngine {
       this.micStream.getTracks().forEach((track) => track.stop());
       this.micStream = null;
     }
-    this.monitorNodes.forEach((_, channelId) => {
-      this.setInputMonitoring(channelId, false);
+    [...this.monitorNodes.keys()].forEach((channelId) => {
+      void this.setInputMonitoring(channelId, false);
       void this.setInputMonitoring(channelId, true);
     });
   }
@@ -2381,34 +2387,38 @@ class AudioEngine {
    * recording (or just while getting ready to). Taps in directly to the
    * channel strip rather than through its effects chain, for lower
    * latency and so unrelated effect changes never have to know about it. */
-  async setInputMonitoring(channelId: string, enabled: boolean): Promise<void> {
-    const nodes = this.channels.get(channelId);
-    if (!nodes) return;
+  /** Starts or stops hearing the audio input live through an audio
+   * channel - through its effects, like a clip. Resolves false if the input
+   * couldn't be opened (no permission, no device). */
+  async setInputMonitoring(channelId: string, enabled: boolean): Promise<boolean> {
     if (!enabled) {
       const mic = this.monitorNodes.get(channelId);
       if (mic) {
         mic.dispose();
         this.monitorNodes.delete(channelId);
+        this.rewireChannel(channelId);
       }
-      return;
+      return true;
     }
-    if (this.monitorNodes.has(channelId)) return;
+    if (!this.channels.has(channelId)) return false;
+    if (this.monitorNodes.has(channelId)) return true;
     await this.ensureStarted();
     const mic = new Tone.UserMedia();
     try {
       await mic.open(this.micDeviceId ?? undefined);
     } catch {
       mic.dispose();
-      return;
+      return false;
     }
     // The channel (or the whole engine) may have gone away while the
     // permission prompt/device open was in flight.
     if (!this.channels.has(channelId) || this.monitorNodes.has(channelId)) {
       mic.dispose();
-      return;
+      return this.monitorNodes.has(channelId);
     }
-    mic.connect(nodes.channel);
     this.monitorNodes.set(channelId, mic);
+    this.rewireChannel(channelId);
+    return true;
   }
 
   isInputMonitoring(channelId: string): boolean {

@@ -995,11 +995,41 @@ export function Daw() {
       return;
     }
     const channelId = armedChannelId;
-    void audioEngine.setInputMonitoring(channelId, true);
+    let cancelled = false;
+    void audioEngine.setInputMonitoring(channelId, true).then((ok) => {
+      if (cancelled) return;
+      if (ok) {
+        setMicError(null);
+        return;
+      }
+      setInputMonitoringEnabled(false);
+      setMicError(
+        "Couldn't open your audio input - allow microphone access in the browser, and pick your interface in the track's Input menu."
+      );
+    });
     return () => {
+      cancelled = true;
       void audioEngine.setInputMonitoring(channelId, false);
     };
   }, [armedChannelId, inputMonitoringEnabled, channelTypeOf]);
+
+  /** Arms an audio track (disarming any other) and hears its input live -
+   * through its effects - or turns that back off if it's already on. */
+  const toggleLiveInput = useCallback(
+    (channelId: string) => {
+      if (transportState === "recording") return;
+      if (armedChannelId === channelId && inputMonitoringEnabled) {
+        setInputMonitoringEnabled(false);
+        return;
+      }
+      if (armedChannelId !== channelId) {
+        pushHistory();
+        setChannels((prev) => prev.map((c) => ({ ...c, armed: c.id === channelId })));
+      }
+      setInputMonitoringEnabled(true);
+    },
+    [transportState, armedChannelId, inputMonitoringEnabled, pushHistory]
+  );
 
   // Which channel a recording-in-progress targets - captured once at
   // Record time (not read live from `armedChannelId`) so re-arming a
@@ -2671,7 +2701,23 @@ export function Daw() {
           recordingMode={armedChannel?.type === "audio" ? "audio" : "midi"}
           armedChannelName={armedChannel?.name ?? null}
           monitoringEnabled={inputMonitoringEnabled}
-          onToggleMonitoring={() => setInputMonitoringEnabled((v) => !v)}
+          onToggleMonitoring={() => {
+            // With an audio track armed this just flips monitoring; otherwise
+            // it arms the audio track whose effects are open (or the first
+            // one) so the button always does something useful.
+            if (armedChannel?.type === "audio") {
+              setInputMonitoringEnabled((v) => !v);
+              return;
+            }
+            const target = fxChannel?.type === "audio" ? fxChannel : channels.find((c) => c.type === "audio");
+            if (!target) {
+              setMicError(
+                "To hear your instrument live, add an audio track - a guitar goes into an audio track, not a MIDI one."
+              );
+              return;
+            }
+            toggleLiveInput(target.id);
+          }}
           loopEnabled={loopEnabled}
           onToggleLoop={() => setLoopEnabled((v) => !v)}
           countInBars={countInBars}
@@ -3333,6 +3379,17 @@ export function Daw() {
           onParamDragStart={pushHistory}
           onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
           onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
+          live={{
+            state:
+              fxChannel?.type === "audio"
+                ? armedChannelId === fxChannel.id && inputMonitoringEnabled
+                  ? "on"
+                  : "off"
+                : fxChannel
+                  ? "midi"
+                  : "other",
+            onToggle: () => fxChannel && toggleLiveInput(fxChannel.id),
+          }}
         />
       )}
 

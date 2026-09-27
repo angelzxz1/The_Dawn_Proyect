@@ -28,7 +28,8 @@ interface TransportBarProps {
   /** Name of the record-armed channel, or null if none is armed. */
   armedChannelName: string | null;
   /** Whether the armed audio track's input is currently monitored live -
-   * only meaningful (and only shown) while `recordingMode` is "audio". */
+   * only in effect while `recordingMode` is "audio" (the button still
+   * shows otherwise - clicking it then arms an audio track). */
   monitoringEnabled: boolean;
   onToggleMonitoring: () => void;
   loopEnabled: boolean;
@@ -67,6 +68,7 @@ export function TransportBar({
   onStop,
   onRecord,
 }: TransportBarProps) {
+  const monitoringActive = monitoringEnabled && recordingMode === "audio";
   const [bpmDraft, setBpmDraft] = useState(String(bpm));
   useEffect(() => setBpmDraft(String(bpm)), [bpm]);
   const commitBpm = () => {
@@ -142,25 +144,26 @@ export function TransportBar({
         >
           {metronomeEnabled ? <Volume2 size={15} /> : <Volume1 size={15} />}
         </button>
-        {recordingMode === "audio" && (
-          <button
-            type="button"
-            onClick={onToggleMonitoring}
-            aria-pressed={monitoringEnabled}
-            title={
-              monitoringEnabled
-                ? `Monitoring on - hearing ${armedChannelName}'s live input`
-                : "Monitor the armed audio track's live input while recording"
-            }
-            className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors ${
-              monitoringEnabled
-                ? "border-accent bg-accent/20 text-accent"
-                : "border-border text-muted hover:bg-surface-raised"
-            }`}
-          >
-            <Headphones size={15} />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onToggleMonitoring}
+          aria-pressed={monitoringActive}
+          title={
+            monitoringActive
+              ? `Monitoring on - hearing ${armedChannelName}'s live input through its effects (click to stop)`
+              : recordingMode === "audio"
+                ? `Hear ${armedChannelName}'s live input through its effects (use headphones to avoid feedback)`
+                : "Hear your instrument live - arms an audio track and plays its input through its effects (use headphones)"
+          }
+          className={`flex h-9 items-center justify-center gap-1.5 rounded-full border px-3 text-xs transition-colors ${
+            monitoringActive
+              ? "border-accent bg-accent/20 text-accent"
+              : "border-border text-muted hover:bg-surface-raised"
+          }`}
+        >
+          <Headphones size={15} />
+          {monitoringActive ? "Live" : "Monitor"}
+        </button>
         <button
           type="button"
           onClick={onToggleLoop}

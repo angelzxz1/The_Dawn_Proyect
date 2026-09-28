@@ -57,6 +57,7 @@ import { IrLoaderWindow } from "./IrLoaderWindow";
 import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
 import { GlueWindow } from "./GlueWindow";
+import { MbDynamicsWindow } from "./MbDynamicsWindow";
 import type { SidechainSource } from "./SidechainPanel";
 import { EffectPresetContext, type PresetChange } from "./PresetMenu";
 import { findPreset, paramsFromPreset } from "@/lib/presets";
@@ -3448,6 +3449,32 @@ export function Daw() {
       )}
       {expandedEffectId && expandedEffect?.type === "glue" && (
         <GlueWindow
+          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          hostId={fxHostId}
+          effectId={expandedEffectId}
+          params={expandedEffect.params}
+          bypass={!!expandedEffect.bypass}
+          onBypassToggle={() =>
+            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
+              expandedEffectId
+            )
+          }
+          onClose={() => setExpandedEffectId(null)}
+          onParamChange={(key, v) =>
+            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
+              expandedEffectId,
+              key,
+              v
+            )
+          }
+          onParamDragStart={pushHistory}
+          sidechain={expandedEffect.sidechain}
+          sidechainSources={sidechainSources}
+          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
+        />
+      )}
+      {expandedEffectId && expandedEffect?.type === "mbDynamics" && (
+        <MbDynamicsWindow
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           effectId={expandedEffectId}

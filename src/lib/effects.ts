@@ -13,6 +13,7 @@ import {
 import type { PresetRef } from "./presets";
 import { COLOR_MODES, COLOR_MODE_LABELS, DISTORTION_SHAPES, SHAPE_LABELS, distortionShapeFromParam } from "./distortionModel";
 import { GLUE_ATTACKS_MS, GLUE_AUTO_RELEASE, GLUE_RATIOS, formatGlueAttack, formatGlueRelease, glueRatio } from "./glueModel";
+import { MBD_BANDS, MBD_BAND_LABELS, MBD_FIELD_DEFAULTS, MBD_MIN_DB, formatMbdRatio, mbdKey } from "./mbDynamicsModel";
 import { SC_HPF_OFF, SC_LPF_OFF, type SidechainRouting } from "./sidechainModel";
 import { UTILITY_CHANNEL_LABELS, UTILITY_CHANNEL_MODES, UTILITY_GAIN_FLOOR } from "./utilityModel";
 import {
@@ -42,7 +43,8 @@ export type EffectType =
   | "multiband"
   | "utility"
   | "tuner"
-  | "glue";
+  | "glue"
+  | "mbDynamics";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -62,12 +64,13 @@ export const EFFECT_TYPES: EffectType[] = [
   "utility",
   "tuner",
   "glue",
+  "mbDynamics",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
  * - the sidebar renders one collapsible section per group. */
 export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
-  { name: "Dynamics", types: ["compressor", "glue", "multiband", "limiter", "gate"] },
+  { name: "Dynamics", types: ["compressor", "glue", "multiband", "mbDynamics", "limiter", "gate"] },
   { name: "EQ & Filter", types: ["paramEq", "eq3", "filter"] },
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
@@ -94,10 +97,11 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   utility: "Utility",
   tuner: "Tuner",
   glue: "Glue Compressor",
+  mbDynamics: "Multiband Dynamics",
 };
 
 /** Effect types whose detector can listen to another track (a sidechain). */
-export const SIDECHAIN_EFFECT_TYPES: EffectType[] = ["compressor", "glue", "gate", "multiband"];
+export const SIDECHAIN_EFFECT_TYPES: EffectType[] = ["compressor", "glue", "gate", "multiband", "mbDynamics"];
 
 export function hasSidechain(type: EffectType): boolean {
   return SIDECHAIN_EFFECT_TYPES.includes(type);
@@ -339,6 +343,7 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     ...SIDECHAIN_SPECS,
     { key: "scMix", label: "Sidechain Mix", min: 0, max: 1, default: 1, format: pct },
   ],
+  mbDynamics: mbDynamicsSpecs(),
   tuner: [
     { key: "reference", label: "Reference", min: 410, max: 480, default: 440, format: (v) => `A4 = ${v.toFixed(1)} Hz`, automatable: false },
     { key: "mute", label: "Mute", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "Muted" : "Off"), automatable: false },
@@ -409,6 +414,47 @@ function multibandSpecs(): ParamSpec[] {
   return specs;
 }
 
+/** Multiband Dynamics: the Low/High band switches and crossovers, each
+ * band's `<l|m|h><Field>` settings (see mbDynamicsModel.ts), and the
+ * global controls. */
+function mbDynamicsSpecs(): ParamSpec[] {
+  const ms = (v: number) => (v < 0.01 ? `${(v * 1000).toFixed(1)} ms` : v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
+  const onOff = (v: number) => (v >= 0.5 ? "On" : "Off");
+  const specs: ParamSpec[] = [
+    { key: "lowOn", label: "Low Band", min: 0, max: 1, default: 1, format: onOff, automatable: false },
+    { key: "highOn", label: "High Band", min: 0, max: 1, default: 1, format: onOff, automatable: false },
+    { key: "xLow", label: "Low Crossover", min: 40, max: 2000, default: 120, format: hzSpaced },
+    { key: "xHigh", label: "High Crossover", min: 300, max: 16000, default: 2500, format: hzSpaced },
+  ];
+  MBD_BANDS.forEach((b) => {
+    const name = MBD_BAND_LABELS[b];
+    const d = MBD_FIELD_DEFAULTS;
+    specs.push(
+      { key: mbdKey(b, "On"), label: `${name} On`, min: 0, max: 1, default: d.On, format: onOff, automatable: false },
+      { key: mbdKey(b, "Solo"), label: `${name} Solo`, min: 0, max: 1, default: d.Solo, format: onOff, automatable: false },
+      { key: mbdKey(b, "In"), label: `${name} Input`, min: -24, max: 24, default: d.In, format: dbSigned },
+      { key: mbdKey(b, "Out"), label: `${name} Output`, min: -24, max: 24, default: d.Out, format: dbSigned },
+      { key: mbdKey(b, "AboveT"), label: `${name} Above Threshold`, min: MBD_MIN_DB, max: 0, default: d.AboveT, format: dbSpaced },
+      { key: mbdKey(b, "AboveR"), label: `${name} Above Ratio`, min: 0.5, max: 50, default: d.AboveR, format: formatMbdRatio },
+      { key: mbdKey(b, "BelowT"), label: `${name} Below Threshold`, min: MBD_MIN_DB, max: 0, default: d.BelowT, format: dbSpaced },
+      { key: mbdKey(b, "BelowR"), label: `${name} Below Ratio`, min: 0.1, max: 50, default: d.BelowR, format: formatMbdRatio },
+      { key: mbdKey(b, "Attack"), label: `${name} Attack`, min: 0.0001, max: 1, default: d.Attack, format: ms },
+      { key: mbdKey(b, "Release"), label: `${name} Release`, min: 0.001, max: 3, default: d.Release, format: ms }
+    );
+  });
+  specs.push(
+    { key: "softKnee", label: "Soft Knee", min: 0, max: 1, default: 1, format: onOff, automatable: false },
+    { key: "rms", label: "Detection", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "RMS" : "Peak"), automatable: false },
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
+    { key: "time", label: "Time", min: 0.1, max: 10, default: 1, format: (v) => `${Math.round(v * 100)}%` },
+    { key: "amount", label: "Amount", min: 0, max: 1, default: 1, format: pct },
+    { key: "view", label: "View", min: 0, max: 2, default: 2, format: (v) => ["Time", "Below", "Above"][Math.round(v)] ?? "Above", automatable: false },
+    ...SIDECHAIN_SPECS,
+    { key: "scMix", label: "Sidechain Mix", min: 0, max: 1, default: 1, format: pct }
+  );
+  return specs;
+}
+
 /** The params an effect offers as automation targets: continuous ones, and
  * for the Parametric EQ and Multiband Compressor only the bands (and
  * crossovers) that exist. */
@@ -420,6 +466,12 @@ export function automatableParamSpecs(fx: EffectInstance): ParamSpec[] {
       const m = /^([bx])(\d+)/.exec(spec.key);
       if (!m) return true;
       return m[1] === "b" ? Number(m[2]) <= bandCount : Number(m[2]) < bandCount;
+    }
+    if (fx.type === "mbDynamics") {
+      const b = /^([lh])[A-Z]/.exec(spec.key)?.[1];
+      if (b === "l") return (fx.params.lowOn ?? 1) >= 0.5;
+      if (b === "h") return (fx.params.highOn ?? 1) >= 0.5;
+      return true;
     }
     const band = fx.type === "paramEq" ? /^b(\d+)/.exec(spec.key) : null;
     return !band || (fx.params[`b${band[1]}On`] ?? 0) >= 0.5;

@@ -32,6 +32,7 @@ const MAX_NAME = 60;
 /** Params a preset never changes: view settings, and Listen. */
 function isViewKey(type: EffectType, key: string): boolean {
   if (key === "scListen") return true;
+  if (type === "mbDynamics") return key === "view" || key.endsWith("Solo");
   return (type === "paramEq" || type === "multiband") && (key === "scale" || key === "analyzer");
 }
 
@@ -142,6 +143,16 @@ export const FACTORY_PRESETS: EffectPreset[] = [
     ["Vocal Glue", { threshold: -18, ratio: 1, attack: 4, release: 2, makeup: 3 }],
     ["Parallel Crush", { threshold: -30, ratio: 2, attack: 0, release: 0, makeup: 10, dryWet: 0.4, softClip: 1 }],
     ["Sidechain Pump", { threshold: -30, ratio: 2, attack: 0, release: 2 }],
+  ]),
+  // Per band l/m/h: Above ratio > 1 compresses down, < 1 expands up;
+  // Below ratio > 1 expands down, < 1 compresses up.
+  ...factory("mbDynamics", [
+    ["Gentle Multiband Master", { lAboveT: -18, lAboveR: 1.8, mAboveT: -16, mAboveR: 1.6, hAboveT: -18, hAboveR: 1.8, lAttack: 0.02, lRelease: 0.15, mAttack: 0.01, mRelease: 0.1, hAttack: 0.005, hRelease: 0.08, rms: 1 }],
+    ["De-Esser", { lowOn: 0, xHigh: 5000, hAboveT: -30, hAboveR: 5, hAttack: 0.001, hRelease: 0.04 }],
+    ["Uncompress (Upward Expansion)", { lIn: -3, mIn: -3, hIn: -3, lAboveT: -14, lAboveR: 0.8, mAboveT: -14, mAboveR: 0.8, hAboveT: -16, hAboveR: 0.8, lAttack: 0.001, mAttack: 0.001, hAttack: 0.001, lRelease: 0.08, mRelease: 0.06, hRelease: 0.05 }],
+    ["Upward Detail", { lBelowT: -45, lBelowR: 0.7, mBelowT: -45, mBelowR: 0.6, hBelowT: -50, hBelowR: 0.6, lRelease: 0.2, mRelease: 0.15, hRelease: 0.12 }],
+    ["Clean Up Noise", { lBelowT: -60, lBelowR: 3, mBelowT: -60, mBelowR: 3, hBelowT: -55, hBelowR: 4, lRelease: 0.2, mRelease: 0.15, hRelease: 0.1 }],
+    ["OTT-Style Squash", { lAboveT: -30, lAboveR: 8, mAboveT: -28, mAboveR: 8, hAboveT: -30, hAboveR: 8, lBelowT: -45, lBelowR: 0.5, mBelowT: -45, mBelowR: 0.5, hBelowT: -45, hBelowR: 0.5, xLow: 88, xHigh: 2500, output: -3, amount: 0.6, lAttack: 0.005, mAttack: 0.003, hAttack: 0.001, lRelease: 0.1, mRelease: 0.08, hRelease: 0.05 }],
   ]),
   ...factory("gate", [
     ["Guitar Hiss", { threshold: -60, attack: 0.001, hold: 0.05, release: 0.15, range: -80 }],

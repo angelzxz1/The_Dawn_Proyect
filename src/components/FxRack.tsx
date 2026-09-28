@@ -20,6 +20,7 @@ import { MultibandRackCard } from "./MultibandRackCard";
 import { UtilityRackCard } from "./UtilityRackCard";
 import { TunerRackCard } from "./TunerRackCard";
 import { GlueRackCard } from "./GlueRackCard";
+import { MbDynamicsRackCard } from "./MbDynamicsRackCard";
 import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
 import { PresetMenu, type PresetChange } from "./PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
@@ -93,6 +94,7 @@ const CUSTOM_UI_TYPES: EffectType[] = [
   "utility",
   "tuner",
   "glue",
+  "mbDynamics",
 ];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
@@ -267,7 +269,7 @@ export function FxRack({
                   ? "w-64 rounded-xl"
                   : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp" || fx.type === "gate" || fx.type === "utility" || fx.type === "tuner" || fx.type === "glue"
                     ? "w-72 rounded-xl"
-                    : fx.type === "reverb" || fx.type === "paramEq" || fx.type === "multiband"
+                    : fx.type === "reverb" || fx.type === "paramEq" || fx.type === "multiband" || fx.type === "mbDynamics"
                       ? "w-80 rounded-xl"
                       : "w-40 rounded border border-border bg-surface-raised"
               } ${fx.bypass ? "opacity-50" : ""}`}
@@ -382,6 +384,19 @@ export function FxRack({
                   <UtilityRackCard
                     params={fx.params}
                     bypass={!!fx.bypass}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "mbDynamics" ? (
+                  <MbDynamicsRackCard
+                    hostId={hostId}
+                    effectId={fx.id}
+                    params={fx.params}
+                    bypass={!!fx.bypass}
+                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
                     onBypassToggle={() => onBypassToggle(fx.id)}
                     onRemove={() => onRemoveEffect(fx.id)}
                     onExpand={() => onOpenEffectWindow?.(fx.id)}

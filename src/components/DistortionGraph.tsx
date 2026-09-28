@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { distortionTransfer, type DistortionShape } from "@/lib/distortionModel";
+import { SHAPE_LABELS, colorResponse, distortionTransfer, softClip as softClipFn, type ColorSettings, type DistortionShape } from "@/lib/distortionModel";
 
 interface DistortionGraphProps {
   shape: DistortionShape;
@@ -9,6 +9,7 @@ interface DistortionGraphProps {
   bias: number;
   outputDb: number;
   wet: number;
+  softClip: boolean;
 }
 
 const WIDTH = 840;
@@ -25,7 +26,7 @@ const POINTS = 360;
  * unity line. Right: two cycles of a test sine (IN) and what comes out
  * (OUT) - DC removed, Output gain and the dry/wet blend applied, as in the
  * audio path. (The Tone filter's smoothing isn't simulated.) */
-export function DistortionGraph({ shape, drive, bias, outputDb, wet }: DistortionGraphProps) {
+export function DistortionGraph({ shape, drive, bias, outputDb, wet, softClip }: DistortionGraphProps) {
   const { transferPath, inPath, outPath } = useMemo(() => {
     const t = (x: number) => distortionTransfer(shape, drive, bias, x);
     const clampY = (v: number, range: number) => Math.max(-range, Math.min(range, v));
@@ -47,17 +48,20 @@ export function DistortionGraph({ shape, drive, bias, outputDb, wet }: Distortio
     const xAt = (i: number) => WAVE_X0 + (i / POINTS) * (WAVE_X1 - WAVE_X0);
     const yAt = (v: number) => WAVE_MID - (clampY(v, WAVE_RANGE) / WAVE_RANGE) * (HEIGHT / 2 - 10);
     const inPts = samples.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
-    const outPts = shaped.map((v, i) => `${xAt(i).toFixed(1)},${yAt(dry * samples[i] + wetGain * gain * (v - mean)).toFixed(1)}`);
+    const outPts = shaped.map((v, i) => `${xAt(i).toFixed(1)},${yAt(dry * samples[i] + wetGain * (softClip ? softClipFn(gain * (v - mean)) : gain * (v - mean))).toFixed(1)}`);
 
     return {
       transferPath: `M${transfer.join(" L")}`,
       inPath: `M${inPts.join(" L")}`,
       outPath: `M${outPts.join(" L")}`,
     };
-  }, [shape, drive, bias, outputDb, wet]);
+  }, [shape, drive, bias, outputDb, wet, softClip]);
 
   return (
     <div style={{ background: "#14151A", border: "1px solid #2E2F37", borderRadius: 10, overflow: "hidden", position: "relative" }}>
+      <div className="absolute left-[172px] top-2 font-mono text-[11px] uppercase tracking-wider" style={{ color: "#E6AD5E" }}>
+        {SHAPE_LABELS[shape]}
+      </div>
       <div className="absolute right-3 top-2 flex items-center gap-3 font-mono text-[11px]" style={{ color: "#9A9AA4" }}>
         <span className="flex items-center gap-1.5">
           IN
@@ -74,7 +78,7 @@ export function DistortionGraph({ shape, drive, bias, outputDb, wet }: Distortio
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         fill="none"
         role="img"
-        aria-label={`${shape} distortion transfer curve and waveform`}
+        aria-label={`${SHAPE_LABELS[shape]} transfer curve and waveform`}
         style={{ display: "block" }}
       >
         <rect x={INSET.x} y={INSET.y} width={INSET.size} height={INSET.size} rx={6} fill="#1B1C22" />
@@ -95,6 +99,47 @@ export function DistortionGraph({ shape, drive, bias, outputDb, wet }: Distortio
         <path d={inPath} stroke="#9A9AA4" strokeWidth={1.5} strokeDasharray="4 4" />
         <path d={outPath} stroke="#E6AD5E" strokeWidth={2.5} strokeLinejoin="round" />
       </svg>
+    </div>
+  );
+}
+
+const EQ_W = 196;
+const EQ_H = 84;
+const EQ_RANGE = 16;
+const EQ_POINTS = 120;
+const fAt = (i: number) => 20 * Math.pow(1000, i / EQ_POINTS);
+
+/** The Color EQ's response: what happens before the saturation (amber)
+ * and after it (blue), 20 Hz to 20 kHz, +/-16 dB. */
+export function ColorEqGraph({ color }: { color: ColorSettings }) {
+  const { pre, post } = useMemo(() => {
+    const pts = Array.from({ length: EQ_POINTS + 1 }, (_, i) => colorResponse(color, fAt(i), 48000));
+    const path = (key: "pre" | "post") =>
+      "M" +
+      pts
+        .map((r, i) => {
+          const x = (i / EQ_POINTS) * EQ_W;
+          const y = EQ_H / 2 - (Math.max(-EQ_RANGE, Math.min(EQ_RANGE, r[key])) / EQ_RANGE) * (EQ_H / 2 - 4);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" L");
+    return { pre: path("pre"), post: path("post") };
+  }, [color]);
+  const gridX = [100, 1000, 10000].map((f) => (Math.log10(f / 20) / 3) * EQ_W);
+  return (
+    <div className="relative" style={{ opacity: color.on ? 1 : 0.45 }}>
+      <svg width={EQ_W} height={EQ_H} viewBox={`0 0 ${EQ_W} ${EQ_H}`} role="img" aria-label="Color EQ response" style={{ display: "block", background: "#101115", borderRadius: 8 }}>
+        {gridX.map((x) => (
+          <line key={x} x1={x} y1={0} x2={x} y2={EQ_H} stroke="#1D1E24" />
+        ))}
+        <line x1={0} y1={EQ_H / 2} x2={EQ_W} y2={EQ_H / 2} stroke="#2A2B33" />
+        <path d={post} stroke="#7DB7FF" strokeWidth={1.8} fill="none" strokeDasharray={color.mode === "emphasis" ? "4 3" : undefined} />
+        <path d={pre} stroke="#E6AD5E" strokeWidth={2} fill="none" />
+      </svg>
+      <div className="pointer-events-none absolute left-2 top-1 flex gap-2 font-mono text-[9.5px] uppercase">
+        <span style={{ color: "#E6AD5E" }}>Pre</span>
+        <span style={{ color: "#7DB7FF" }}>Post</span>
+      </div>
     </div>
   );
 }

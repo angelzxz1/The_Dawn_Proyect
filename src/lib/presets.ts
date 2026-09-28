@@ -208,10 +208,18 @@ export const FACTORY_PRESETS: EffectPreset[] = [
     ["Vibrato", { frequency: 5, delayTime: 4, depth: 0.4, spread: 0, wet: 1 }],
     ["Detune Pad", { frequency: 0.15, delayTime: 15, depth: 0.7, spread: 180, wet: 0.45 }],
   ]),
+  // Curves (shape): 0 Analog Clip, 1 Digital Clip, 2 Sinoid Fold, 3 Soft
+  // Sine, 4 Medium Curve, 5 Hard Curve. Color mode: 0 Pre, 1 Post, 2
+  // Emphasis.
   ...factory("distortion", [
-    ["Warm Saturation", { distortion: 0.2, shape: 0, tone: 12000, wet: 1 }],
-    ["Crunch", { distortion: 0.5, shape: 1, tone: 6000, output: -4 }],
+    ["Warm Tape", { distortion: 0.15, shape: 0, tone: 14000, colorOn: 1, colorMode: 2, colorBase: 3, colorFreq: 3000, colorDepth: -2, colorQ: 0.7 }],
+    ["Soft Sine Glow", { distortion: 0.25, shape: 3, tone: 16000 }],
+    ["Mid Bite", { distortion: 0.45, shape: 4, tone: 9000, output: -3, colorOn: 1, colorMode: 2, colorFreq: 1200, colorQ: 0.8, colorDepth: 9 }],
+    ["Bass Grit, Clean Lows", { distortion: 0.5, shape: 0, tone: 8000, output: -4, colorOn: 1, colorMode: 2, colorBase: -10, colorFreq: 900, colorQ: 0.7, colorDepth: 4 }],
+    ["Bright Exciter", { distortion: 0.35, shape: 3, tone: 20000, wet: 0.3, colorOn: 1, colorMode: 0, colorBase: -12, colorFreq: 5000, colorQ: 0.7, colorDepth: 6 }],
+    ["Crunch", { distortion: 0.5, shape: 5, tone: 6000, output: -4 }],
     ["Fuzz", { distortion: 0.9, shape: 1, bias: 0.3, tone: 4000, output: -8 }],
+    ["Lo-Fi Digital", { distortion: 0.6, shape: 1, tone: 5000, output: -6, softClip: 1 }],
     ["Wavefolder", { distortion: 0.6, shape: 2, tone: 9000, output: -6 }],
     ["Parallel Grit", { distortion: 0.7, shape: 0, tone: 7000, wet: 0.35 }],
   ]),

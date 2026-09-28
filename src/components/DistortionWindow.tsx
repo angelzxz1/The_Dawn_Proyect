@@ -6,12 +6,19 @@ import { PluginIcon } from "./PluginIcon";
 import { DistortionGraph } from "./DistortionGraph";
 import { paramSpecs, type ParamSpec } from "@/lib/effects";
 import {
+  COLOR_MODES,
+  COLOR_MODE_LABELS,
   DISTORTION_SHAPES,
   OVERSAMPLE_OPTIONS,
+  SHAPE_ORDER,
+  colorSettingsFromParams,
   distortionShapeFromParam,
-  driveGain,
   oversampleFromParam,
+  type DistortionShape,
 } from "@/lib/distortionModel";
+import { Segmented } from "./PluginSegmented";
+import { PluginToggle } from "./PluginChrome";
+import { ColorEqGraph } from "./DistortionGraph";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 import { WindowPresetMenu } from "./PresetMenu";
 
@@ -41,45 +48,41 @@ export function distortionParam(params: Record<string, number>, key: string): nu
   return params[key] ?? distortionSpec(key).default;
 }
 
-function Segmented({
-  label,
-  options,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  options: string[];
-  selected: number;
-  onSelect: (index: number) => void;
-}) {
-  return (
-    <div className="flex gap-0.5 rounded-lg p-0.5" style={{ border: "1px solid #2E2F37" }} role="radiogroup" aria-label={label}>
-      {options.map((option, i) => {
-        const isSelected = i === selected;
-        return (
-          <button
-            key={option}
-            type="button"
-            role="radio"
-            aria-checked={isSelected}
-            onClick={() => {
-              if (!isSelected) onSelect(i);
-            }}
-            className="rounded-md px-3.5 py-1.5 text-[12px] font-bold uppercase tracking-wide"
-            style={{ background: isSelected ? "#2E2F37" : "transparent", color: isSelected ? "#F4EDE2" : "#8A8A94" }}
-          >
-            {option}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+const SHAPE_SHORT: Record<DistortionShape, string> = {
+  analog: "Analog",
+  softSine: "Soft Sine",
+  medium: "Medium",
+  hard: "Hard",
+  digital: "Digital",
+  fold: "Fold",
+};
 
-/** The full Distortion plugin window - the transfer curve and in/out
- * waveform, five knobs with readouts, the Soft/Hard/Fold and oversampling
- * selectors, and the drive-gain readout - opened from the compact FX rack
- * card's expand button. */
+const SHAPE_HINTS: Record<DistortionShape, string> = {
+  analog: "Analog Clip: smooth and warm - rounds peaks off gradually, like tape or a tube stage.",
+  softSine: "Soft Sine: gentle and clean, then flat at full scale. Good for subtle glue.",
+  medium: "Medium Curve: the softest knee - saturates early and gently, for fattening without edge.",
+  hard: "Hard Curve: clean until near full scale, then a firm knee. Punchy crunch.",
+  digital: "Digital Clip: a hard ceiling - bright, buzzy and aggressive.",
+  fold: "Sinoid Fold: past full scale the wave folds back, adding bright, metallic overtones.",
+};
+
+const COLOR_KNOBS: { key: string; label: string; mode: KnobMode }[] = [
+  { key: "colorBase", label: "Base", mode: "bipolar" },
+  { key: "colorFreq", label: "Freq", mode: "log" },
+  { key: "colorQ", label: "Width", mode: "log" },
+  { key: "colorDepth", label: "Depth", mode: "bipolar" },
+];
+
+const COLOR_MODE_HINTS = {
+  pre: "Pre: shapes what gets saturated, and the tone.",
+  post: "Post: shapes the tone after saturation.",
+  emphasis: "Emphasis: boosts before and cuts the same after - only what saturates changes, not the tone.",
+} as const;
+
+/** The full Saturator window - the transfer curve and in/out waveform,
+ * the curve picker, Drive/Bias/Tone/Output/Dry-Wet, oversampling and Soft
+ * Clip, and the Color EQ (pre, post or emphasis) with its response -
+ * opened from the compact FX rack card's expand button. */
 export function DistortionWindow({
   channelName,
   params,
@@ -92,6 +95,8 @@ export function DistortionWindow({
   const value = (key: string) => distortionParam(params, key);
   const shape = distortionShapeFromParam(value("shape"));
   const oversample = oversampleFromParam(value("oversample"));
+  const color = colorSettingsFromParams(params);
+  const toggle = (key: string) => pick(key, value(key) >= 0.5 ? 0 : 1);
   const pick = (key: string, index: number) => {
     onParamDragStart?.();
     onParamChange(key, index);
@@ -107,7 +112,7 @@ export function DistortionWindow({
           <div className="flex items-center gap-2">
             <PluginIcon />
             <h2 className={`${fraunces.className} text-[19px] font-semibold text-[#F4EDE2]`} style={{ letterSpacing: "-0.2px" }}>
-              Distortion
+              Saturator
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
             <div className="ml-3">
@@ -141,9 +146,27 @@ export function DistortionWindow({
           bias={value("bias")}
           outputDb={value("output")}
           wet={value("wet")}
+          softClip={value("softClip") >= 0.5}
         />
 
-        <div className="flex justify-around px-1 pt-1">
+        <div className="flex flex-wrap items-center gap-3">
+          <Segmented<DistortionShape>
+            label="Curve"
+            options={SHAPE_ORDER.map((s) => ({ value: s, label: SHAPE_SHORT[s] }))}
+            value={shape}
+            onSelect={(s) => pick("shape", DISTORTION_SHAPES.indexOf(s))}
+          />
+          <Segmented<number>
+            label="Oversampling"
+            options={OVERSAMPLE_OPTIONS.map((o, i) => ({ value: i, label: o.label }))}
+            value={OVERSAMPLE_OPTIONS.findIndex((o) => o.value === oversample)}
+            onSelect={(i) => pick("oversample", i)}
+          />
+          <PluginToggle label="Soft Clip" active={value("softClip") >= 0.5} onClick={() => toggle("softClip")} title="Keep the output under 0 dB with a gentle knee" />
+        </div>
+        <p className="-mt-2 text-[12px] text-muted">{SHAPE_HINTS[shape]}</p>
+
+        <div className="flex justify-around px-1">
           {DISTORTION_KNOBS.map(({ key, mode }) => {
             const spec = distortionSpec(key);
             return (
@@ -165,25 +188,48 @@ export function DistortionWindow({
           })}
         </div>
 
-        <div style={{ height: 1, background: "#2E2F37" }} />
-
-        <div className="flex items-center gap-3">
-          <Segmented
-            label="Shape"
-            options={DISTORTION_SHAPES}
-            selected={DISTORTION_SHAPES.indexOf(shape)}
-            onSelect={(i) => pick("shape", i)}
-          />
-          <Segmented
-            label="Oversampling"
-            options={OVERSAMPLE_OPTIONS.map((o) => o.label)}
-            selected={OVERSAMPLE_OPTIONS.findIndex((o) => o.value === oversample)}
-            onSelect={(i) => pick("oversample", i)}
-          />
-          <span className="ml-auto font-mono text-[12px] text-muted">
-            Drive ×{driveGain(value("distortion")).toFixed(1)}
-          </span>
-        </div>
+        <section
+          aria-label="Color"
+          className="flex items-stretch gap-4 rounded-xl px-3.5 py-3"
+          style={{ background: "#16171C", border: "1px solid #2A2B33" }}
+        >
+          <div className="flex w-[262px] shrink-0 flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <PluginToggle label="Color" active={color.on} onClick={() => toggle("colorOn")} title="An EQ around the saturation" />
+              <Segmented<number>
+                label="Color mode"
+                options={COLOR_MODES.map((m, i) => ({ value: i, label: COLOR_MODE_LABELS[m] }))}
+                value={COLOR_MODES.indexOf(color.mode)}
+                onSelect={(i) => pick("colorMode", i)}
+              />
+            </div>
+            <p className="text-[11px] leading-snug text-muted">{COLOR_MODE_HINTS[color.mode]}</p>
+          </div>
+          <div className={`flex items-center gap-2 ${color.on ? "" : "opacity-45"}`}>
+            {COLOR_KNOBS.map(({ key, label, mode }) => {
+              const spec = distortionSpec(key);
+              return (
+                <PluginKnob
+                  key={key}
+                  label={label}
+                  value={value(key)}
+                  min={spec.min}
+                  max={spec.max}
+                  defaultValue={spec.default}
+                  mode={mode}
+                  size={38}
+                  showReadout
+                  onChange={(v) => onParamChange(key, v)}
+                  onDragStart={onParamDragStart}
+                  formatValue={spec.format}
+                />
+              );
+            })}
+          </div>
+          <div className="ml-auto self-center">
+            <ColorEqGraph color={color} />
+          </div>
+        </section>
       </div>
     </div>
   );

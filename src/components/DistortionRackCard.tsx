@@ -4,7 +4,7 @@ import { Maximize2, Power, X } from "lucide-react";
 import { PluginKnob } from "./PluginKnob";
 import { PluginIcon } from "./PluginIcon";
 import { DISTORTION_KNOBS, distortionParam, distortionSpec } from "./DistortionWindow";
-import { distortionShapeFromParam } from "@/lib/distortionModel";
+import { SHAPE_LABELS, distortionShapeFromParam } from "@/lib/distortionModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface DistortionRackCardProps {
@@ -34,11 +34,11 @@ export function DistortionRackCard({
   return (
     <div className="flex h-full flex-col gap-2.5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <PluginIcon size={15} />
-          <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Distortion</h2>
-          <span className={`${spaceGrotesk.className} text-[10px] font-semibold uppercase tracking-wider text-muted`}>
-            {shape}
+          <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Saturator</h2>
+          <span className={`${spaceGrotesk.className} truncate text-[10px] font-semibold uppercase tracking-wider text-muted`}>
+            {SHAPE_LABELS[shape]}
           </span>
         </div>
         <div className="flex items-center gap-1">

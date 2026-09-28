@@ -57,7 +57,7 @@ import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, defaultParams } from "./effects";
 import { CompressorChain, type CompressorMeterReading } from "./compressor";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
-import { measureNativeLatencies, nativeLatencies } from "./nativeLatency";
+import { measureNativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
 import { InputRecorder, takeToWav } from "./inputRecorder";
 import type { Waveform } from "./waveform";
@@ -75,13 +75,7 @@ import type { SidechainRouting } from "./sidechainModel";
 import { canKeyFrom, keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
-import {
-  CURVE_HEADROOM,
-  type DistortionShape,
-  distortionCurve,
-  distortionShapeFromParam,
-  oversampleFromParam,
-} from "./distortionModel";
+import { SaturatorChain } from "./saturator";
 import {
   type FilterMode,
   LFO_MAX_OCTAVES,
@@ -880,105 +874,6 @@ class ChorusChain extends Tone.ToneAudioNode {
   }
 }
 
-/** The Distortion effect: input gain (Drive), a DC offset (Bias) and a
- * Soft/Hard/Fold shape, all baked into one WaveShaperNode curve (see
- * distortionModel.ts), with the node's own 2x/4x oversampling against
- * aliasing. After it: a DC blocker (a biased waveform picks up an offset),
- * the Tone low-pass, Output gain, and an equal-power dry/wet blend (as
- * Tone.Distortion's crossfade was). */
-class DistortionChain extends Tone.ToneAudioNode {
-  readonly name = "DistortionChain";
-  readonly input = new Tone.Gain();
-  readonly output = new Tone.Gain();
-  private readonly headroom = new Tone.Gain(1 / CURVE_HEADROOM);
-  private readonly shaper = new Tone.WaveShaper();
-  private readonly dcBlock = new Tone.Filter({ type: "highpass", frequency: 10, Q: Math.SQRT1_2 });
-  private readonly toneFilter: Tone.Filter;
-  private readonly outputGain: Tone.Volume;
-  private readonly dryGain = new Tone.Gain();
-  private readonly wetGain = new Tone.Gain();
-  /** Oversampling delays the shaped signal; the dry path waits the same so
-   * a Dry/Wet blend doesn't comb-filter. */
-  private readonly dryDelay = new Tone.Delay(0, 0.1);
-  private shape: DistortionShape;
-  private drive: number;
-  private bias: number;
-
-  constructor(params: Record<string, number>) {
-    super();
-    this.shape = distortionShapeFromParam(params.shape);
-    this.drive = params.distortion;
-    this.bias = params.bias;
-    this.toneFilter = new Tone.Filter({ type: "lowpass", frequency: params.tone, Q: Math.SQRT1_2 });
-    this.outputGain = new Tone.Volume(params.output);
-
-    this.input.chain(this.dryDelay, this.dryGain, this.output);
-    this.input.chain(this.headroom, this.shaper, this.dcBlock, this.toneFilter, this.outputGain, this.wetGain, this.output);
-    this.rebuildCurve();
-    this.setOversample(params.oversample);
-    this.setWet(params.wet);
-  }
-
-  private rebuildCurve(): void {
-    this.shaper.curve = distortionCurve(this.shape, this.drive, this.bias);
-  }
-
-  setDrive(amount: number): void {
-    this.drive = amount;
-    this.rebuildCurve();
-  }
-
-  setBias(amount: number): void {
-    this.bias = amount;
-    this.rebuildCurve();
-  }
-
-  setShape(v: number): void {
-    this.shape = distortionShapeFromParam(v);
-    this.rebuildCurve();
-  }
-
-  setTone(hz: number): void {
-    this.toneFilter.frequency.value = hz;
-  }
-
-  setOutput(db: number): void {
-    this.outputGain.volume.value = db;
-  }
-
-  setOversample(v: number): void {
-    this.shaper.oversample = oversampleFromParam(v);
-    this.dryDelay.delayTime.value = this.latency;
-  }
-
-  /** Seconds the oversampling filters delay the shaped signal. */
-  get latency(): number {
-    const sr = this.context.sampleRate;
-    const native = nativeLatencies();
-    const o = this.shaper.oversample;
-    return (o === "4x" ? native.shaper4x : o === "2x" ? native.shaper2x : 0) / sr;
-  }
-
-  setWet(mix: number): void {
-    this.dryGain.gain.value = Math.cos((mix * Math.PI) / 2);
-    this.wetGain.gain.value = Math.sin((mix * Math.PI) / 2);
-  }
-
-  dispose(): this {
-    super.dispose();
-    this.headroom.dispose();
-    this.shaper.dispose();
-    this.dcBlock.dispose();
-    this.toneFilter.dispose();
-    this.outputGain.dispose();
-    this.dryDelay.dispose();
-    this.dryGain.dispose();
-    this.wetGain.dispose();
-    this.input.dispose();
-    this.output.dispose();
-    return this;
-  }
-}
 
 /** The IR Loader: convolves with an uploaded impulse response (a speaker
  * cab, a room, ...), then low cut -> high cut -> output gain, blended
@@ -1140,7 +1035,7 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
     case "chorus":
       return new ChorusChain(params);
     case "distortion":
-      return new DistortionChain(params);
+      return new SaturatorChain(params);
     case "filter":
       return new FilterChain(params);
     case "limiter":
@@ -1233,17 +1128,9 @@ export function applyEffectParam(
       else if (key === "waveform") chorus.setWaveform(value);
       break;
     }
-    case "distortion": {
-      const dist = node as DistortionChain;
-      if (key === "distortion") dist.setDrive(value);
-      else if (key === "bias") dist.setBias(value);
-      else if (key === "shape") dist.setShape(value);
-      else if (key === "tone") dist.setTone(value);
-      else if (key === "output") dist.setOutput(value);
-      else if (key === "oversample") dist.setOversample(value);
-      else if (key === "wet") dist.setWet(value);
+    case "distortion":
+      (node as SaturatorChain).setParam(key, value);
       break;
-    }
     case "filter": {
       const filter = node as FilterChain;
       if (key === "frequency") filter.setFrequency(value);

@@ -132,6 +132,17 @@ export const FACTORY_PRESETS: EffectPreset[] = [
     ["Parallel Smash", { threshold: -40, ratio: 20, attack: 0.001, release: 0.1, knee: 0, dryWet: 0.4 }],
     ["Sidechain Pump", { threshold: -30, ratio: 10, attack: 0.001, release: 0.15, knee: 0, makeupAuto: 0, makeup: 0 }],
   ]),
+  // Steps (see glueModel.ts): ratio 0-2 = 2, 4, 10:1; attack 0-6 = 0.01,
+  // 0.1, 0.3, 1, 3, 10, 30 ms; release 0-6 = 0.1, 0.2, 0.4, 0.6, 0.8,
+  // 1.2 s, Auto.
+  ...factory("glue", [
+    ["Mix Bus Glue", { threshold: -16, ratio: 0, attack: 5, release: 6, makeup: 2 }],
+    ["Master Polish", { threshold: -10, ratio: 0, attack: 6, release: 6, makeup: 1, range: -3 }],
+    ["Drum Bus Punch", { threshold: -20, ratio: 1, attack: 6, release: 1, makeup: 4 }],
+    ["Vocal Glue", { threshold: -18, ratio: 1, attack: 4, release: 2, makeup: 3 }],
+    ["Parallel Crush", { threshold: -30, ratio: 2, attack: 0, release: 0, makeup: 10, dryWet: 0.4, softClip: 1 }],
+    ["Sidechain Pump", { threshold: -30, ratio: 2, attack: 0, release: 2 }],
+  ]),
   ...factory("gate", [
     ["Guitar Hiss", { threshold: -60, attack: 0.001, hold: 0.05, release: 0.15, range: -80 }],
     ["Tight Drums", { threshold: -35, attack: 0.0005, hold: 0.02, release: 0.05, range: -80 }],

@@ -56,6 +56,7 @@ import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
 import { SynthInstrument, defaultSynthParams } from "./synth";
 import { type EffectType, defaultParams } from "./effects";
 import { CompressorChain, type CompressorMeterReading } from "./compressor";
+import { GlueChain, type GlueMeterReading } from "./glue";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { measureNativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
@@ -1069,6 +1070,8 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
       return new UtilityChain(params);
     case "tuner":
       return new TunerChain(params);
+    case "glue":
+      return new GlueChain(params);
   }
 }
 
@@ -1191,6 +1194,9 @@ export function applyEffectParam(
       break;
     case "utility":
       (node as UtilityChain).setParam(key, value);
+      break;
+    case "glue":
+      (node as GlueChain).setParam(key, value);
       break;
     case "tuner":
       if (key === "mute") (node as TunerChain).setMute(value >= 0.5);
@@ -2122,6 +2128,12 @@ class AudioEngine {
   getCompressorMeters(hostId: string, effectId: string): CompressorMeterReading | null {
     const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
     return effect?.node instanceof CompressorChain ? effect.node.meters : null;
+  }
+
+  /** One Glue Compressor's gain reduction, output level and Clip LED. */
+  getGlueMeters(hostId: string, effectId: string): GlueMeterReading | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof GlueChain ? effect.node.meters : null;
   }
 
   /** Live peak input (after the plugin's gain), output, and gain reduction

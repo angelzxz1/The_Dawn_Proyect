@@ -26,6 +26,9 @@ const KNOBS: { key: string; label: string; mode: KnobMode }[] = [
   { key: "scGain", label: "Gain", mode: "bipolar" },
   { key: "scHpf", label: "Low Cut", mode: "log" },
   { key: "scLpf", label: "High Cut", mode: "log" },
+  // Only on effects that have it (the Glue Compressor): how much of the
+  // detector's input is the sidechain rather than its own input.
+  { key: "scMix", label: "Mix", mode: "linear" },
 ];
 
 /** The name shown for an effect's key source, or null when it has none
@@ -155,7 +158,7 @@ export function SidechainPanel({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-4">
-        {KNOBS.map((k) => {
+        {KNOBS.filter((k) => specs.some((s) => s.key === k.key)).map((k) => {
           const s = spec(k.key);
           return (
             <PluginKnob

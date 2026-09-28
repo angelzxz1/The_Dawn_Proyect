@@ -12,6 +12,7 @@ import {
 } from "./paramEqModel";
 import type { PresetRef } from "./presets";
 import { COLOR_MODES, COLOR_MODE_LABELS, DISTORTION_SHAPES, SHAPE_LABELS, distortionShapeFromParam } from "./distortionModel";
+import { GLUE_ATTACKS_MS, GLUE_AUTO_RELEASE, GLUE_RATIOS, formatGlueAttack, formatGlueRelease, glueRatio } from "./glueModel";
 import { SC_HPF_OFF, SC_LPF_OFF, type SidechainRouting } from "./sidechainModel";
 import { UTILITY_CHANNEL_LABELS, UTILITY_CHANNEL_MODES, UTILITY_GAIN_FLOOR } from "./utilityModel";
 import {
@@ -40,7 +41,8 @@ export type EffectType =
   | "paramEq"
   | "multiband"
   | "utility"
-  | "tuner";
+  | "tuner"
+  | "glue";
 
 export const EFFECT_TYPES: EffectType[] = [
   "eq3",
@@ -59,12 +61,13 @@ export const EFFECT_TYPES: EffectType[] = [
   "multiband",
   "utility",
   "tuner",
+  "glue",
 ];
 
 /** Groups the effect palette the way an Ableton-style device browser would
  * - the sidebar renders one collapsible section per group. */
 export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
-  { name: "Dynamics", types: ["compressor", "multiband", "limiter", "gate"] },
+  { name: "Dynamics", types: ["compressor", "glue", "multiband", "limiter", "gate"] },
   { name: "EQ & Filter", types: ["paramEq", "eq3", "filter"] },
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
@@ -90,10 +93,11 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   multiband: "Multiband Compressor",
   utility: "Utility",
   tuner: "Tuner",
+  glue: "Glue Compressor",
 };
 
 /** Effect types whose detector can listen to another track (a sidechain). */
-export const SIDECHAIN_EFFECT_TYPES: EffectType[] = ["compressor", "gate", "multiband"];
+export const SIDECHAIN_EFFECT_TYPES: EffectType[] = ["compressor", "glue", "gate", "multiband"];
 
 export function hasSidechain(type: EffectType): boolean {
   return SIDECHAIN_EFFECT_TYPES.includes(type);
@@ -319,6 +323,21 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "channel", label: "Channel", min: 0, max: UTILITY_CHANNEL_MODES.length - 1, default: 0, format: (v) => UTILITY_CHANNEL_LABELS[UTILITY_CHANNEL_MODES[Math.round(v)]] ?? "Stereo", automatable: false },
     { key: "dcFilter", label: "DC Filter", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "On" : "Off"), automatable: false },
     { key: "mute", label: "Mute", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "Muted" : "Off") },
+  ],
+  // Ratio, Attack and Release are steps (see glueModel.ts); Release's last
+  // step is Auto.
+  glue: [
+    { key: "threshold", label: "Threshold", min: -40, max: 0, default: -10, format: dbSpaced },
+    { key: "ratio", label: "Ratio", min: 0, max: GLUE_RATIOS.length - 1, default: 1, format: (v) => `${glueRatio(v)}:1` },
+    { key: "attack", label: "Attack", min: 0, max: GLUE_ATTACKS_MS.length - 1, default: 5, format: formatGlueAttack },
+    { key: "release", label: "Release", min: 0, max: GLUE_AUTO_RELEASE, default: GLUE_AUTO_RELEASE, format: formatGlueRelease },
+    { key: "makeup", label: "Makeup", min: 0, max: 20, default: 0, format: dbSigned },
+    { key: "range", label: "Range", min: -70, max: 0, default: -70, format: dbSpaced },
+    { key: "dryWet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
+    { key: "softClip", label: "Soft Clip", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "On" : "Off"), automatable: false },
+    { key: "oversample", label: "Oversampling", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "2x" : "Off"), automatable: false },
+    ...SIDECHAIN_SPECS,
+    { key: "scMix", label: "Sidechain Mix", min: 0, max: 1, default: 1, format: pct },
   ],
   tuner: [
     { key: "reference", label: "Reference", min: 410, max: 480, default: 440, format: (v) => `A4 = ${v.toFixed(1)} Hz`, automatable: false },

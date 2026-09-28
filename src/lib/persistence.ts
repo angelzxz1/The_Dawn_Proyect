@@ -39,22 +39,35 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 /**
- * Writes the project JSON and replaces the entire audio-blob store with
- * exactly `audioBlobs` (keyed by clip id) - simplest way to guarantee no
- * orphaned blobs pile up from deleted clips without tracking deletions
- * separately.
+ * Writes the project JSON and makes the audio-blob store hold exactly
+ * `audioBlobs` (keyed by clip or effect-file id). A blob never changes under
+ * its id, so only new ones are written and ones no longer used are deleted
+ * - rewriting every recording on each autosave was needless work that grew
+ * with the project. `replaceAll` rewrites everything - after another
+ * project was opened, whose ids may reuse the old one's for other audio.
  */
 export async function saveProject(
   project: SerializedProject,
-  audioBlobs: Map<string, Blob>
+  audioBlobs: Map<string, Blob>,
+  replaceAll = false
 ): Promise<void> {
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([META_STORE, BLOB_STORE], "readwrite");
       tx.objectStore(META_STORE).put(project, PROJECT_KEY);
-      tx.objectStore(BLOB_STORE).clear();
-      audioBlobs.forEach((blob, id) => tx.objectStore(BLOB_STORE).put(blob, id));
+      const blobs = tx.objectStore(BLOB_STORE);
+      const keysReq = blobs.getAllKeys();
+      keysReq.onsuccess = () => {
+        const stored = new Set(replaceAll ? [] : keysReq.result.map(String));
+        if (replaceAll) blobs.clear();
+        stored.forEach((id) => {
+          if (!audioBlobs.has(id)) blobs.delete(id);
+        });
+        audioBlobs.forEach((blob, id) => {
+          if (!stored.has(id)) blobs.put(blob, id);
+        });
+      };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);

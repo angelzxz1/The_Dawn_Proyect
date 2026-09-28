@@ -10,6 +10,7 @@ import {
   MAX_EQ_BANDS,
   defaultBandFreq,
 } from "./paramEqModel";
+import type { PresetRef } from "./presets";
 import { SC_HPF_OFF, SC_LPF_OFF, type SidechainRouting } from "./sidechainModel";
 import { UTILITY_CHANNEL_LABELS, UTILITY_CHANNEL_MODES, UTILITY_GAIN_FLOOR } from "./utilityModel";
 import {
@@ -120,6 +121,8 @@ export interface EffectInstance {
   file?: EffectFileRef;
   /** Only for SIDECHAIN_EFFECT_TYPES - absent until one is set up. */
   sidechain?: SidechainRouting;
+  /** The preset it was last loaded from or saved as (see presets.ts). */
+  preset?: PresetRef;
 }
 
 export interface ParamSpec {

@@ -7,6 +7,7 @@ import { ChorusGraph } from "./ChorusGraph";
 import { paramSpecs, type ParamSpec } from "@/lib/effects";
 import { CHORUS_WAVEFORMS, chorusDelayRange, chorusWaveformFromParam } from "@/lib/chorusModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 interface ChorusWindowProps {
   channelName: string;
@@ -64,6 +65,9 @@ export function ChorusWindow({
               Chorus
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

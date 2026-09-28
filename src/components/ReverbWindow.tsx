@@ -7,6 +7,7 @@ import { PluginIcon } from "./PluginIcon";
 import { paramSpecs, type ParamSpec } from "@/lib/effects";
 import { REVERB_MODES, highsRt60, reverbModeFromParam } from "@/lib/reverbModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 interface ReverbWindowProps {
   channelName: string;
@@ -67,6 +68,9 @@ export function ReverbWindow({
               Reverb
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

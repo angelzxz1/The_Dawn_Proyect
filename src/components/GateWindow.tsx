@@ -9,6 +9,7 @@ import { HYSTERESIS_DB } from "@/lib/gateModel";
 import { SidechainPanel, type SidechainSource } from "./SidechainPanel";
 import type { SidechainRouting } from "@/lib/sidechainModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 interface GateWindowProps {
   hostId: string;
@@ -73,6 +74,9 @@ export function GateWindow({
               Noise Gate
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

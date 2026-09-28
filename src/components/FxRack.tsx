@@ -19,7 +19,8 @@ import { ParamEqRackCard } from "./ParamEqRackCard";
 import { MultibandRackCard } from "./MultibandRackCard";
 import { UtilityRackCard } from "./UtilityRackCard";
 import { TunerRackCard } from "./TunerRackCard";
-import { EFFECT_DRAG_MIME } from "./EffectBrowser";
+import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
+import { PresetMenu, type PresetChange } from "./PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
@@ -48,8 +49,9 @@ interface FxRackProps {
    * `instrument === "synth"`. */
   onOpenSynthSettings?: () => void;
   onSendChange?: (busId: string, db: number | null) => void;
-  /** `atIndex` omitted means "append at the end". */
-  onAddEffect: (type: EffectType, atIndex?: number) => void;
+  /** `atIndex` omitted means "append at the end"; `presetId` loads that
+   * preset into the new effect. */
+  onAddEffect: (type: EffectType, atIndex?: number, presetId?: string) => void;
   onRemoveEffect: (effectId: string) => void;
   onMoveEffect: (effectId: string, toIndex: number) => void;
   onBypassToggle: (effectId: string) => void;
@@ -64,6 +66,8 @@ interface FxRackProps {
    * an error message if the file can't be used. */
   onLoadEffectFile?: (effectId: string, file: File) => Promise<string | null>;
   onClearEffectFile?: (effectId: string) => void;
+  /** Loads, saves or resets an effect's preset (see PresetMenu). */
+  onPresetChange?: (effectId: string, change: PresetChange) => void;
   /** Tracks and buses, for naming a dynamics effect's sidechain source. */
   sidechainSources?: SidechainSource[];
 }
@@ -167,6 +171,7 @@ export function FxRack({
   onLoadEffectFile,
   onClearEffectFile,
   sidechainSources,
+  onPresetChange,
 }: FxRackProps) {
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -176,14 +181,15 @@ export function FxRack({
     setDragOverGap(null);
     const newType = e.dataTransfer.getData(EFFECT_DRAG_MIME) as EffectType | "";
     const reorderId = e.dataTransfer.getData(REORDER_DRAG_MIME);
-    if (newType) onAddEffect(newType, index);
+    const presetId = e.dataTransfer.getData(PRESET_DRAG_MIME);
+    if (newType) onAddEffect(newType, index, presetId || undefined);
     else if (reorderId) onMoveEffect(reorderId, index);
   };
 
   return (
     <div
       className={`flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface ${
-        collapsed ? "" : "h-[210px]"
+        collapsed ? "" : "h-[256px]"
       }`}
     >
       <button
@@ -277,6 +283,7 @@ export function FxRack({
                 <GripVertical size={10} className="text-muted" />
               </div>
               <div className={`flex min-w-0 flex-1 flex-col ${CUSTOM_UI_TYPES.includes(fx.type) ? "p-2.5 pl-1.5" : "p-2 pl-1"}`}>
+                <div className="flex min-h-0 flex-1 flex-col">
                 {fx.type === "eq3" ? (
                   <EQThreeRackCard
                     params={fx.params}
@@ -492,6 +499,12 @@ export function FxRack({
                       ))}
                     </div>
                   </>
+                )}
+                </div>
+                {onPresetChange && (
+                  <div className="mt-1.5">
+                    <PresetMenu variant="rack" effect={fx} bpm={bpm} onChange={(change) => onPresetChange(fx.id, change)} />
+                  </div>
                 )}
               </div>
             </div>

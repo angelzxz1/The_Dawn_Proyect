@@ -24,6 +24,7 @@ import {
   type EqShape,
 } from "@/lib/paramEqModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 interface ParamEqWindowProps {
   hostId: string;
@@ -171,6 +172,9 @@ export function ParamEqWindow({
               Parametric EQ
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

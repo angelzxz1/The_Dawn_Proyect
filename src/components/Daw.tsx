@@ -57,6 +57,8 @@ import { IrLoaderWindow } from "./IrLoaderWindow";
 import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
 import type { SidechainSource } from "./SidechainPanel";
+import { EffectPresetContext, type PresetChange } from "./PresetMenu";
+import { findPreset, paramsFromPreset } from "@/lib/presets";
 import type { SidechainRouting } from "@/lib/sidechainModel";
 import { ParamEqWindow } from "./ParamEqWindow";
 import { MultibandWindow } from "./MultibandWindow";
@@ -1651,11 +1653,54 @@ export function Daw() {
     setAutomationTarget({ kind: "volume" });
   }, []);
 
+  /** A newly added effect with a preset loaded into it (as is, if there's
+   * no such preset). */
+  const withPreset = useCallback(
+    (hostId: string, created: EffectInstance, presetId: string | undefined): EffectInstance => {
+      const preset = findPreset(presetId);
+      if (!preset || preset.type !== created.type) return created;
+      const params = paramsFromPreset(preset, created.params, bpm);
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== created.params[key]) audioEngine.setEffectParam(hostId, created.id, key, value);
+      });
+      return { ...created, params, preset: { id: preset.id, name: preset.name } };
+    },
+    [bpm]
+  );
+
+  /** Loads a preset into an effect on a track, a bus or the master (or
+   * marks the one it was saved as) - one undo step. */
+  const handleEffectPresetChange = useCallback(
+    (hostId: string, effectId: string, change: PresetChange) => {
+      const project = liveProjectRef.current;
+      const list = hostId === "master" ? project.masterEffects : project.channelEffects[hostId] ?? project.busEffects[hostId] ?? [];
+      const effect = list.find((e) => e.id === effectId);
+      if (!effect) return;
+      pushHistory();
+      Object.entries(change.params).forEach(([key, value]) => {
+        if (value !== effect.params[key]) audioEngine.setEffectParam(hostId, effectId, key, value);
+      });
+      const update = (effects: EffectInstance[]) =>
+        effects.map((e) => {
+          if (e.id !== effectId) return e;
+          const next: EffectInstance = { ...e, params: { ...change.params } };
+          if (change.preset) next.preset = change.preset;
+          else delete next.preset;
+          return next;
+        });
+      if (hostId === "master") setMasterEffects(update);
+      else if (project.channels.some((c) => c.id === hostId)) setChannelEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
+      else setBusEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
+    },
+    [pushHistory]
+  );
+
   const handleAddEffect = useCallback(
-    (type: EffectType, atIndex?: number) => {
+    (type: EffectType, atIndex?: number, presetId?: string) => {
       if (!fxChannelId) return;
       pushHistory();
-      const created = audioEngine.addEffect(fxChannelId, type, undefined, atIndex);
+      const added = audioEngine.addEffect(fxChannelId, type, undefined, atIndex);
+      const created = added && withPreset(fxChannelId, added, presetId);
       if (created) {
         setChannelEffects((prev) => {
           const list = [...(prev[fxChannelId] ?? [])];
@@ -1668,7 +1713,7 @@ export function Daw() {
         });
       }
     },
-    [fxChannelId, pushHistory]
+    [fxChannelId, pushHistory, withPreset]
   );
 
   const handleRemoveEffect = useCallback(
@@ -1817,10 +1862,11 @@ export function Daw() {
   }, []);
 
   const handleBusAddEffect = useCallback(
-    (type: EffectType, atIndex?: number) => {
+    (type: EffectType, atIndex?: number, presetId?: string) => {
       if (!fxBusId) return;
       pushHistory();
-      const created = audioEngine.addEffect(fxBusId, type, undefined, atIndex);
+      const added = audioEngine.addEffect(fxBusId, type, undefined, atIndex);
+      const created = added && withPreset(fxBusId, added, presetId);
       if (created) {
         setBusEffects((prev) => {
           const list = [...(prev[fxBusId] ?? [])];
@@ -1833,7 +1879,7 @@ export function Daw() {
         });
       }
     },
-    [fxBusId, pushHistory]
+    [fxBusId, pushHistory, withPreset]
   );
 
   const handleBusRemoveEffect = useCallback(
@@ -1903,9 +1949,10 @@ export function Daw() {
   // --- Master bus effects chain ---
 
   const handleMasterAddEffect = useCallback(
-    (type: EffectType, atIndex?: number) => {
+    (type: EffectType, atIndex?: number, presetId?: string) => {
       pushHistory();
-      const created = audioEngine.addEffect("master", type, undefined, atIndex);
+      const added = audioEngine.addEffect("master", type, undefined, atIndex);
+      const created = added && withPreset("master", added, presetId);
       if (created) {
         setMasterEffects((prev) => {
           const list = [...prev];
@@ -1918,7 +1965,7 @@ export function Daw() {
         });
       }
     },
-    [pushHistory]
+    [pushHistory, withPreset]
   );
 
   const handleMasterRemoveEffect = useCallback(
@@ -2038,10 +2085,10 @@ export function Daw() {
    * whichever target - a track, a bus, or the master bus - the FX rack
    * currently shows. */
   const handleSidebarAddEffect = useCallback(
-    (type: EffectType) => {
-      if (fxMasterOpen) handleMasterAddEffect(type);
-      else if (fxBusId) handleBusAddEffect(type);
-      else handleAddEffect(type);
+    (type: EffectType, presetId?: string) => {
+      if (fxMasterOpen) handleMasterAddEffect(type, undefined, presetId);
+      else if (fxBusId) handleBusAddEffect(type, undefined, presetId);
+      else handleAddEffect(type, undefined, presetId);
     },
     [fxMasterOpen, fxBusId, handleMasterAddEffect, handleBusAddEffect, handleAddEffect]
   );
@@ -3308,6 +3355,7 @@ export function Daw() {
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           sidechainSources={sidechainSources}
+          onPresetChange={(effectId, change) => handleEffectPresetChange(fxHostId, effectId, change)}
           channelType={fxChannel?.type}
           color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
@@ -3342,6 +3390,13 @@ export function Daw() {
         />
       )}
 
+      <EffectPresetContext.Provider
+        value={
+          expandedEffectId && expandedEffect
+            ? { effect: expandedEffect, bpm, onChange: (change) => handleEffectPresetChange(fxHostId, expandedEffectId, change) }
+            : null
+        }
+      >
       {expandedEffectId && expandedEffect?.type === "eq3" && (
         <EQThreeWindow
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
@@ -3725,6 +3780,7 @@ export function Daw() {
           onParamDragStart={pushHistory}
         />
       )}
+      </EffectPresetContext.Provider>
       </div>
     </div>
   );

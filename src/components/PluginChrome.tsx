@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Maximize2, Power, X } from "lucide-react";
 import { PluginIcon } from "./PluginIcon";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 /** The top row of a compact FX rack card: icon, name, a short status, and
  * expand / bypass / remove. */
@@ -91,6 +92,9 @@ export function PluginWindow({
               {title}
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

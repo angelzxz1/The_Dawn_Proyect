@@ -145,6 +145,11 @@ function normalizeEffect(raw: unknown): EffectInstance | null {
   const file = obj(r.file);
   const fileId = nonEmptyId(file.id);
   if (FILE_EFFECT_TYPES.includes(type) && fileId) effect.file = { id: fileId, name: str(file.name, "file") };
+  // The preset it came from (it may since have been deleted - the name still
+  // shows).
+  const preset = obj(r.preset);
+  const presetId = nonEmptyId(preset.id);
+  if (presetId) effect.preset = { id: presetId, name: str(preset.name, "Preset").slice(0, 60) };
   // A key from a track that's since been deleted just stays unconnected.
   if (hasSidechain(type) && r.sidechain !== undefined) {
     const sc = obj(r.sidechain);

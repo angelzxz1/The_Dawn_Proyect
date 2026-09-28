@@ -7,6 +7,7 @@ import { PluginIcon } from "./PluginIcon";
 import { paramSpecs } from "@/lib/effects";
 import { snapToDivision, formatDivision } from "@/lib/delayDivisions";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 interface DelayWindowProps {
   channelName: string;
@@ -92,6 +93,9 @@ export function DelayWindow({
               Delay
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

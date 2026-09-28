@@ -15,6 +15,7 @@ import {
   slopeIndexFromParam,
 } from "@/lib/filterModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { WindowPresetMenu } from "./PresetMenu";
 
 interface FilterWindowProps {
   channelName: string;
@@ -128,6 +129,9 @@ export function FilterWindow({
               Filter
             </h2>
             <span className="text-xs text-muted">— {channelName}</span>
+            <div className="ml-3">
+              <WindowPresetMenu />
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

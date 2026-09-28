@@ -11,6 +11,7 @@ export function ProjectMenu({
   name,
   dirty,
   folders,
+  brave,
   folderName,
   busy,
   onNew,
@@ -27,6 +28,8 @@ export function ProjectMenu({
   dirty: boolean;
   /** Whether this browser can save to folders. */
   folders: boolean;
+  /** Brave, which can save to folders once a setting is turned on. */
+  brave: boolean;
   /** The folder the project is saved in, if any. */
   folderName: string | null;
   busy: boolean;
@@ -141,7 +144,9 @@ export function ProjectMenu({
           <p className="px-2 pb-1 pt-1.5 text-[10.5px] leading-snug text-muted">
             {folders
               ? "Projects are saved to a folder on your computer: the song, its samples and its undo history."
-              : "This browser can't save to folders, so projects are saved as one .dawnproject file (use Chrome or Edge for folders)."}
+              : brave
+                ? <>Brave has saving to folders turned off, so projects are saved as one .dawnproject file. To save to folders, open <span className="select-all font-mono text-foreground/80">brave://flags/#file-system-access-api</span>, set it to Enabled and restart Brave.</>
+                : "This browser can't save to folders, so projects are saved as one .dawnproject file (use Chrome or Edge for folders)."}
           </p>
         </div>
       )}

@@ -88,6 +88,7 @@ import {
   deserializeClips,
   encodeBundle,
   ensurePermission,
+  isBrave,
   loadFromFolder,
   pickProjectFolder,
   readOpenProject,
@@ -2993,6 +2994,7 @@ export function Daw() {
               name={projectName}
               dirty={dirty}
               folders={supportsFolders()}
+              brave={isBrave()}
               folderName={projectFolderName}
               busy={projectBusy}
               onNew={handleNewProject}

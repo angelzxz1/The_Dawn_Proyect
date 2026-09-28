@@ -202,6 +202,12 @@ export function supportsFolders(): boolean {
   return typeof window !== "undefined" && typeof (window as unknown as PickerWindow).showDirectoryPicker === "function";
 }
 
+/** Brave is Chromium but ships with the folder API turned off (it can be
+ * turned on at brave://flags/#file-system-access-api). */
+export function isBrave(): boolean {
+  return typeof navigator !== "undefined" && "brave" in navigator;
+}
+
 async function pickDirectory(): Promise<DirectoryHandle | null> {
   try {
     return await (window as unknown as PickerWindow).showDirectoryPicker!({ mode: "readwrite", id: "dawn-projects" });

@@ -4,6 +4,7 @@ import { Maximize2, Power, X } from "lucide-react";
 import { PluginKnob } from "./PluginKnob";
 import { PluginIcon } from "./PluginIcon";
 import { paramSpecs } from "@/lib/effects";
+import { SidechainBadge } from "./SidechainPanel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface CompressorRackCardProps {
@@ -14,6 +15,8 @@ interface CompressorRackCardProps {
   onExpand: () => void;
   onParamChange: (key: string, value: number) => void;
   onParamDragStart?: () => void;
+  /** The sidechain source's name, when one is keying it. */
+  sidechainName?: string | null;
 }
 
 /** The compact card shown inline in the FX rack - just the four primary
@@ -27,6 +30,7 @@ export function CompressorRackCard({
   onExpand,
   onParamChange,
   onParamDragStart,
+  sidechainName,
 }: CompressorRackCardProps) {
   const [thresholdSpec, ratioSpec, attackSpec, releaseSpec] = paramSpecs("compressor");
 
@@ -36,6 +40,7 @@ export function CompressorRackCard({
         <div className="flex items-center gap-1.5">
           <PluginIcon size={15} />
           <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Compressor</h2>
+          <SidechainBadge name={sidechainName ?? null} />
         </div>
         <div className="flex items-center gap-1">
           <button

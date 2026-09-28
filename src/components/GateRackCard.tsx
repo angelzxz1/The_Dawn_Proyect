@@ -4,6 +4,7 @@ import { Maximize2, Power, X } from "lucide-react";
 import { PluginKnob } from "./PluginKnob";
 import { PluginIcon } from "./PluginIcon";
 import { GATE_KNOBS, gateParam, gateSpec } from "./GateWindow";
+import { SidechainBadge } from "./SidechainPanel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface GateRackCardProps {
@@ -14,6 +15,8 @@ interface GateRackCardProps {
   onExpand: () => void;
   onParamChange: (key: string, value: number) => void;
   onParamDragStart?: () => void;
+  /** The sidechain source's name, when one is keying it. */
+  sidechainName?: string | null;
 }
 
 /** The compact card shown inline in the FX rack - all five knobs; the level
@@ -26,6 +29,7 @@ export function GateRackCard({
   onExpand,
   onParamChange,
   onParamDragStart,
+  sidechainName,
 }: GateRackCardProps) {
   return (
     <div className="flex h-full flex-col gap-2.5">
@@ -33,6 +37,7 @@ export function GateRackCard({
         <div className="flex items-center gap-1.5">
           <PluginIcon size={15} />
           <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Noise Gate</h2>
+          <SidechainBadge name={sidechainName ?? null} />
           <span className={`${spaceGrotesk.className} text-[10px] font-semibold uppercase tracking-wider text-muted`}>
             {gateSpec("threshold").format(gateParam(params, "threshold"))}
           </span>

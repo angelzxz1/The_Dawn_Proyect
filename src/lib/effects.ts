@@ -10,6 +10,7 @@ import {
   MAX_EQ_BANDS,
   defaultBandFreq,
 } from "./paramEqModel";
+import { SC_HPF_OFF, SC_LPF_OFF, type SidechainRouting } from "./sidechainModel";
 import { UTILITY_CHANNEL_LABELS, UTILITY_CHANNEL_MODES, UTILITY_GAIN_FLOOR } from "./utilityModel";
 import {
   MB_BAND_DEFAULTS,
@@ -89,6 +90,13 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   tuner: "Tuner",
 };
 
+/** Effect types whose detector can listen to another track (a sidechain). */
+export const SIDECHAIN_EFFECT_TYPES: EffectType[] = ["compressor", "gate", "multiband"];
+
+export function hasSidechain(type: EffectType): boolean {
+  return SIDECHAIN_EFFECT_TYPES.includes(type);
+}
+
 /** Effect types that take an uploaded file (an impulse response, ...) in
  * addition to their knobs. */
 export const FILE_EFFECT_TYPES: EffectType[] = ["irLoader", "namAmp"];
@@ -110,6 +118,8 @@ export interface EffectInstance {
   bypass?: boolean;
   /** Only for FILE_EFFECT_TYPES - absent until a file is loaded. */
   file?: EffectFileRef;
+  /** Only for SIDECHAIN_EFFECT_TYPES - absent until one is set up. */
+  sidechain?: SidechainRouting;
 }
 
 export interface ParamSpec {
@@ -136,6 +146,16 @@ const dbSpaced = (v: number) => `${v.toFixed(1)} dB`;
 const dbSigned = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
 const hzSpaced =(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`);
 
+/** The sidechain's own settings, shared by every dynamics effect. They
+ * shape what the detector hears, whether or not another track is keying
+ * it. */
+const SIDECHAIN_SPECS: ParamSpec[] = [
+  { key: "scGain", label: "Sidechain Gain", min: -24, max: 24, default: 0, format: dbSigned },
+  { key: "scHpf", label: "Sidechain Low Cut", min: SC_HPF_OFF, max: 2000, default: SC_HPF_OFF, format: (v) => (v <= SC_HPF_OFF + 0.5 ? "Off" : hzSpaced(v)) },
+  { key: "scLpf", label: "Sidechain High Cut", min: 200, max: SC_LPF_OFF, default: SC_LPF_OFF, format: (v) => (v >= SC_LPF_OFF - 1 ? "Off" : hzSpaced(v)) },
+  { key: "scListen", label: "Sidechain Listen", min: 0, max: 1, default: 0, format: (v) => (v >= 0.5 ? "On" : "Off"), automatable: false },
+];
+
 const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
   eq3: [
     { key: "low", label: "Low", min: -24, max: 12, default: 0, format: db },
@@ -154,6 +174,7 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "makeupAuto", label: "Auto Makeup", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "Auto" : "Manual") },
     { key: "dryWet", label: "Dry/Wet", min: 0, max: 1, default: 1, format: pct },
     { key: "output", label: "Output", min: -24, max: 24, default: 0, format: db },
+    ...SIDECHAIN_SPECS,
   ],
   delay: [
     // Defaults match a dotted-eighth/eighth stereo delay at the project's
@@ -269,6 +290,7 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "hold", label: "Hold", min: 0, max: 0.5, default: 0.05, format: msSpaced },
     { key: "release", label: "Release", min: 0.005, max: 2, default: 0.15, format: msSpaced },
     { key: "range", label: "Range", min: -80, max: 0, default: -80, format: (v) => (v <= -79.95 ? "-∞ dB" : dbSpaced(v)) },
+    ...SIDECHAIN_SPECS,
   ],
   paramEq: paramEqSpecs(),
   multiband: multibandSpecs(),
@@ -350,7 +372,8 @@ function multibandSpecs(): ParamSpec[] {
     { key: "mix", label: "Mix", min: 0, max: 1, default: 1, format: pct },
     { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
     { key: "scale", label: "Display Range", min: 6, max: 48, default: 24, format: (v) => `±${Math.round(v)} dB`, automatable: false },
-    { key: "analyzer", label: "Analyzer", min: 0, max: 2, default: 2, format: (v) => ["Off", "Post", "Pre + Post"][Math.round(v)] ?? "Off", automatable: false }
+    { key: "analyzer", label: "Analyzer", min: 0, max: 2, default: 2, format: (v) => ["Off", "Post", "Pre + Post"][Math.round(v)] ?? "Off", automatable: false },
+    ...SIDECHAIN_SPECS
   );
   return specs;
 }

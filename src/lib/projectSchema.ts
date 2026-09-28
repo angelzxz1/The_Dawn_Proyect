@@ -9,7 +9,8 @@
 // valid (an effect type that no longer exists, a clip on a deleted track)
 // are dropped.
 
-import { EFFECT_TYPES, FILE_EFFECT_TYPES, paramSpecs, type EffectInstance, type EffectType } from "./effects";
+import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectInstance, type EffectType } from "./effects";
+import { SIDECHAIN_TAPS } from "./sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, type SnapResolution } from "./timeline";
@@ -144,6 +145,15 @@ function normalizeEffect(raw: unknown): EffectInstance | null {
   const file = obj(r.file);
   const fileId = nonEmptyId(file.id);
   if (FILE_EFFECT_TYPES.includes(type) && fileId) effect.file = { id: fileId, name: str(file.name, "file") };
+  // A key from a track that's since been deleted just stays unconnected.
+  if (hasSidechain(type) && r.sidechain !== undefined) {
+    const sc = obj(r.sidechain);
+    effect.sidechain = {
+      on: bool(sc.on, false),
+      source: nonEmptyId(sc.source),
+      tap: oneOf(sc.tap, SIDECHAIN_TAPS, "postFx"),
+    };
+  }
   return effect;
 }
 

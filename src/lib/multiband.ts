@@ -5,7 +5,7 @@ import { loadWorklet } from "./workletLoader";
 // The Multiband Compressor effect: multibandModel.ts's kernel in an
 // AudioWorklet (no added latency). It reports each band's gain and level
 // for the window's live curve and meters, and taps spectrum analyzers
-// before and after itself.
+// before and after itself. Its second input is the sidechain.
 
 const PROCESSOR_NAME = "dawn-multiband-v1";
 const METER_INTERVAL = 1024;
@@ -28,10 +28,11 @@ class DawnMultiband extends AudioWorkletProcessor {
   }
   process(inputs, outputs) {
     const input = inputs[0] || [];
+    const key = inputs[1] || [];
     const output = outputs[0];
     const n = output[0].length;
     const k = this.kernel;
-    k.process(input[0] || null, input[1] || null, output[0], output[1] || null, n);
+    k.process(input[0] || null, input[1] || null, output[0], output[1] || null, n, key[0] || null, key[1] || null);
     this.count += n;
     if (this.count >= ${METER_INTERVAL}) {
       this.port.postMessage({ gain: Array.from(k.meterGain), level: Array.from(k.meterLevel) });
@@ -60,11 +61,14 @@ export class MultibandChain extends Tone.ToneAudioNode {
   readonly name = "MultibandChain";
   readonly input = new Tone.Gain();
   readonly output = new Tone.Gain();
+  /** Where the engine plugs a sidechain source in. */
+  readonly sidechainInput = new Tone.Gain();
   private readonly pre = new Tone.Analyser({ type: "fft", size: ANALYZER_SIZE, smoothing: 0.75 });
   private readonly post = new Tone.Analyser({ type: "fft", size: ANALYZER_SIZE, smoothing: 0.75 });
   private worklet: AudioWorkletNode | null = null;
   private params: Record<string, number>;
   private solo = -1;
+  private external = false;
   private pending = false;
   private reading = silent();
   private readingAt = 0;
@@ -79,13 +83,13 @@ export class MultibandChain extends Tone.ToneAudioNode {
     loadWorklet(this.context, PROCESSOR_NAME, PROCESSOR_CODE).then(() => {
       if (this.isDisposed) return;
       const node = this.context.createAudioWorkletNode(PROCESSOR_NAME, {
-        numberOfInputs: 1,
+        numberOfInputs: 2,
         numberOfOutputs: 1,
         outputChannelCount: [2],
         channelCount: 2,
         channelCountMode: "explicit",
         channelInterpretation: "speakers",
-        processorOptions: mbSettingsFromParams(this.params, this.solo),
+        processorOptions: mbSettingsFromParams(this.params, this.solo, this.external),
       });
       node.port.onmessage = (e: MessageEvent<{ gain: number[]; level: number[] }>) => {
         this.reading = { gainDb: e.data.gain, levelDb: e.data.level.map((v) => Tone.gainToDb(v)) };
@@ -93,6 +97,7 @@ export class MultibandChain extends Tone.ToneAudioNode {
       };
       this.worklet = node;
       this.input.connect(node);
+      Tone.connect(this.sidechainInput, node, 0, 1);
       Tone.connect(node, this.output);
       Tone.connect(node, this.post);
     });
@@ -105,13 +110,20 @@ export class MultibandChain extends Tone.ToneAudioNode {
     this.pending = true;
     queueMicrotask(() => {
       this.pending = false;
-      this.worklet?.port.postMessage(mbSettingsFromParams(this.params, this.solo));
+      this.worklet?.port.postMessage(mbSettingsFromParams(this.params, this.solo, this.external));
     });
   }
 
   setParam(key: string, value: number): void {
     if (key === "scale" || key === "analyzer") return; // view-only
     this.params[key] = value;
+    this.sync();
+  }
+
+  /** Detect from the sidechain input (true) or the effect's own input. */
+  setSidechainActive(on: boolean): void {
+    if (on === this.external) return;
+    this.external = on;
     this.sync();
   }
 
@@ -140,6 +152,7 @@ export class MultibandChain extends Tone.ToneAudioNode {
       this.worklet.port.postMessage("dispose");
       this.worklet.disconnect();
     }
+    this.sidechainInput.dispose();
     this.pre.dispose();
     this.post.dispose();
     this.input.dispose();

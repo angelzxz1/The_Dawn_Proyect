@@ -1,10 +1,11 @@
 import * as Tone from "tone";
-import { GATE_KERNEL_SOURCE, type GateSettings } from "./gateModel";
+import { GATE_KERNEL_SOURCE, type GateKernelSettings } from "./gateModel";
+import { keySettingsFromParams } from "./sidechainModel";
 import { loadWorklet } from "./workletLoader";
 
 // The Noise Gate effect: runs gateModel.ts's kernel in an AudioWorklet
 // (sample-accurate, no added latency) and reports levels for the plugin
-// window's history graph.
+// window's history graph. Its second input is the sidechain.
 
 const PROCESSOR_NAME = "dawn-noise-gate-v1";
 const METER_INTERVAL = 1024;
@@ -30,9 +31,10 @@ class DawnNoiseGate extends AudioWorkletProcessor {
 
   process(inputs, outputs) {
     const input = inputs[0] || [];
+    const key = inputs[1] || [];
     const output = outputs[0];
     const n = output[0].length;
-    const r = this.kernel.process(input[0] || null, input[1] || null, output[0], output[1] || null, n);
+    const r = this.kernel.process(input[0] || null, input[1] || null, output[0], output[1] || null, n, key[0] || null, key[1] || null);
     if (r.peakIn > this.peak) this.peak = r.peakIn;
     if (r.minGain < this.minGain) this.minGain = r.minGain;
     this.count += n;
@@ -48,8 +50,9 @@ class DawnNoiseGate extends AudioWorkletProcessor {
 registerProcessor("${PROCESSOR_NAME}", DawnNoiseGate);
 `;
 
-/** One meter reading, ~every 20 ms: the input's peak and the gate's gain
- * (both dB), and whether it's open. */
+/** One meter reading, ~every 20 ms: the peak of what the gate listens to
+ * (its input, or the sidechain) and the gate's gain (both dB), and whether
+ * it's open. */
 export interface GateReading {
   inputDb: number;
   gainDb: number;
@@ -59,8 +62,9 @@ export interface GateReading {
 /** Readings kept for the window's scrolling graph (~5 s at 48 kHz). */
 const HISTORY = 240;
 
-export function gateSettingsFromParams(params: Record<string, number>): GateSettings {
+export function gateSettingsFromParams(params: Record<string, number>, external = false): GateKernelSettings {
   return {
+    ...keySettingsFromParams(params, external),
     thresholdDb: params.threshold,
     attack: params.attack,
     hold: params.hold,
@@ -73,25 +77,29 @@ export class NoiseGate extends Tone.ToneAudioNode {
   readonly name = "NoiseGate";
   readonly input = new Tone.Gain();
   readonly output = new Tone.Gain();
+  /** Where the engine plugs a sidechain source in. */
+  readonly sidechainInput = new Tone.Gain();
   private worklet: AudioWorkletNode | null = null;
-  private settings: GateSettings;
+  private params: Record<string, number>;
+  private external = false;
+  private pending = false;
   private readings: GateReading[] = [];
   private readingAt = 0;
   private isDisposed = false;
 
-  constructor(settings: GateSettings) {
+  constructor(params: Record<string, number>) {
     super();
-    this.settings = settings;
+    this.params = { ...params };
     loadWorklet(this.context, PROCESSOR_NAME, PROCESSOR_CODE).then(() => {
       if (this.isDisposed) return;
       const node = this.context.createAudioWorkletNode(PROCESSOR_NAME, {
-        numberOfInputs: 1,
+        numberOfInputs: 2,
         numberOfOutputs: 1,
         outputChannelCount: [2],
         channelCount: 2,
         channelCountMode: "explicit",
         channelInterpretation: "speakers",
-        processorOptions: this.settings,
+        processorOptions: gateSettingsFromParams(this.params, this.external),
       });
       node.port.onmessage = (e: MessageEvent<{ input: number; gain: number; open: boolean }>) => {
         this.readings.push({ inputDb: Tone.gainToDb(e.data.input), gainDb: Tone.gainToDb(e.data.gain), open: e.data.open });
@@ -100,13 +108,30 @@ export class NoiseGate extends Tone.ToneAudioNode {
       };
       this.worklet = node;
       this.input.connect(node);
+      Tone.connect(this.sidechainInput, node, 0, 1);
       Tone.connect(node, this.output);
     });
   }
 
-  configure(change: Partial<GateSettings>): void {
-    this.settings = { ...this.settings, ...change };
-    this.worklet?.port.postMessage(this.settings);
+  private sync(): void {
+    if (this.pending || !this.worklet) return;
+    this.pending = true;
+    queueMicrotask(() => {
+      this.pending = false;
+      this.worklet?.port.postMessage(gateSettingsFromParams(this.params, this.external));
+    });
+  }
+
+  setParam(key: string, value: number): void {
+    this.params[key] = value;
+    this.sync();
+  }
+
+  /** Detect from the sidechain input (true) or the gate's own input. */
+  setSidechainActive(on: boolean): void {
+    if (on === this.external) return;
+    this.external = on;
+    this.sync();
   }
 
   /** Recent readings, oldest first - empty once audio stops arriving (e.g.
@@ -124,6 +149,7 @@ export class NoiseGate extends Tone.ToneAudioNode {
       this.worklet.port.postMessage("dispose");
       this.worklet.disconnect();
     }
+    this.sidechainInput.dispose();
     this.input.dispose();
     this.output.dispose();
     return this;

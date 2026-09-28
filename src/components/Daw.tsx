@@ -56,6 +56,8 @@ import { DistortionWindow } from "./DistortionWindow";
 import { IrLoaderWindow } from "./IrLoaderWindow";
 import { NamAmpWindow } from "./NamAmpWindow";
 import { GateWindow } from "./GateWindow";
+import type { SidechainSource } from "./SidechainPanel";
+import type { SidechainRouting } from "@/lib/sidechainModel";
 import { ParamEqWindow } from "./ParamEqWindow";
 import { MultibandWindow } from "./MultibandWindow";
 import { UtilityWindow } from "./UtilityWindow";
@@ -1986,6 +1988,21 @@ export function Daw() {
     [pushHistory]
   );
 
+  /** Sets where a dynamics effect on a track, a bus or the master listens
+   * (its sidechain). */
+  const setEffectSidechain = useCallback(
+    (hostId: string, effectId: string, routing: SidechainRouting) => {
+      pushHistory();
+      const update = (list: EffectInstance[]) => list.map((e) => (e.id === effectId ? { ...e, sidechain: routing } : e));
+      if (hostId === "master") setMasterEffects(update);
+      else if (liveProjectRef.current.channels.some((c) => c.id === hostId))
+        setChannelEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
+      else setBusEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
+      audioEngine.setEffectSidechain(hostId, effectId, routing);
+    },
+    [pushHistory]
+  );
+
   /** Loads an uploaded file (an IR) into a file-based effect on a track, a
    * bus or the master bus. Resolves with an error message if the file can't
    * be used, leaving the effect unchanged. */
@@ -2641,6 +2658,10 @@ export function Daw() {
   const rackEffects = fxChannel ? channelEffects[fxChannel.id] ?? [] : fxBus ? busEffects[fxBus.id] ?? [] : masterEffects;
   const expandedEffect = expandedEffectId ? rackEffects.find((e) => e.id === expandedEffectId) : undefined;
   const fxHostId = fxChannel?.id ?? fxBus?.id ?? "master";
+  const sidechainSources: SidechainSource[] = [
+    ...channels.map((c) => ({ id: c.id, name: c.name, kind: "track" as const })),
+    ...buses.map((b) => ({ id: b.id, name: b.name, kind: "bus" as const })),
+  ];
   const lanesHeight =
     channels.length * TRACK_ROW_HEIGHT + (automationChannelId ? AUTOMATION_LANE_HEIGHT : 0);
 
@@ -3286,6 +3307,7 @@ export function Daw() {
         <FxRack
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
+          sidechainSources={sidechainSources}
           channelType={fxChannel?.type}
           color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
@@ -3363,6 +3385,9 @@ export function Daw() {
             )
           }
           onParamDragStart={pushHistory}
+          sidechain={expandedEffect.sidechain}
+          sidechainSources={sidechainSources}
+          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
         />
       )}
 
@@ -3459,6 +3484,9 @@ export function Daw() {
             )
           }
           onParamDragStart={pushHistory}
+          sidechain={expandedEffect.sidechain}
+          sidechainSources={sidechainSources}
+          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
         />
       )}
 
@@ -3483,6 +3511,9 @@ export function Daw() {
             )
           }
           onParamDragStart={pushHistory}
+          sidechain={expandedEffect.sidechain}
+          sidechainSources={sidechainSources}
+          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
         />
       )}
 

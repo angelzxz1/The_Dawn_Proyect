@@ -1,6 +1,5 @@
 // Delay compensation: some effects delay their audio (a limiter's
-// lookahead, the native compressor's, oversampling, a pitch shifter's
-// window), which would put that track behind the others. Like a DAW's
+// lookahead, oversampling, a pitch shifter's window), which would put that track behind the others. Like a DAW's
 // plugin delay compensation, every other path is delayed to match, so all
 // of them reach the master together:
 //

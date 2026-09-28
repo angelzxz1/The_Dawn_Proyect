@@ -4,7 +4,7 @@ import { loadWorklet } from "./workletLoader";
 // A true brick-wall limiter. The native DynamicsCompressorNode can't be one:
 // its level detector is smoothed, so fast transients get through several dB
 // over the threshold no matter the attack setting (and it adds its own hidden
-// makeup gain - see nativeCompressorMakeup.ts). Hard-clipping those overshoots
+// makeup gain). Hard-clipping those overshoots
 // instead is what made an earlier version audibly "rip" the sound.
 //
 // This runs as an AudioWorklet. Input gain is applied first, then (optionally)

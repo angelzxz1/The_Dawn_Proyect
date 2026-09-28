@@ -10,6 +10,8 @@ import { NamAmpChain } from "./namAmp";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
 import { chainLatency, nodeLatency, planCompensation } from "./latency";
+import { keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
+import type { SidechainTap } from "./sidechainModel";
 import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
@@ -78,6 +80,7 @@ function buildOfflineEffectsChain(
   entry: Tone.ToneAudioNode;
   nodesById: Map<string, { node: Tone.ToneAudioNode; type: EffectInstance["type"] }>;
   latency: number;
+  built: { fx: EffectInstance; node: Tone.ToneAudioNode }[];
 } {
   const built = effects.map((fx) => ({ fx, node: createEffectNode(fx.type, fx.params) }));
   built.forEach(({ fx, node }) => {
@@ -93,7 +96,7 @@ function buildOfflineEffectsChain(
     active[i].node.connect(next);
   }
   const nodesById = new Map(built.map(({ fx, node }) => [fx.id, { node, type: fx.type }]));
-  return { entry: active[0]?.node ?? dest, nodesById, latency: chainLatency(active.map(({ node }) => ({ node }))) };
+  return { entry: active[0]?.node ?? dest, nodesById, latency: chainLatency(active.map(({ node }) => ({ node }))), built };
 }
 
 function isMidiClip(c: ClipInstance): c is MidiClipInstance {
@@ -110,7 +113,16 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
   // channel is soloed, everything else is silent; otherwise muted channels
   // are simply left out of the render.
   const soloed = params.channels.filter((c) => c.solo);
-  const audible = soloed.length > 0 ? soloed : params.channels.filter((c) => !c.muted);
+  const audible = new Set(soloed.length > 0 ? soloed : params.channels.filter((c) => !c.muted));
+  // A track keying a sidechain is rendered even when it isn't heard (a
+  // muted "ghost" kick ducking the bass), with its strip muted as it is in
+  // playback.
+  const keySources = new Set(
+    [params.masterEffects, ...Object.values(params.busEffects), ...Object.values(params.channelEffects)]
+      .flat()
+      .map((fx) => (fx.sidechain?.on ? fx.sidechain.source : null))
+  );
+  const rendered = params.channels.filter((c) => audible.has(c) || keySources.has(c.id));
 
   // Uploaded effect files (IRs) are decoded up front, at the rate the
   // offline render runs at (Tone.Offline's default: the live context's).
@@ -141,7 +153,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     // mono, silently folding any stereo content (a stereo delay, etc.)
     // down before panning, at each stage it passes through.
     const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan, channelCount: 2 });
-    const { entry: masterEntry, latency: masterLatency } = buildOfflineEffectsChain(params.masterEffects, masterLimiter, files);
+    const { entry: masterEntry, latency: masterLatency, built: masterBuilt } = buildOfflineEffectsChain(params.masterEffects, masterLimiter, files);
     master.connect(masterEntry);
 
     // Delay compensation, as the live engine does it (see latency.ts).
@@ -151,15 +163,24 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       buses: [],
     };
 
+    // Sidechain tap points and keyed effects, per track/bus (see the live
+    // engine's rewireSidechains).
+    const taps = new Map<string, Record<SidechainTap, Tone.ToneAudioNode>>();
+    const hosts: { id: string; built: { fx: EffectInstance; node: Tone.ToneAudioNode }[] }[] = [];
+    const sendsOf = new Map<string, string[]>();
+
     const buses = new Map<string, { input: Tone.Gain }>();
     params.buses.forEach((bus) => {
       const input = new Tone.Gain(1);
       const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }).connect(master);
       const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
-      const { entry, latency: busLatency } = buildOfflineEffectsChain(params.busEffects[bus.id] ?? [], pdc, files);
+      const postFx = new Tone.Gain().connect(pdc);
+      const { entry, latency: busLatency, built } = buildOfflineEffectsChain(params.busEffects[bus.id] ?? [], postFx, files);
       input.connect(entry);
       buses.set(bus.id, { input });
       compensation.buses.push({ id: bus.id, latency: busLatency, pdc });
+      taps.set(bus.id, { preFx: input, postFx, postFader: channel });
+      hosts.push({ id: bus.id, built });
     });
 
     const loadPromises: Promise<void>[] = [];
@@ -173,22 +194,30 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       effectNodesById: Map<string, { node: Tone.ToneAudioNode; type: EffectInstance["type"] }>;
     }[] = [];
 
-    audible.forEach((channel) => {
-      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2 }).connect(direct);
+    rendered.forEach((channel) => {
+      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2, mute: !audible.has(channel) }).connect(direct);
       const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(strip);
+      const sends: string[] = [];
       Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
         const bus = buses.get(busId);
         if (!bus) return;
         const send = new Tone.Gain(Tone.dbToGain(db));
         strip.connect(send);
         send.connect(bus.input);
+        sends.push(busId);
       });
-      const { entry: firstNode, nodesById, latency: trackLatency } = buildOfflineEffectsChain(
+      sendsOf.set(channel.id, sends);
+      const postFx = new Tone.Gain().connect(pdc);
+      const { entry, nodesById, latency: trackLatency, built } = buildOfflineEffectsChain(
         params.channelEffects[channel.id] ?? [],
-        pdc,
+        postFx,
         files
       );
+      // Sources go into the pre-FX tap, which feeds the chain.
+      const firstNode = new Tone.Gain().connect(entry);
       compensation.channels.push({ id: channel.id, latency: trackLatency, pdc });
+      taps.set(channel.id, { preFx: firstNode, postFx, postFader: strip });
+      hosts.push({ id: channel.id, built });
 
       (channel.automationLanes ?? []).forEach((lane) => {
         automationEntries.push({ lane, strip, effectNodesById: nodesById });
@@ -263,6 +292,41 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     compensation.buses.forEach((b) => (b.pdc.delayTime.value = plan.bus.get(b.id) ?? 0));
     direct.delayTime.value = plan.direct;
     latency = plan.total;
+
+    // Sidechains: tap -> alignment delay -> the effect's key input.
+    hosts.push({ id: "master", built: masterBuilt });
+    const snapshot: RoutingSnapshot = {
+      channels: compensation.channels.map((c) => ({
+        id: c.id,
+        sends: sendsOf.get(c.id) ?? [],
+        chain: c.latency,
+        pdc: plan.channel.get(c.id) ?? 0,
+        toMaster: plan.direct,
+      })),
+      buses: compensation.buses.map((b) => ({ id: b.id, chain: b.latency, pdc: plan.bus.get(b.id) ?? 0 })),
+    };
+    const isKeyed = (node: Tone.ToneAudioNode): node is Tone.ToneAudioNode & { sidechainInput: Tone.Gain; setSidechainActive(on: boolean): void } =>
+      "sidechainInput" in node;
+    const requests: SidechainRequest[] = hosts.flatMap((h) =>
+      h.built.filter(({ fx, node }) => fx.sidechain && isKeyed(node)).map(({ fx }) => ({ hostId: h.id, effectId: fx.id, routing: fx.sidechain }))
+    );
+    const accepted = resolveSidechains(snapshot, requests);
+    hosts.forEach((h) => {
+      let before = 0;
+      h.built.forEach(({ fx, node }) => {
+        const source = accepted.get(fx.id);
+        if (source && fx.sidechain && isKeyed(node)) {
+          const tap = taps.get(source)?.[fx.sidechain.tap];
+          if (tap) {
+            const delay = new Tone.Delay(keyDelay(snapshot, h.id, before, source, fx.sidechain.tap), MAX_COMPENSATION);
+            tap.connect(delay);
+            delay.connect(node.sidechainInput);
+            node.setSidechainActive(true);
+          }
+        }
+        if (!fx.bypass) before += nodeLatency(node);
+      });
+    });
 
     if (automationEntries.length > 0) {
       // Offline rendering is non-realtime, so a scheduled callback's own

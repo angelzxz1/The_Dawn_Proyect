@@ -6,6 +6,7 @@ import { PluginKnob } from "./PluginKnob";
 import { MultibandGraph } from "./MultibandGraph";
 import { paramSpecs } from "@/lib/effects";
 import { mbBandCount } from "@/lib/multibandModel";
+import { SidechainBadge } from "./SidechainPanel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface MultibandRackCardProps {
@@ -18,11 +19,13 @@ interface MultibandRackCardProps {
   onExpand: () => void;
   onParamChange: (key: string, value: number) => void;
   onParamDragStart?: () => void;
+  /** The sidechain source's name, when one is keying it. */
+  sidechainName?: string | null;
 }
 
 /** The compact card in the FX rack: the bands with their live gain (click
  * to open the full window), and mix/output. */
-export function MultibandRackCard({ hostId, effectId, params, bypass, onBypassToggle, onRemove, onExpand, onParamChange, onParamDragStart }: MultibandRackCardProps) {
+export function MultibandRackCard({ hostId, effectId, params, bypass, onBypassToggle, onRemove, onExpand, onParamChange, onParamDragStart, sidechainName }: MultibandRackCardProps) {
   const count = mbBandCount(params);
   const specs = paramSpecs("multiband");
   return (
@@ -31,6 +34,7 @@ export function MultibandRackCard({ hostId, effectId, params, bypass, onBypassTo
         <div className="flex items-center gap-1.5">
           <PluginIcon size={15} />
           <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Multiband</h2>
+          <SidechainBadge name={sidechainName ?? null} />
           <span className={`${spaceGrotesk.className} text-[10px] font-semibold uppercase tracking-wider text-muted`}>
             {count} {count === 1 ? "band" : "bands"}
           </span>

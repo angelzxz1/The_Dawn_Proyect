@@ -20,8 +20,7 @@ export function dbToY(db: number): number {
 /** The standard quadratic soft-knee transfer function: flat (unity) well
  * below the threshold, `1/ratio` slope well above it, and a smooth
  * parabolic blend across the knee width centered on the threshold - the
- * same shape the Web Audio DynamicsCompressorNode (and so Tone.Compressor)
- * itself implements. */
+ * same curve the Compressor's kernel applies (compressorModel.ts). */
 export function compressorTransfer(inputDb: number, threshold: number, ratio: number, knee: number): number {
   const kneeStart = threshold - knee / 2;
   const kneeEnd = threshold + knee / 2;

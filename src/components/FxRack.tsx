@@ -20,6 +20,7 @@ import { MultibandRackCard } from "./MultibandRackCard";
 import { UtilityRackCard } from "./UtilityRackCard";
 import { TunerRackCard } from "./TunerRackCard";
 import { EFFECT_DRAG_MIME } from "./EffectBrowser";
+import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { WAVETABLES } from "@/lib/wavetables";
 import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/lib/types";
@@ -63,6 +64,8 @@ interface FxRackProps {
    * an error message if the file can't be used. */
   onLoadEffectFile?: (effectId: string, file: File) => Promise<string | null>;
   onClearEffectFile?: (effectId: string) => void;
+  /** Tracks and buses, for naming a dynamics effect's sidechain source. */
+  sidechainSources?: SidechainSource[];
 }
 
 /** Effect types with a custom rack card + full window, instead of the
@@ -163,6 +166,7 @@ export function FxRack({
   onOpenEffectWindow,
   onLoadEffectFile,
   onClearEffectFile,
+  sidechainSources,
 }: FxRackProps) {
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -285,6 +289,7 @@ export function FxRack({
                   />
                 ) : fx.type === "compressor" ? (
                   <CompressorRackCard
+                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
@@ -390,6 +395,7 @@ export function FxRack({
                   <MultibandRackCard
                     hostId={hostId}
                     effectId={fx.id}
+                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
@@ -400,6 +406,7 @@ export function FxRack({
                   />
                 ) : fx.type === "gate" ? (
                   <GateRackCard
+                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}

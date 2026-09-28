@@ -15,6 +15,12 @@
 // upward compression), and Range capping how far the gain can move. Makeup gain, per-band bypass and
 // global mix/output are smoothed so moving them never clicks. No lookahead,
 // so no added latency.
+//
+// With a sidechain (or the sidechain gain/filters in use), the detectors
+// hear the key signal split through the same crossovers instead: each band
+// reacts to the key's energy in that band.
+
+import { KEY_FILTER_SOURCE, keySettingsFromParams, type KeySettings } from "./sidechainModel";
 
 export const MB_MAX_BANDS = 6;
 /** Closest two crossovers may be (a frequency ratio, ~1/3 octave). */
@@ -64,7 +70,7 @@ export interface MbBand {
   bypass: number;
 }
 
-export interface MbSettings {
+export interface MbSettings extends Partial<KeySettings> {
   count: number;
   /** count - 1 crossover frequencies (Hz). */
   crossovers: number[];
@@ -76,6 +82,7 @@ export interface MbSettings {
 }
 
 export const MB_SOURCE = `
+${KEY_FILTER_SOURCE}
 const MB_MAX = ${MB_MAX_BANDS};
 const MB_FADE = 128;
 const MB_SLOTS = 4 + MB_MAX;
@@ -119,11 +126,17 @@ class MultibandKernel {
     this.sr = sampleRate;
     this.count = 1;
     this.coefs = new Float64Array(MB_MAX * 15);
-    this.state = new Float64Array(2 * MB_MAX * MB_SLOTS * 2);
+    // Crossover state for L, R, key L, key R.
+    this.state = new Float64Array(4 * MB_MAX * MB_SLOTS * 2);
     this.curLog = new Float64Array(MB_MAX);
     this.targetLog = new Float64Array(MB_MAX);
     this.bandL = new Float64Array(MB_MAX);
     this.bandR = new Float64Array(MB_MAX);
+    this.keyL = new Float64Array(MB_MAX);
+    this.keyR = new Float64Array(MB_MAX);
+    this.key = new KeyFilter(sampleRate);
+    this.external = false;
+    this.listen = false;
     this.peak = new Float64Array(MB_MAX);
     this.det = new Float64Array(MB_MAX);
     this.env = new Float64Array(MB_MAX);
@@ -147,6 +160,9 @@ class MultibandKernel {
   }
 
   set(s) {
+    this.external = !!s.external;
+    this.listen = !!s.listen;
+    this.key.set(s);
     const count = Math.max(1, Math.min(MB_MAX, Math.round(s.count)));
     // Changing the number of bands rebuilds the crossover tree: fade out,
     // switch, fade back in (a few ms) instead of clicking.
@@ -247,8 +263,9 @@ class MultibandKernel {
   }
 
   // Processes n frames of inL/inR (inR may be null for mono) into outL/outR
-  // (outR may be null).
-  process(inL, inR, outL, outR, n) {
+  // (outR may be null); keyL/keyR is the sidechain (null when nothing is
+  // connected).
+  process(inL, inR, outL, outR, n, keyL, keyR) {
     const count = this.count;
     // Crossover moves glide (~10 ms) so dragging one never zippers.
     const glide = 1 - Math.exp(-n / (0.01 * this.sr));
@@ -262,11 +279,33 @@ class MultibandKernel {
     const smooth = this.smooth;
     const bL = this.bandL;
     const bR = this.bandR;
+    const kf = this.key;
+    // A separate split for the detectors only when they hear something
+    // other than the input itself.
+    const keyed = this.external || kf.active;
+    const kL = keyed ? this.keyL : bL;
+    const kR = keyed ? this.keyR : bR;
+    const keyGain = keyed ? 1 : kf.gain;
     for (let i = 0; i < n; i++) {
       const l = inL ? inL[i] : 0;
       const r = inR ? inR[i] : l;
       this.split(l, 0, bL);
       this.split(r, 1, bR);
+      let kl = l * kf.gain;
+      let kr = r * kf.gain;
+      if (keyed) {
+        if (this.external) {
+          kl = keyL ? keyL[i] : 0;
+          kr = keyR ? keyR[i] : kl;
+        } else {
+          kl = l;
+          kr = r;
+        }
+        kl = kf.run(kl, 0);
+        kr = kf.run(kr, 1);
+        this.split(kl, 2, kL);
+        this.split(kr, 3, kR);
+      }
       let wetL = 0;
       let wetR = 0;
       let dryL = 0;
@@ -275,7 +314,7 @@ class MultibandKernel {
         const p = this.params[b];
         const bl = bL[b];
         const br = bR[b];
-        const level = Math.max(Math.abs(bl), Math.abs(br));
+        const level = Math.max(Math.abs(kL[b]), Math.abs(kR[b])) * keyGain;
         if (level > this.meterLevel[b]) this.meterLevel[b] = level;
         // Level detection: a peak follower falling at the Release time
         // (so a wave's own zero crossings don't read as the level
@@ -309,6 +348,11 @@ class MultibandKernel {
         }
       } else if (this.fade < 1) {
         this.fade = Math.min(1, this.fade + 1 / MB_FADE);
+      }
+      if (this.listen) {
+        outL[i] = kl;
+        if (outR) outR[i] = kr;
+        continue;
       }
       const gain = this.out * this.fade;
       outL[i] = (dryL + (wetL - dryL) * this.mix) * gain;
@@ -430,8 +474,9 @@ export function mbBandFromParams(params: Record<string, number>, band: number): 
   };
 }
 
-export function mbSettingsFromParams(params: Record<string, number>, solo = -1): MbSettings {
+export function mbSettingsFromParams(params: Record<string, number>, solo = -1, external = false): MbSettings {
   return {
+    ...keySettingsFromParams(params, external),
     count: mbBandCount(params),
     crossovers: mbCrossovers(params),
     bands: Array.from({ length: MB_MAX_BANDS }, (_, b) => mbBandFromParams(params, b)),

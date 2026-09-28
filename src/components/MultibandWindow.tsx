@@ -26,6 +26,8 @@ import {
   type MbBand,
   type MbBandField,
 } from "@/lib/multibandModel";
+import { SidechainPanel, type SidechainSource } from "./SidechainPanel";
+import type { SidechainRouting } from "@/lib/sidechainModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface MultibandWindowProps {
@@ -38,6 +40,10 @@ interface MultibandWindowProps {
   onClose: () => void;
   onParamChange: (key: string, value: number) => void;
   onParamDragStart?: () => void;
+  /** The key input's routing, and the tracks/buses it could come from. */
+  sidechain?: SidechainRouting;
+  sidechainSources: SidechainSource[];
+  onSidechainChange: (routing: SidechainRouting) => void;
 }
 
 const GRAPH_W = 1000;
@@ -140,6 +146,9 @@ export function MultibandWindow({
   onClose,
   onParamChange,
   onParamDragStart,
+  sidechain,
+  sidechainSources,
+  onSidechainChange,
 }: MultibandWindowProps) {
   const count = mbBandCount(params);
   const crossovers = mbCrossovers(params);
@@ -436,6 +445,18 @@ export function MultibandWindow({
             scroll over a band for its threshold · {count}/{MB_MAX_BANDS} bands
           </span>
         </div>
+
+        <SidechainPanel
+          type="multiband"
+          hostId={hostId}
+          effectId={effectId}
+          params={params}
+          routing={sidechain}
+          sources={sidechainSources}
+          onRoutingChange={onSidechainChange}
+          onParamChange={onParamChange}
+          onParamDragStart={onParamDragStart}
+        />
       </div>
     </div>
   );

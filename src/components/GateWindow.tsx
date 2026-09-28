@@ -6,6 +6,8 @@ import { PluginIcon } from "./PluginIcon";
 import { GateGraph } from "./GateGraph";
 import { paramSpecs, type ParamSpec } from "@/lib/effects";
 import { HYSTERESIS_DB } from "@/lib/gateModel";
+import { SidechainPanel, type SidechainSource } from "./SidechainPanel";
+import type { SidechainRouting } from "@/lib/sidechainModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface GateWindowProps {
@@ -18,6 +20,10 @@ interface GateWindowProps {
   onClose: () => void;
   onParamChange: (key: string, value: number) => void;
   onParamDragStart?: () => void;
+  /** The key input's routing, and the tracks/buses it could come from. */
+  sidechain?: SidechainRouting;
+  sidechainSources: SidechainSource[];
+  onSidechainChange: (routing: SidechainRouting) => void;
 }
 
 export const GATE_KNOBS: { key: string; mode: KnobMode }[] = [
@@ -48,6 +54,9 @@ export function GateWindow({
   onClose,
   onParamChange,
   onParamDragStart,
+  sidechain,
+  sidechainSources,
+  onSidechainChange,
 }: GateWindowProps) {
   const value = (key: string) => gateParam(params, key);
 
@@ -109,6 +118,18 @@ export function GateWindow({
             );
           })}
         </div>
+
+        <SidechainPanel
+          type="gate"
+          hostId={hostId}
+          effectId={effectId}
+          params={params}
+          routing={sidechain}
+          sources={sidechainSources}
+          onRoutingChange={onSidechainChange}
+          onParamChange={onParamChange}
+          onParamDragStart={onParamDragStart}
+        />
 
         <div style={{ height: 1, background: "#2E2F37" }} />
 

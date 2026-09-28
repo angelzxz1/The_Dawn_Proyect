@@ -54,8 +54,8 @@ import type {
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
 import { SynthInstrument, defaultSynthParams } from "./synth";
-import { type EffectType, autoMakeupDb, defaultParams } from "./effects";
-import { nativeCompressorMakeupDb } from "./nativeCompressorMakeup";
+import { type EffectType, defaultParams } from "./effects";
+import { CompressorChain, type CompressorMeterReading } from "./compressor";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { measureNativeLatencies, nativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
@@ -66,11 +66,13 @@ import { PitchShifter } from "./pitchShifter";
 import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGain } from "./irModel";
 import { decodeEffectFileAudio, readEffectFileText } from "./effectFiles";
 import { NamAmpChain } from "./namAmp";
-import { NoiseGate, gateSettingsFromParams, type GateReading } from "./noiseGate";
+import { NoiseGate, type GateReading } from "./noiseGate";
 import { ParamEqChain } from "./paramEq";
 import { MultibandChain, type MultibandMeters } from "./multiband";
 import { UtilityChain, type UtilityMeters } from "./utility";
 import { TunerChain } from "./tuner";
+import type { SidechainRouting } from "./sidechainModel";
+import { canKeyFrom, keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import {
@@ -120,6 +122,27 @@ interface EffectNode {
   /** The effect file most recently asked for (see setEffectFile) - a slow
    * decode that finishes after a newer request is ignored. */
   fileId?: string | null;
+  /** Where its detector listens (dynamics effects only). */
+  sidechain?: SidechainRouting;
+}
+
+/** A dynamics effect's node that can take a key signal. */
+interface SidechainNode {
+  sidechainInput: Tone.Gain;
+  setSidechainActive(on: boolean): void;
+}
+
+function isSidechainNode(node: Tone.ToneAudioNode): node is Tone.ToneAudioNode & SidechainNode {
+  return "sidechainInput" in node && "setSidechainActive" in node;
+}
+
+/** Where a track's or bus's audio can be tapped for a sidechain: before
+ * its effects, after them, after its fader. Fixed for its lifetime, so
+ * keys stay connected while its chain is rewired. */
+interface SidechainTaps {
+  preFx: Tone.Gain;
+  postFx: Tone.Gain;
+  postFader: Tone.Gain;
 }
 
 /** Common shape shared by a track channel and a bus's own effects rack, so
@@ -131,6 +154,12 @@ interface EffectsHost {
 
 interface ChannelNodes extends EffectsHost {
   channel: Tone.Channel;
+  /** Its sources feed `taps.preFx`, which feeds `head`, the start of the
+   * effects chain (rewiring only ever disconnects `head`, so keys taken
+   * from the taps stay connected); the chain ends in `taps.postFx`, which
+   * feeds `pdc`. */
+  taps: SidechainTaps;
+  head: Tone.Gain;
   meter: Tone.Meter;
   /** Fixed for the channel's lifetime - decides whether the instrument or
    * the audio player feeds the effects chain. */
@@ -168,6 +197,9 @@ interface ChannelNodes extends EffectsHost {
  * sending channel's connection. */
 interface BusNodes extends EffectsHost {
   input: Tone.Gain;
+  /** preFx is `input` itself, feeding `head` (see ChannelNodes). */
+  taps: SidechainTaps;
+  head: Tone.Gain;
   channel: Tone.Channel;
   meter: Tone.Meter;
   /** Delay compensation, between the effects chain and the strip. */
@@ -237,163 +269,11 @@ export function createInstrument(
   });
 }
 
-/** A Tone.Compressor plus everything the custom Compressor plugin UI needs
- * that Tone.Compressor doesn't provide on its own: automatic (or manual)
- * makeup gain, a dry/wet blend for parallel compression, a final output
- * trim, and input/gain-reduction/output metering for the live meters in the
- * full window. Exposed as a single `Tone.ToneAudioNode` (its `input`/
- * `output` are its own boundary nodes) so it drops straight into the
- * existing effects-chain wiring (`wireEffectsChain` only ever calls
- * `.connect()`/`.disconnect()`/`.dispose()` on an effect's node) without the
- * engine needing to know it's actually several nodes internally. */
-class CompressorChain extends Tone.ToneAudioNode {
-  readonly name = "CompressorChain";
-  readonly input: Tone.Gain;
-  readonly output: Tone.Gain;
-  readonly compressor: Tone.Compressor;
-  private readonly makeupGain: Tone.Volume;
-  private readonly dryGain: Tone.Gain;
-  private readonly dryDelay: Tone.Delay;
-  private readonly wetGain: Tone.Gain;
-  private readonly outputTrim: Tone.Volume;
-  private readonly inputMeter: Tone.Meter;
-  private readonly outputMeter: Tone.Meter;
-  private manualMakeup: number;
-  private autoMakeup: boolean;
-
-  constructor(params: Record<string, number>) {
-    super();
-    this.input = new Tone.Gain();
-    this.output = new Tone.Gain();
-    this.compressor = new Tone.Compressor({
-      threshold: params.threshold,
-      ratio: params.ratio,
-      attack: params.attack,
-      release: params.release,
-      knee: params.knee,
-    });
-    this.makeupGain = new Tone.Volume(0);
-    this.dryGain = new Tone.Gain(1 - params.dryWet);
-    this.wetGain = new Tone.Gain(params.dryWet);
-    this.outputTrim = new Tone.Volume(params.output);
-    this.inputMeter = new Tone.Meter({ normalRange: false, smoothing: 0.6 });
-    this.outputMeter = new Tone.Meter({ normalRange: false, smoothing: 0.6 });
-    this.manualMakeup = params.makeup;
-    this.autoMakeup = params.makeupAuto >= 0.5;
-
-    // The native compressor looks ahead (delays its output); the dry path
-    // waits the same, so a Dry/Wet blend doesn't comb-filter.
-    this.dryDelay = new Tone.Delay(this.latency, 0.1);
-    this.input.connect(this.inputMeter);
-    this.input.chain(this.dryDelay, this.dryGain);
-    this.input.connect(this.compressor);
-    this.compressor.connect(this.makeupGain);
-    this.makeupGain.connect(this.wetGain);
-    this.dryGain.connect(this.outputTrim);
-    this.wetGain.connect(this.outputTrim);
-    this.outputTrim.connect(this.output);
-    // Tapped off `outputTrim`, one node before the `output` boundary, not
-    // off `output` itself: the shared effects-chain wiring disconnects and
-    // reconnects every effect's `output` boundary on every add/remove/
-    // reorder/bypass (`wireEffectsChain`'s `e.node.disconnect()` resolves
-    // through that same boundary and clears ALL of its outgoing native
-    // connections, this tap included) - tapping a node earlier keeps this
-    // meter alive across the chain's own rewiring instead of only ever
-    // measuring the instant right after construction.
-    this.outputTrim.connect(this.outputMeter);
-
-    this.refreshMakeup();
-  }
-
-  setThreshold(v: number): void {
-    this.compressor.threshold.value = v;
-    this.refreshMakeup();
-  }
-
-  setRatio(v: number): void {
-    this.compressor.ratio.value = v;
-    this.refreshMakeup();
-  }
-
-  setKnee(v: number): void {
-    this.compressor.knee.value = v;
-    this.refreshMakeup();
-  }
-
-  setManualMakeup(v: number): void {
-    this.manualMakeup = v;
-    this.refreshMakeup();
-  }
-
-  setAutoMakeup(auto: boolean): void {
-    this.autoMakeup = auto;
-    this.refreshMakeup();
-  }
-
-  setDryWet(mix: number): void {
-    this.dryGain.gain.value = 1 - mix;
-    this.wetGain.gain.value = mix;
-  }
-
-  setOutput(db: number): void {
-    this.outputTrim.volume.value = db;
-  }
-
-  /** The makeup stage also cancels the native node's own hidden makeup gain
-   * (see nativeCompressorMakeup.ts), so the only makeup applied is the one
-   * the UI shows - otherwise it would stack on top of the plugin's. */
-  private refreshMakeup(): void {
-    const threshold = this.compressor.threshold.value;
-    const ratio = this.compressor.ratio.value;
-    const knee = this.compressor.knee.value;
-    const makeup = this.autoMakeup ? autoMakeupDb(threshold, ratio) : this.manualMakeup;
-    this.makeupGain.volume.value = makeup - nativeCompressorMakeupDb(threshold, knee, ratio);
-  }
-
-  /** Seconds the native compressor's lookahead delays the audio. */
-  get latency(): number {
-    return nativeLatencies(this.context.sampleRate).compressor / this.context.sampleRate;
-  }
-
-  /** Current gain reduction, in dB (always <= 0; 0 = no reduction). */
-  get reductionDb(): number {
-    return this.compressor.reduction;
-  }
-
-  get inputDb(): number {
-    const v = this.inputMeter.getValue();
-    const n = Array.isArray(v) ? v[0] : v;
-    return Number.isFinite(n) ? n : -Infinity;
-  }
-
-  get outputDb(): number {
-    const v = this.outputMeter.getValue();
-    const n = Array.isArray(v) ? v[0] : v;
-    return Number.isFinite(n) ? n : -Infinity;
-  }
-
-  dispose(): this {
-    super.dispose();
-    this.compressor.dispose();
-    this.makeupGain.dispose();
-    this.dryDelay.dispose();
-    this.dryGain.dispose();
-    this.wetGain.dispose();
-    this.outputTrim.dispose();
-    this.inputMeter.dispose();
-    this.outputMeter.dispose();
-    this.input.dispose();
-    this.output.dispose();
-    return this;
-  }
-}
-
 /** A stereo delay with independent left/right times, a highpass+lowpass
  * filter pair shaping each channel's repeats (toggleable), ping-pong
  * cross-feedback, and a freeze mode - none of which Tone.FeedbackDelay (a
  * single mono tap) can do. Built from plain Tone nodes rather than a single
- * Tone effect class, the same compound-node approach as CompressorChain
- * above. */
+ * Tone effect class. */
 class DelayChain extends Tone.ToneAudioNode {
   readonly name = "DelayChain";
   readonly input: Tone.Gain;
@@ -1074,7 +954,7 @@ class DistortionChain extends Tone.ToneAudioNode {
   /** Seconds the oversampling filters delay the shaped signal. */
   get latency(): number {
     const sr = this.context.sampleRate;
-    const native = nativeLatencies(sr);
+    const native = nativeLatencies();
     const o = this.shaper.oversample;
     return (o === "4x" ? native.shaper4x : o === "2x" ? native.shaper2x : 0) / sr;
   }
@@ -1285,7 +1165,7 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
     case "namAmp":
       return new NamAmpChain(params);
     case "gate":
-      return new NoiseGate(gateSettingsFromParams(params));
+      return new NoiseGate(params);
     case "paramEq":
       return new ParamEqChain(params);
     case "multiband":
@@ -1313,19 +1193,9 @@ export function applyEffectParam(
       else if (key === "highFrequency") eq.highFrequency.value = value;
       break;
     }
-    case "compressor": {
-      const comp = node as CompressorChain;
-      if (key === "threshold") comp.setThreshold(value);
-      else if (key === "ratio") comp.setRatio(value);
-      else if (key === "attack") comp.compressor.attack.value = value;
-      else if (key === "release") comp.compressor.release.value = value;
-      else if (key === "knee") comp.setKnee(value);
-      else if (key === "makeup") comp.setManualMakeup(value);
-      else if (key === "makeupAuto") comp.setAutoMakeup(value >= 0.5);
-      else if (key === "dryWet") comp.setDryWet(value);
-      else if (key === "output") comp.setOutput(value);
+    case "compressor":
+      (node as CompressorChain).setParam(key, value);
       break;
-    }
     case "delay": {
       const delay = node as DelayChain;
       if (key === "delayTimeL") delay.setDelayTimeL(value);
@@ -1423,15 +1293,9 @@ export function applyEffectParam(
       else if (key === "size") amp.setSize(value);
       break;
     }
-    case "gate": {
-      const gate = node as NoiseGate;
-      if (key === "threshold") gate.configure({ thresholdDb: value });
-      else if (key === "attack") gate.configure({ attack: value });
-      else if (key === "hold") gate.configure({ hold: value });
-      else if (key === "release") gate.configure({ release: value });
-      else if (key === "range") gate.configure({ rangeDb: value });
+    case "gate":
+      (node as NoiseGate).setParam(key, value);
       break;
-    }
     case "paramEq":
       (node as ParamEqChain).setParam(key, value);
       break;
@@ -1669,6 +1533,7 @@ class AudioEngine {
     setDelay(this.clickOut, plan.total);
     const changed = plan.total !== this.compensation.total || plan.compensated !== this.compensation.compensated;
     this.compensation = plan;
+    this.rewireSidechains();
     if (changed) this.latencyListeners.forEach((fn) => fn());
   }
 
@@ -1764,6 +1629,11 @@ class AudioEngine {
     const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }).connect(meter);
     // Its dry route to the master is set by updateCompensation.
     const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
+    const taps: SidechainTaps = { preFx: new Tone.Gain(), postFx: new Tone.Gain(), postFader: new Tone.Gain() };
+    const head = new Tone.Gain();
+    taps.preFx.connect(head);
+    taps.postFx.connect(pdc);
+    channel.connect(taps.postFader);
     this.pendingLoads += 1;
     this.setReady(false);
     const onSettled = () => {
@@ -1788,6 +1658,8 @@ class AudioEngine {
       sends: new Map(),
       userMuted: false,
       pdc,
+      taps,
+      head,
       route: null,
     });
     this.rewireChannel(id);
@@ -1805,6 +1677,8 @@ class AudioEngine {
     nodes.sends.forEach((gain) => gain.dispose());
     nodes.effects.forEach((e) => e.node.dispose());
     nodes.pdc.dispose();
+    Object.values(nodes.taps).forEach((tap) => tap.dispose());
+    nodes.head.dispose();
     nodes.channel.dispose();
     nodes.meter.dispose();
     this.channels.delete(id);
@@ -1869,11 +1743,9 @@ class AudioEngine {
       nodes.channelType === "audio"
         ? [...[...nodes.audioClips.values()].map((c) => c.gain), ...(monitor ? [monitor] : [])]
         : [nodes.instrument];
-    if (sources.length === 0) {
-      nodes.effects.forEach((e) => e.node.disconnect()); // audio channel with nothing loaded yet
-    } else {
-      this.wireEffectsChain(sources, nodes.effects, nodes.pdc);
-    }
+    sources.forEach((source) => source.connect(nodes.taps.preFx));
+    nodes.head.disconnect();
+    this.wireEffectsChain([nodes.head], nodes.effects, nodes.taps.postFx);
     this.updateCompensation();
   }
 
@@ -1882,8 +1754,8 @@ class AudioEngine {
   private rewireBus(id: string): void {
     const bus = this.buses.get(id);
     if (!bus) return;
-    bus.input.disconnect();
-    this.wireEffectsChain([bus.input], bus.effects, bus.pdc);
+    bus.head.disconnect();
+    this.wireEffectsChain([bus.head], bus.effects, bus.taps.postFx);
     this.updateCompensation();
   }
 
@@ -2105,6 +1977,130 @@ class AudioEngine {
     if (key === "oversample" || (effect.type === "pitchShift" && key === "window")) this.updateCompensation();
   }
 
+  // --- Sidechains (see sidechainRouting.ts) ---
+
+  /** Per keyed effect: its source tap -> a delay lining the key up -> the
+   * effect's sidechain input, and a meter on the key. */
+  private sidechainLinks = new Map<
+    string,
+    { tap: Tone.Gain; delay: Tone.Delay; meter: Tone.Meter; node: SidechainNode }
+  >();
+
+  private routingSnapshot(): RoutingSnapshot {
+    const plan = this.compensation;
+    return {
+      channels: [...this.channels].map(([id, n]) => ({
+        id,
+        sends: [...n.sends.keys()],
+        chain: chainLatency(n.effects),
+        pdc: plan.channel.get(id) ?? 0,
+        toMaster: n.route === "master" ? 0 : plan.direct,
+      })),
+      buses: [...this.buses].map(([id, b]) => ({ id, chain: chainLatency(b.effects), pdc: plan.bus.get(id) ?? 0 })),
+    };
+  }
+
+  private effectHosts(): [string, EffectNode[]][] {
+    return [
+      ...[...this.channels].map(([id, n]): [string, EffectNode[]] => [id, n.effects]),
+      ...[...this.buses].map(([id, b]): [string, EffectNode[]] => [id, b.effects]),
+      ["master", this.masterEffects],
+    ];
+  }
+
+  private sidechainRequests(except?: string): SidechainRequest[] {
+    return this.effectHosts().flatMap(([hostId, effects]) =>
+      effects
+        .filter((e) => e.sidechain && e.id !== except && isSidechainNode(e.node))
+        .map((e) => ({ hostId, effectId: e.id, routing: e.sidechain }))
+    );
+  }
+
+  /** Connects every keyed effect to its source (and disconnects the rest)
+   * - after anything that changes the routing or its latencies. */
+  private rewireSidechains(): void {
+    const snapshot = this.routingSnapshot();
+    const accepted = resolveSidechains(snapshot, this.sidechainRequests());
+    const kept = new Set<string>();
+    for (const [hostId, effects] of this.effectHosts()) {
+      let before = 0;
+      for (const e of effects) {
+        const node = e.node;
+        if (isSidechainNode(node)) {
+          const source = accepted.get(e.id);
+          const tapKind = e.sidechain?.tap ?? "postFx";
+          const from = source ? (this.channels.get(source) ?? this.buses.get(source)) : undefined;
+          const tap = from ? from.taps[tapKind] : null;
+          let link = this.sidechainLinks.get(e.id);
+          if (link && (link.tap !== tap || link.node !== node)) {
+            this.dropSidechainLink(e.id);
+            link = undefined;
+          }
+          if (tap && !link) {
+            const delay = new Tone.Delay(0, MAX_COMPENSATION);
+            const meter = new Tone.Meter({ smoothing: 0.6 });
+            tap.connect(delay);
+            delay.connect(node.sidechainInput);
+            delay.connect(meter);
+            link = { tap, delay, meter, node };
+            this.sidechainLinks.set(e.id, link);
+          }
+          if (link && source) {
+            const seconds = keyDelay(snapshot, hostId, before, source, tapKind);
+            if (Math.abs(Number(link.delay.delayTime.value) - seconds) > 1e-7) link.delay.delayTime.value = seconds;
+            kept.add(e.id);
+          }
+          node.setSidechainActive(kept.has(e.id));
+        }
+        if (!e.bypass) before += nodeLatency(node);
+      }
+    }
+    [...this.sidechainLinks.keys()].forEach((id) => kept.has(id) || this.dropSidechainLink(id));
+  }
+
+  private dropSidechainLink(effectId: string): void {
+    const link = this.sidechainLinks.get(effectId);
+    if (!link) return;
+    try {
+      link.tap.disconnect(link.delay);
+    } catch {
+      // The source is already gone.
+    }
+    link.delay.dispose();
+    link.meter.dispose();
+    this.sidechainLinks.delete(effectId);
+  }
+
+  /** Sets where a dynamics effect's detector listens (undefined: its own
+   * input). */
+  setEffectSidechain(hostId: string, effectId: string, routing: SidechainRouting | undefined): void {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    if (!effect) return;
+    effect.sidechain = routing ? { ...routing } : undefined;
+    this.rewireSidechains();
+  }
+
+  /** Whether an effect's key is connected, and its level (dB) - null if the
+   * effect doesn't exist. */
+  getSidechainState(hostId: string, effectId: string): { connected: boolean; levelDb: number } | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    if (!effect) return null;
+    const link = this.sidechainLinks.get(effectId);
+    if (!link) return { connected: false, levelDb: -Infinity };
+    const v = link.meter.getValue();
+    const db = Array.isArray(v) ? v[0] : v;
+    return { connected: true, levelDb: Number.isFinite(db) ? db : -Infinity };
+  }
+
+  /** Which tracks and buses an effect on `hostId` could take its key from
+   * without making a feedback loop. */
+  sidechainSourcesAllowed(hostId: string, effectId: string): Set<string> {
+    const snapshot = this.routingSnapshot();
+    const others = this.sidechainRequests(effectId);
+    const ids = [...this.channels.keys(), ...this.buses.keys()];
+    return new Set(ids.filter((id) => canKeyFrom(snapshot, others, hostId, id)));
+  }
+
   // --- Send/return buses ---
 
   addBus(id: string): void {
@@ -2115,7 +2111,12 @@ class AudioEngine {
       .connect(meter)
       .connect(this.ensureMaster().channel);
     const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
-    this.buses.set(id, { input, channel, meter, effects: [], pdc });
+    const taps: SidechainTaps = { preFx: input, postFx: new Tone.Gain(), postFader: new Tone.Gain() };
+    const head = new Tone.Gain();
+    input.connect(head);
+    taps.postFx.connect(pdc);
+    channel.connect(taps.postFader);
+    this.buses.set(id, { input, channel, meter, effects: [], pdc, taps, head });
     this.rewireBus(id);
   }
 
@@ -2124,6 +2125,9 @@ class AudioEngine {
     if (!bus) return;
     bus.effects.forEach((e) => e.node.dispose());
     bus.input.dispose();
+    bus.taps.postFx.dispose();
+    bus.taps.postFader.dispose();
+    bus.head.dispose();
     bus.pdc.dispose();
     bus.channel.dispose();
     bus.meter.dispose();
@@ -2168,6 +2172,7 @@ class AudioEngine {
       if (gain) {
         gain.dispose();
         nodes.sends.delete(busId);
+        this.rewireSidechains();
       }
       return;
     }
@@ -2176,6 +2181,8 @@ class AudioEngine {
       nodes.channel.connect(gain);
       gain.connect(bus.input);
       nodes.sends.set(busId, gain);
+      // Sends can close (or open) a sidechain loop.
+      this.rewireSidechains();
     } else {
       gain.gain.value = Tone.dbToGain(db);
     }
@@ -2225,12 +2232,9 @@ class AudioEngine {
    * effect instance, for the full Compressor window's meters - `hostId` is
    * the channel, bus, or "master" the effect lives on. Null if that effect
    * isn't a compressor (or doesn't exist). */
-  getCompressorMeters(hostId: string, effectId: string): { input: number; gainReduction: number; output: number } | null {
-    const target = this.effectsHost(hostId);
-    const effect = target?.host.effects.find((e) => e.id === effectId);
-    if (!effect || effect.type !== "compressor") return null;
-    const comp = effect.node as CompressorChain;
-    return { input: comp.inputDb, gainReduction: comp.reductionDb, output: comp.outputDb };
+  getCompressorMeters(hostId: string, effectId: string): CompressorMeterReading | null {
+    const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
+    return effect?.node instanceof CompressorChain ? effect.node.meters : null;
   }
 
   /** Live peak input (after the plugin's gain), output, and gain reduction

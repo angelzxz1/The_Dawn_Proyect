@@ -6,6 +6,8 @@ import { CompressorGraph } from "./CompressorGraph";
 import { CompressorMeters } from "./CompressorMeter";
 import { PluginIcon } from "./PluginIcon";
 import { autoMakeupDb, paramSpecs } from "@/lib/effects";
+import { SidechainPanel, type SidechainSource } from "./SidechainPanel";
+import type { SidechainRouting } from "@/lib/sidechainModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 
 interface CompressorWindowProps {
@@ -21,6 +23,10 @@ interface CompressorWindowProps {
   onClose: () => void;
   onParamChange: (key: string, value: number) => void;
   onParamDragStart?: () => void;
+  /** The key input's routing, and the tracks/buses it could come from. */
+  sidechain?: SidechainRouting;
+  sidechainSources: SidechainSource[];
+  onSidechainChange: (routing: SidechainRouting) => void;
 }
 
 /** The full Compressor plugin window - a live transfer-curve graph, IN/GR/
@@ -36,6 +42,9 @@ export function CompressorWindow({
   onClose,
   onParamChange,
   onParamDragStart,
+  sidechain,
+  sidechainSources,
+  onSidechainChange,
 }: CompressorWindowProps) {
   const [thresholdSpec, ratioSpec, attackSpec, releaseSpec, kneeSpec, makeupSpec, makeupAutoSpec, dryWetSpec, outputSpec] =
     paramSpecs("compressor");
@@ -129,6 +138,18 @@ export function CompressorWindow({
             ))}
           </div>
         </div>
+
+        <SidechainPanel
+          type="compressor"
+          hostId={hostId}
+          effectId={effectId}
+          params={params}
+          routing={sidechain}
+          sources={sidechainSources}
+          onRoutingChange={onSidechainChange}
+          onParamChange={onParamChange}
+          onParamDragStart={onParamDragStart}
+        />
 
         <div style={{ height: 1, background: "#2E2F37" }} />
 

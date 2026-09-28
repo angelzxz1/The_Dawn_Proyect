@@ -2478,7 +2478,7 @@ class AudioEngine {
    * comes in: the take's waveform so far (audio), or its notes (MIDI). */
   getRecordingPreview():
     | { channelId: string; kind: "audio"; waveform: Waveform | null; version: number }
-    | { channelId: string; kind: "midi"; notes: NoteEvent[] }
+    | { channelId: string; kind: "midi"; notes: readonly NoteEvent[]; held: NoteEvent[] }
     | null {
     if (this.audioRecording) {
       const live = this.audioRecording.recorder.previewWaveform;
@@ -2493,7 +2493,10 @@ class AudioEngine {
       duration: Math.max(now - open.time, MIN_NOTE_DURATION),
       velocity: open.velocity,
     }));
-    return { channelId: rec.channelId, kind: "midi", notes: [...rec.events, ...held] };
+    // The finished notes are the take's own list (only ever appended to),
+    // not a copy: the preview is read ~30 times a second, and copying a
+    // long take that often is what made recording lag as it went on.
+    return { channelId: rec.channelId, kind: "midi", notes: rec.events, held };
   }
 
   get isRecording(): boolean {

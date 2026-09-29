@@ -7,6 +7,7 @@ import * as Tone from "tone";
 import { createInstrument, createEffectNode, applyEffectParam, IrLoaderChain } from "./audioEngine";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "./effectFiles";
 import { NamAmpChain } from "./namAmp";
+import { SynthInstrument } from "./synth";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
 import { chainLatency, nodeLatency, planCompensation } from "./latency";
@@ -240,6 +241,9 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
               if (instrument instanceof Tone.Sampler) {
                 const check = () => (instrument.loaded ? resolve() : setTimeout(check, 10));
                 check();
+              } else if (instrument instanceof SynthInstrument) {
+                // Its worklet starts once its wavetables are ready (an imported one is decoded first).
+                void instrument.ready.then(resolve, resolve);
               } else {
                 resolve();
               }

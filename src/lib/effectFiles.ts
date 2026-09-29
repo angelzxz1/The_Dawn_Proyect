@@ -7,6 +7,7 @@
 
 import type { EffectFileRef, EffectInstance } from "./effects";
 import { MAX_NAM_BYTES, parseNamFile } from "./namModel";
+import type { SynthParams } from "./synthParams";
 
 const files = new Map<string, Blob>();
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
@@ -52,10 +53,14 @@ export function hasEffectFile(id: string): boolean {
   return files.has(id);
 }
 
-/** Every file referenced by these effect lists. */
-export function referencedEffectFiles(lists: EffectInstance[][]): EffectFileRef[] {
+/** Every file referenced by these effect lists, and by these tracks'
+ * synths (imported wavetables). */
+export function referencedEffectFiles(lists: EffectInstance[][], channels: { synthParams?: SynthParams }[] = []): EffectFileRef[] {
   const refs = new Map<string, EffectFileRef>();
   lists.forEach((list) => list.forEach((fx) => fx.file && refs.set(fx.file.id, fx.file)));
+  channels.forEach((c) =>
+    [c.synthParams?.osc1, c.synthParams?.osc2].forEach((o) => o?.userTable && refs.set(o.userTable.id, o.userTable))
+  );
   return [...refs.values()];
 }
 

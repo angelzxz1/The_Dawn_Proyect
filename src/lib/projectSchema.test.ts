@@ -11,7 +11,7 @@ import { EFFECT_TYPES, FILE_EFFECT_TYPES, paramSpecs, type EffectInstance } from
 import { PROJECT_VERSION, normalizeProject, type SerializedProject } from "./projectSchema";
 import { SCALE_NAMES, SCALE_ROOTS } from "./scales";
 import { SNAP_RESOLUTIONS } from "./timeline";
-import { WAVETABLE_NAMES } from "./wavetables";
+import { WAVETABLE_IDS } from "./wavetableModel";
 import { defaultSynthParams } from "./synth";
 
 const FIXTURE_DIR = join(__dirname, "__fixtures__", "saved-projects");
@@ -69,9 +69,11 @@ function expectValidProject(p: SerializedProject) {
     if (c.type === "audio") expect(c.instrument).toBeNull();
     expect(c.synthParams !== undefined).toBe(c.instrument === "synth");
     if (c.synthParams) {
-      expect(Object.keys(c.synthParams).sort()).toEqual(Object.keys(defaultSynthParams()).sort());
-      expect(WAVETABLE_NAMES).toContain(c.synthParams.oscA.wavetable);
-      expect(WAVETABLE_NAMES).toContain(c.synthParams.oscB.wavetable);
+      // `preset` (the name it was loaded as) is optional.
+      const keys = (o: object) => Object.keys(o).filter((k) => k !== "preset").sort();
+      expect(keys(c.synthParams)).toEqual(keys(defaultSynthParams()));
+      expect(WAVETABLE_IDS).toContain(c.synthParams.osc1.table);
+      expect(WAVETABLE_IDS).toContain(c.synthParams.osc2.table);
     }
     Object.keys(c.sends ?? {}).forEach((busId) => expect(busIds.has(busId)).toBe(true));
 
@@ -154,8 +156,11 @@ describe("projects saved by earlier versions", () => {
   it("gives pre-wavetable synth tracks a complete synth patch", () => {
     const raw = fixtures.find((f) => f.name.startsWith("02-"))!.raw;
     const project = normalizeProject(raw)!;
-    expect(project.channels[0].synthParams!.filterCutoff).toBe(2400);
-    expect(project.channels[0].synthParams!.oscA.wavetable).toBe(defaultSynthParams().oscA.wavetable);
+    const synth = project.channels[0].synthParams!;
+    expect(synth.filter1.cutoff).toBe(2400);
+    expect(synth.osc1.table).toBe("basic");
+    expect(synth.osc1.position).toBe(0.5); // it was a sawtooth
+    expect(synth.envs[0]).toMatchObject({ attack: 0.01, sustain: 0.6, release: 0.4 });
   });
 });
 

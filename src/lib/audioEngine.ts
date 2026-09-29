@@ -53,7 +53,7 @@ import type {
 } from "./types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
-import { SynthInstrument, defaultSynthParams } from "./synth";
+import { SynthInstrument, defaultSynthParams, setSynthTempo, type SynthLiveState } from "./synth";
 import { type EffectType, defaultParams } from "./effects";
 import { CompressorChain, type CompressorMeterReading } from "./compressor";
 import { GlueChain, type GlueMeterReading } from "./glue";
@@ -1686,6 +1686,16 @@ class AudioEngine {
     }
   }
 
+  /** Live state from a track's synth (for its window), or nothing if the
+   * track isn't playing the synth. Returns a function that stops it. */
+  watchSynth(id: string, listener: (state: SynthLiveState) => void): () => void {
+    const nodes = this.channels.get(id);
+    if (nodes?.instrumentType !== "synth") return () => {};
+    const synth = nodes.instrument as SynthInstrument;
+    synth.setMonitor(listener);
+    return () => synth.setMonitor(null);
+  }
+
   // --- Effects chain - shared by track channels, buses, and the master bus ---
 
   private effectsHost(id: string): { host: EffectsHost; rewire: () => void } | null {
@@ -2723,6 +2733,7 @@ class AudioEngine {
 
   setBpm(bpm: number): void {
     Tone.getTransport().bpm.value = bpm;
+    setSynthTempo(bpm);
   }
 
   setTimeSignature(beatsPerBar: number): void {

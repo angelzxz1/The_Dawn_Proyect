@@ -14,8 +14,7 @@ import { SIDECHAIN_TAPS } from "./sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, type SnapResolution } from "./timeline";
-import { WAVETABLE_NAMES } from "./wavetables";
-import { defaultSynthParams } from "./synth";
+import { normalizeSynthParams } from "./synthParams";
 import type {
   AutomationLane,
   AutomationPoint,
@@ -23,8 +22,6 @@ import type {
   ChannelConfig,
   InstrumentType,
   NoteEvent,
-  OscillatorParams,
-  SynthParams,
   TimeSignature,
 } from "./types";
 
@@ -168,50 +165,7 @@ function normalizeEffects(raw: unknown, seenIds: Set<string>): EffectInstance[] 
 
 // --- synth ---
 
-function normalizeOscillator(raw: unknown, fallback: OscillatorParams): OscillatorParams {
-  const r = obj(raw);
-  return {
-    wavetable: oneOf(r.wavetable, WAVETABLE_NAMES, fallback.wavetable),
-    position: num(r.position, fallback.position, 0, 1),
-    octave: int(r.octave, fallback.octave, -2, 2),
-    semitone: int(r.semitone, fallback.semitone, -12, 12),
-    fineCents: num(r.fineCents, fallback.fineCents, -50, 50),
-    level: num(r.level, fallback.level, 0, 1),
-    unisonVoices: int(r.unisonVoices, fallback.unisonVoices, 1, 8),
-    unisonSpread: num(r.unisonSpread, fallback.unisonSpread, 0, 50),
-  };
-}
-
-/** Synth settings saved before the wavetable synth existed have a
- * different shape entirely; every field is filled from the default preset
- * where the saved one is missing or invalid. */
-export function normalizeSynthParams(raw: unknown): SynthParams {
-  const d = defaultSynthParams();
-  const r = obj(raw);
-  return {
-    oscA: normalizeOscillator(r.oscA, d.oscA),
-    oscB: normalizeOscillator(r.oscB, d.oscB),
-    oscBEnabled: bool(r.oscBEnabled, d.oscBEnabled),
-    subLevel: num(r.subLevel, d.subLevel, 0, 1),
-    subOctaveDown: oneOf(r.subOctaveDown, [1, 2] as const, d.subOctaveDown),
-    filterType: oneOf(r.filterType, ["lowpass", "highpass", "bandpass", "notch"] as const, d.filterType),
-    filterCutoff: num(r.filterCutoff, d.filterCutoff, 20, 20000),
-    filterResonance: num(r.filterResonance, d.filterResonance, 0.1, 30),
-    filterEnvAmount: num(r.filterEnvAmount, d.filterEnvAmount, -8, 8),
-    ampAttack: num(r.ampAttack, d.ampAttack, 0, 10),
-    ampDecay: num(r.ampDecay, d.ampDecay, 0, 10),
-    ampSustain: num(r.ampSustain, d.ampSustain, 0, 1),
-    ampRelease: num(r.ampRelease, d.ampRelease, 0, 20),
-    filterAttack: num(r.filterAttack, d.filterAttack, 0, 10),
-    filterDecay: num(r.filterDecay, d.filterDecay, 0, 10),
-    filterSustain: num(r.filterSustain, d.filterSustain, 0, 1),
-    filterRelease: num(r.filterRelease, d.filterRelease, 0, 20),
-    lfoRate: num(r.lfoRate, d.lfoRate, 0.01, 50),
-    lfoAmount: num(r.lfoAmount, d.lfoAmount, 0, 1),
-    lfoTarget: oneOf(r.lfoTarget, ["pitch", "filter"] as const, d.lfoTarget),
-    glide: num(r.glide, d.glide, 0, 5),
-  };
-}
+export { normalizeSynthParams };
 
 // --- channels ---
 

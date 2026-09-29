@@ -2559,7 +2559,7 @@ export function Daw() {
     try {
       // Audio clips plus every uploaded effect file (IRs) still in use.
       const blobsToSave = new Map(audioBlobsRef.current);
-      referencedEffectFiles([...Object.values(channelEffects), ...Object.values(busEffects), masterEffects]).forEach(
+      referencedEffectFiles([...Object.values(channelEffects), ...Object.values(busEffects), masterEffects], channels).forEach(
         (ref) => {
           const blob = effectFileBlob(ref.id);
           if (blob) blobsToSave.set(ref.id, blob);
@@ -2573,7 +2573,7 @@ export function Daw() {
     } catch {
       setSaveStatus("error");
     }
-  }, [buildProject, channelEffects, busEffects, masterEffects, projectName, dirty]);
+  }, [buildProject, channels, channelEffects, busEffects, masterEffects, projectName, dirty]);
 
   /** Makes a project (from the working copy, a folder, a project file, or a
    * new one) the open one: its state, the audio engine, and its undo
@@ -2621,7 +2621,7 @@ export function Daw() {
         const match = fx.id.match(/^fx-(\d+)$/);
         if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
       });
-      referencedEffectFiles([...Object.values(snap.channelEffects), ...Object.values(snap.busEffects), snap.masterEffects]).forEach((ref) => {
+      referencedEffectFiles([...Object.values(snap.channelEffects), ...Object.values(snap.busEffects), snap.masterEffects], snap.channels).forEach((ref) => {
         const blob = blobs.get(ref.id);
         if (blob) registerEffectFile(ref.id, blob);
       });
@@ -2740,7 +2740,10 @@ export function Daw() {
     const blobs = new Map<string, Blob>();
     audioBlobsRef.current.forEach((blob, id) => clipIds.has(id) && blobs.set(id, blob));
     const steps: SerializedSnapshot[] = [project, ...history.past, ...history.future];
-    referencedEffectFiles(steps.flatMap((st) => [...Object.values(st.channelEffects), ...Object.values(st.busEffects), st.masterEffects])).forEach((ref) => {
+    referencedEffectFiles(
+      steps.flatMap((st) => [...Object.values(st.channelEffects), ...Object.values(st.busEffects), st.masterEffects]),
+      steps.flatMap((st) => st.channels)
+    ).forEach((ref) => {
       const blob = effectFileBlob(ref.id);
       if (blob) blobs.set(ref.id, blob);
     });
@@ -3607,6 +3610,7 @@ export function Daw() {
           sends={fxChannel?.sends}
           onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
           onOpenSynthSettings={() => setSynthWindowOpen(true)}
+          onSynthParamsChange={fxChannel ? handleSynthParamsChange : undefined}
           onSendChange={fxChannel ? handleSendChange : undefined}
           onAddEffect={fxChannel ? handleAddEffect : fxBus ? handleBusAddEffect : handleMasterAddEffect}
           onRemoveEffect={fxChannel ? handleRemoveEffect : fxBus ? handleBusRemoveEffect : handleMasterRemoveEffect}
@@ -3622,6 +3626,7 @@ export function Daw() {
 
       {synthWindowOpen && fxChannel?.instrument === "synth" && fxChannel.synthParams && (
         <SynthWindow
+          channelId={fxChannel.id}
           channelName={fxChannel.name}
           color={trackColorForIndex(fxChannel.colorIndex)}
           params={fxChannel.synthParams}

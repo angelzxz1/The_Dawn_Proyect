@@ -1,448 +1,232 @@
 import * as Tone from "tone";
 import type { Instrument } from "./drumKit";
-import type { OscillatorParams, SynthParams } from "./types";
-import { WAVETABLES, wavetablePartialsAt } from "./wavetables";
+import { decodeEffectFileAudio } from "./effectFiles";
+import { SYNTH_SOURCE } from "./synthKernel";
+import { compileSynth, initSynthParams, type SynthOscParams, type SynthParams } from "./synthParams";
+import { factoryWavetable, subWavetable, wavetableFromAudio, type WavetableData } from "./wavetableModel";
+import { loadWorklet } from "./workletLoader";
 
-const MAX_POLYPHONY = 8;
+// The synth instrument ("Daybreak"): synthKernel.ts in an AudioWorklet.
+// Notes go to the worklet as timestamped events, so scheduled notes start
+// on their exact sample; wavetables are built here and handed over.
 
-function noteToFrequency(note: string): number {
-  return Tone.Frequency(note).toFrequency();
-}
+const PROCESSOR_NAME = "dawn-synth-v1";
+const MONITOR_INTERVAL = 1024;
 
-/** The fixed octave/semitone/fine-tune offset for one oscillator, in cents -
- * applied to its `detune` param so a single Signal carries both this static
- * tuning and any live modulation (pitch bend, vibrato LFO) added on top. */
-function staticTuningCents(osc: OscillatorParams): number {
-  return osc.octave * 1200 + osc.semitone * 100 + osc.fineCents;
-}
-
-/** One polyphonic voice: two wavetable oscillators + a sub, summed into a
- * filter (with its own envelope) then an amplitude envelope. Both
- * oscillators run continuously once started - only the amp envelope gates
- * audibility - so retuning/stealing a voice for a new note never has to
- * restart a native audio source (the exact click-prone pattern that turned
- * out to cause the audio-clip resize glitch elsewhere in this engine). */
-class Voice {
-  readonly output: Tone.Gain;
-  private oscA: Tone.FatOscillator;
-  private oscB: Tone.FatOscillator;
-  private sub: Tone.Oscillator;
-  private oscAGain: Tone.Gain;
-  private oscBGain: Tone.Gain;
-  private subGain: Tone.Gain;
-  private filter: Tone.Filter;
-  private filterEnvelope: Tone.FrequencyEnvelope;
-  private ampEnvelope: Tone.AmplitudeEnvelope;
-  private lfo: Tone.LFO;
-  private params: SynthParams;
-  private pitchBendCents = 0;
-  private modWheelAmount = 0;
-
-  /** The note currently held (or most recently released) - null only
-   * before this voice has ever played a note. */
-  note: string | null = null;
-  private releasing = false;
-  private releasedAt = -Infinity;
-  private startedAt = -Infinity;
-
-  constructor(params: SynthParams) {
-    this.params = params;
-
-    this.oscA = new Tone.FatOscillator({
-      type: "custom",
-      partials: wavetablePartialsAt(WAVETABLES[params.oscA.wavetable], params.oscA.position),
-      count: params.oscA.unisonVoices,
-      spread: params.oscA.unisonSpread,
-    });
-    this.oscB = new Tone.FatOscillator({
-      type: "custom",
-      partials: wavetablePartialsAt(WAVETABLES[params.oscB.wavetable], params.oscB.position),
-      count: params.oscB.unisonVoices,
-      spread: params.oscB.unisonSpread,
-    });
-    this.sub = new Tone.Oscillator({ type: "sine" });
-
-    this.oscA.detune.value = staticTuningCents(params.oscA);
-    this.oscB.detune.value = staticTuningCents(params.oscB);
-    this.sub.detune.value = -1200 * params.subOctaveDown;
-
-    this.oscAGain = new Tone.Gain(params.oscA.level);
-    this.oscBGain = new Tone.Gain(params.oscBEnabled ? params.oscB.level : 0);
-    this.subGain = new Tone.Gain(params.subLevel);
-
-    this.filter = new Tone.Filter({ type: params.filterType, frequency: 0, Q: params.filterResonance });
-    this.filterEnvelope = new Tone.FrequencyEnvelope({
-      attack: params.filterAttack,
-      decay: params.filterDecay,
-      sustain: params.filterSustain,
-      release: params.filterRelease,
-      baseFrequency: Math.max(20, params.filterCutoff),
-      octaves: params.filterEnvAmount,
-    });
-    this.ampEnvelope = new Tone.AmplitudeEnvelope({
-      attack: params.ampAttack,
-      decay: params.ampDecay,
-      sustain: params.ampSustain,
-      release: params.ampRelease,
-    });
-    this.lfo = new Tone.LFO({ frequency: params.lfoRate, min: 0, max: 0 }).start();
-    this.output = new Tone.Gain(1);
-
-    this.oscA.connect(this.oscAGain);
-    this.oscB.connect(this.oscBGain);
-    this.sub.connect(this.subGain);
-    this.oscAGain.connect(this.filter);
-    this.oscBGain.connect(this.filter);
-    this.subGain.connect(this.filter);
-    this.filterEnvelope.connect(this.filter.frequency);
-    this.filter.connect(this.ampEnvelope);
-    this.ampEnvelope.connect(this.output);
-
-    this.applyLfoRouting();
-    this.oscA.start();
-    this.oscB.start();
-    this.sub.start();
+const PROCESSOR_CODE = `
+${SYNTH_SOURCE}
+class DawnSynth extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = options.processorOptions;
+    this.k = new DawnSynthKernel(sampleRate);
+    this.k.bpm = o.bpm;
+    this.k.bend = o.bend;
+    this.k.modwheel = o.modwheel;
+    o.tables.forEach((t, i) => t && this.k.setTable(i, t));
+    this.k.setSettings(o.settings);
+    o.events.forEach((e) => this.k.addEvent(e));
+    this.monitor = false;
+    this.count = 0;
+    this.alive = true;
+    this.port.onmessage = (e) => {
+      const m = e.data;
+      if (m.t === "ev") this.k.addEvent(m.e);
+      else if (m.t === "set") this.k.setSettings(m.s);
+      else if (m.t === "table") this.k.setTable(m.slot, m.data);
+      else if (m.t === "bend") this.k.bend = m.v;
+      else if (m.t === "wheel") this.k.modwheel = m.v;
+      else if (m.t === "bpm") this.k.bpm = m.v;
+      else if (m.t === "monitor") this.monitor = m.v;
+      else if (m.t === "dispose") this.alive = false;
+    };
   }
-
-  private applyLfoRouting(): void {
-    this.lfo.disconnect();
-    this.lfo.frequency.value = this.params.lfoRate;
-    if (this.params.lfoTarget === "pitch") {
-      const cents = this.params.lfoAmount * 100;
-      this.lfo.min = -cents;
-      this.lfo.max = cents;
-      this.lfo.connect(this.oscA.detune);
-      this.lfo.connect(this.oscB.detune);
-      this.lfo.connect(this.sub.detune);
-    } else {
-      const range = this.params.lfoAmount * 3000;
-      this.lfo.min = -range;
-      this.lfo.max = range;
-      this.lfo.connect(this.filter.frequency);
+  process(inputs, outputs) {
+    const out = outputs[0];
+    const L = out[0];
+    const R = out[1] || new Float32Array(L.length);
+    this.k.process(L, R, L.length, currentTime);
+    if (this.monitor) {
+      this.count += L.length;
+      if (this.count >= ${MONITOR_INTERVAL}) {
+        this.count = 0;
+        this.port.postMessage(this.k.takeState());
+      }
     }
-  }
-
-  /** A voice is reusable once idle, or once its release tail has had time
-   * to fade out - avoids yanking a still-fading note out from under itself
-   * when a new one needs a voice and none are fully idle. */
-  isFree(now: number): boolean {
-    if (this.note === null) return true;
-    return this.releasing && now - this.releasedAt > this.params.ampRelease + 0.05;
-  }
-
-  /** How long ago this voice was last (re)triggered - the oldest-triggered
-   * voice is stolen first when every voice is busy. */
-  age(now: number): number {
-    return now - this.startedAt;
-  }
-
-  triggerAttack(note: string, time: number, velocity: number): void {
-    this.note = note;
-    this.releasing = false;
-    this.startedAt = time;
-    const freq = noteToFrequency(note);
-    this.oscA.frequency.setValueAtTime(freq, time);
-    this.oscB.frequency.setValueAtTime(freq, time);
-    this.sub.frequency.setValueAtTime(freq, time);
-    this.filterEnvelope.triggerAttack(time);
-    this.ampEnvelope.triggerAttack(time, velocity);
-  }
-
-  triggerRelease(time: number): void {
-    this.releasing = true;
-    this.releasedAt = time;
-    this.filterEnvelope.triggerRelease(time);
-    this.ampEnvelope.triggerRelease(time);
-  }
-
-  getLevel(time: number): number {
-    return this.ampEnvelope.getValueAtTime(time);
-  }
-
-  setPitchBend(cents: number): void {
-    this.pitchBendCents = cents;
-    this.oscA.detune.value = staticTuningCents(this.params.oscA) + cents;
-    this.oscB.detune.value = staticTuningCents(this.params.oscB) + cents;
-    this.sub.detune.value = -1200 * this.params.subOctaveDown + cents;
-  }
-
-  setModWheel(amount: number): void {
-    this.modWheelAmount = Math.max(0, Math.min(1, amount));
-    this.filterEnvelope.baseFrequency = Math.max(20, this.params.filterCutoff) * (1 + this.modWheelAmount * 3);
-  }
-
-  applyParams(params: SynthParams): void {
-    this.params = params;
-    this.oscA.count = Math.max(1, Math.round(params.oscA.unisonVoices));
-    this.oscA.spread = params.oscA.unisonSpread;
-    this.oscA.partials = wavetablePartialsAt(WAVETABLES[params.oscA.wavetable], params.oscA.position);
-    this.oscA.detune.value = staticTuningCents(params.oscA) + this.pitchBendCents;
-    this.oscAGain.gain.value = params.oscA.level;
-
-    this.oscB.count = Math.max(1, Math.round(params.oscB.unisonVoices));
-    this.oscB.spread = params.oscB.unisonSpread;
-    this.oscB.partials = wavetablePartialsAt(WAVETABLES[params.oscB.wavetable], params.oscB.position);
-    this.oscB.detune.value = staticTuningCents(params.oscB) + this.pitchBendCents;
-    this.oscBGain.gain.value = params.oscBEnabled ? params.oscB.level : 0;
-
-    this.sub.detune.value = -1200 * params.subOctaveDown + this.pitchBendCents;
-    this.subGain.gain.value = params.subLevel;
-
-    this.filter.type = params.filterType;
-    this.filter.Q.value = params.filterResonance;
-    this.filterEnvelope.attack = params.filterAttack;
-    this.filterEnvelope.decay = params.filterDecay;
-    this.filterEnvelope.sustain = params.filterSustain;
-    this.filterEnvelope.release = params.filterRelease;
-    this.filterEnvelope.baseFrequency = Math.max(20, params.filterCutoff) * (1 + this.modWheelAmount * 3);
-    this.filterEnvelope.octaves = params.filterEnvAmount;
-
-    this.ampEnvelope.attack = params.ampAttack;
-    this.ampEnvelope.decay = params.ampDecay;
-    this.ampEnvelope.sustain = params.ampSustain;
-    this.ampEnvelope.release = params.ampRelease;
-
-    this.applyLfoRouting();
-  }
-
-  dispose(): void {
-    this.oscA.dispose();
-    this.oscB.dispose();
-    this.sub.dispose();
-    this.oscAGain.dispose();
-    this.oscBGain.dispose();
-    this.subGain.dispose();
-    this.filter.dispose();
-    this.filterEnvelope.dispose();
-    this.ampEnvelope.dispose();
-    this.lfo.dispose();
-    this.output.dispose();
+    return this.alive;
   }
 }
+registerProcessor("${PROCESSOR_NAME}", DawnSynth);
+`;
 
-export const WAVETABLE_OPTIONS = Object.values(WAVETABLES).map((t) => ({ value: t.name, label: t.label }));
+type SynthEvent = { type: "on" | "off" | "allOff" | "panic"; note?: number; vel?: number; time: number };
 
-function defaultOscillator(overrides: Partial<OscillatorParams> = {}): OscillatorParams {
-  return {
-    wavetable: "classic",
-    position: 0.4,
-    octave: 0,
-    semitone: 0,
-    fineCents: 0,
-    level: 0.8,
-    unisonVoices: 1,
-    unisonSpread: 12,
-    ...overrides,
-  };
+/** What the synth window shows live (see the kernel's takeState). */
+export interface SynthLiveState {
+  voices: number;
+  /** The newest voice's knob positions after modulation (0..1, DEST_SPECS order). */
+  mod: number[] | null;
+  /** Per envelope: [stage, level]. */
+  env: [number, number][] | null;
+  /** Per LFO: [phase, value]. */
+  lfo: [number, number][];
+  peak: [number, number];
+  scope: Float32Array;
 }
 
-export const SYNTH_PRESETS: { name: string; params: SynthParams }[] = [
-  {
-    name: "Lead",
-    params: {
-      oscA: defaultOscillator({ wavetable: "classic", position: 0.6, unisonVoices: 3, unisonSpread: 18 }),
-      oscB: defaultOscillator({ wavetable: "classic", position: 0.6, octave: 0, fineCents: 8, level: 0.5 }),
-      oscBEnabled: true,
-      subLevel: 0.15,
-      subOctaveDown: 1,
-      filterType: "lowpass",
-      filterCutoff: 2600,
-      filterResonance: 1.5,
-      filterEnvAmount: 1.2,
-      ampAttack: 0.01,
-      ampDecay: 0.15,
-      ampSustain: 0.7,
-      ampRelease: 0.2,
-      filterAttack: 0.01,
-      filterDecay: 0.25,
-      filterSustain: 0.4,
-      filterRelease: 0.3,
-      lfoRate: 5,
-      lfoAmount: 0.05,
-      lfoTarget: "pitch",
-      glide: 0,
-    },
-  },
-  {
-    name: "Wavetable Pad",
-    params: {
-      oscA: defaultOscillator({ wavetable: "formant", position: 0.1, unisonVoices: 5, unisonSpread: 25, level: 0.7 }),
-      oscB: defaultOscillator({ wavetable: "formant", position: 0.9, unisonVoices: 5, unisonSpread: 25, level: 0.6 }),
-      oscBEnabled: true,
-      subLevel: 0.2,
-      subOctaveDown: 1,
-      filterType: "lowpass",
-      filterCutoff: 1200,
-      filterResonance: 0.7,
-      filterEnvAmount: 1.5,
-      ampAttack: 0.7,
-      ampDecay: 0.6,
-      ampSustain: 0.8,
-      ampRelease: 2.2,
-      filterAttack: 1.4,
-      filterDecay: 1,
-      filterSustain: 0.5,
-      filterRelease: 2,
-      lfoRate: 0.4,
-      lfoAmount: 0.3,
-      lfoTarget: "filter",
-      glide: 0,
-    },
-  },
-  {
-    name: "Sub Bass",
-    params: {
-      oscA: defaultOscillator({ wavetable: "classic", position: 0.75, unisonVoices: 2, unisonSpread: 8 }),
-      oscB: defaultOscillator({ wavetable: "classic", position: 0.75, octave: -1, level: 0.4 }),
-      oscBEnabled: true,
-      subLevel: 0.6,
-      subOctaveDown: 1,
-      filterType: "lowpass",
-      filterCutoff: 700,
-      filterResonance: 2,
-      filterEnvAmount: 0.8,
-      ampAttack: 0.004,
-      ampDecay: 0.2,
-      ampSustain: 0.5,
-      ampRelease: 0.12,
-      filterAttack: 0.005,
-      filterDecay: 0.15,
-      filterSustain: 0.2,
-      filterRelease: 0.15,
-      lfoRate: 4,
-      lfoAmount: 0,
-      lfoTarget: "pitch",
-      glide: 0,
-    },
-  },
-  {
-    name: "Pluck",
-    params: {
-      oscA: defaultOscillator({ wavetable: "organ", position: 0.3, unisonVoices: 1 }),
-      oscB: defaultOscillator({ wavetable: "organ", position: 0.3, octave: 1, level: 0.3 }),
-      oscBEnabled: true,
-      subLevel: 0,
-      subOctaveDown: 1,
-      filterType: "lowpass",
-      filterCutoff: 3200,
-      filterResonance: 1,
-      filterEnvAmount: -2.5,
-      ampAttack: 0.001,
-      ampDecay: 0.22,
-      ampSustain: 0,
-      ampRelease: 0.15,
-      filterAttack: 0.001,
-      filterDecay: 0.3,
-      filterSustain: 0,
-      filterRelease: 0.2,
-      lfoRate: 5,
-      lfoAmount: 0,
-      lfoTarget: "pitch",
-      glide: 0,
-    },
-  },
-  {
-    name: "Metallic Bell",
-    params: {
-      oscA: defaultOscillator({ wavetable: "metallic", position: 0.2, unisonVoices: 1 }),
-      oscB: defaultOscillator({ wavetable: "metallic", position: 0.8, octave: 1, fineCents: -6, level: 0.5 }),
-      oscBEnabled: true,
-      subLevel: 0,
-      subOctaveDown: 1,
-      filterType: "lowpass",
-      filterCutoff: 8000,
-      filterResonance: 0.5,
-      filterEnvAmount: -3,
-      ampAttack: 0.004,
-      ampDecay: 1.4,
-      ampSustain: 0.05,
-      ampRelease: 1.4,
-      filterAttack: 0.004,
-      filterDecay: 1.6,
-      filterSustain: 0,
-      filterRelease: 1.6,
-      lfoRate: 3,
-      lfoAmount: 0,
-      lfoTarget: "pitch",
-      glide: 0,
-    },
-  },
-  {
-    name: "Glitch Stab",
-    params: {
-      oscA: defaultOscillator({ wavetable: "glitch", position: 0.3, unisonVoices: 4, unisonSpread: 35 }),
-      oscB: defaultOscillator({ wavetable: "glitch", position: 0.8, octave: 0, level: 0.4 }),
-      oscBEnabled: true,
-      subLevel: 0.25,
-      subOctaveDown: 1,
-      filterType: "bandpass",
-      filterCutoff: 1800,
-      filterResonance: 3,
-      filterEnvAmount: 2,
-      ampAttack: 0.001,
-      ampDecay: 0.12,
-      ampSustain: 0.2,
-      ampRelease: 0.1,
-      filterAttack: 0.001,
-      filterDecay: 0.2,
-      filterSustain: 0.1,
-      filterRelease: 0.15,
-      lfoRate: 7,
-      lfoAmount: 0.4,
-      lfoTarget: "filter",
-      glide: 0,
-    },
-  },
-];
+let tempo = 120;
+const instances = new Set<SynthInstrument>();
 
-export function defaultSynthParams(): SynthParams {
-  return structuredClone(SYNTH_PRESETS[0].params);
+/** Keeps tempo-synced LFOs in time. */
+export function setSynthTempo(bpm: number): void {
+  tempo = bpm;
+  instances.forEach((s) => s.post({ t: "bpm", v: bpm }));
 }
 
-/**
- * A polyphonic wavetable synth: two independently-tuned wavetable
- * oscillators (each with its own unison stack) plus a sub oscillator, all
- * mixed into a resonant filter with its own envelope, then an amplitude
- * envelope, per voice - with a shared LFO routable to pitch or the filter.
- * Implements the same `Instrument` surface as the Sampler/DrumKit so the
- * engine can swap it in wherever those go.
- */
+const userTables = new Map<string, Promise<WavetableData | null>>();
+
+/** An imported wavetable, decoded and cut into cycles once per file. */
+export function loadUserWavetable(fileId: string): Promise<WavetableData | null> {
+  let promise = userTables.get(fileId);
+  if (!promise) {
+    promise = decodeEffectFileAudio(fileId, 48000).then((buffer) => (buffer ? wavetableFromAudio(buffer.getChannelData(0)) : null));
+    userTables.set(fileId, promise);
+  }
+  return promise;
+}
+
+function tableKey(osc: SynthOscParams): string {
+  return osc.userTable ? `user:${osc.userTable.id}` : osc.table;
+}
+
+async function tableFor(osc: SynthOscParams): Promise<WavetableData> {
+  if (osc.userTable) {
+    const user = await loadUserWavetable(osc.userTable.id);
+    if (user) return user;
+  }
+  return factoryWavetable(osc.table);
+}
+
+function toMidi(note: string): number {
+  return Tone.Frequency(note).toMidi();
+}
+
 export class SynthInstrument implements Instrument {
   private output = new Tone.Gain(1);
-  private voices: Voice[] = [];
+  private node: AudioWorkletNode | null = null;
   private params: SynthParams;
-  private pitchBendCents = 0;
-  private modWheelAmount = 0;
+  private pending: SynthEvent[] = [];
+  private tables: (WavetableData | null)[] = [null, null, subWavetable()];
+  private keys = ["", ""];
+  private bend = 0;
+  private wheel = 0;
+  private syncQueued = false;
+  private disposed = false;
+  private listener: ((s: SynthLiveState) => void) | null = null;
+  /** Resolves once the worklet is running (with its wavetables). */
+  readonly ready: Promise<void>;
 
   constructor(params: SynthParams) {
     this.params = params;
-    for (let i = 0; i < MAX_POLYPHONY; i++) {
-      const voice = new Voice(params);
-      voice.output.connect(this.output);
-      this.voices.push(voice);
-    }
+    instances.add(this);
+    const context = this.output.context;
+    this.ready = Promise.all([loadWorklet(context, PROCESSOR_NAME, PROCESSOR_CODE), this.loadTables(params)]).then(() => {
+      if (this.disposed) return;
+      const node = context.createAudioWorkletNode(PROCESSOR_NAME, {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        processorOptions: {
+          bpm: tempo,
+          bend: this.bend,
+          modwheel: this.wheel,
+          tables: this.tables,
+          settings: compileSynth(this.params),
+          events: this.pending,
+        },
+      });
+      this.pending = [];
+      node.port.onmessage = (e: MessageEvent<SynthLiveState>) => this.listener?.(e.data);
+      if (this.listener) node.port.postMessage({ t: "monitor", v: true });
+      Tone.connect(node, this.output);
+      this.node = node;
+    });
   }
 
-  private allocateVoice(time: number): Voice {
-    const free = this.voices.find((v) => v.isFree(time));
-    if (free) return free;
-    // Every voice is busy - steal the one that's been sounding longest.
-    return this.voices.reduce((oldest, v) => (v.age(time) > oldest.age(time) ? v : oldest));
+  /** Loads the oscillators' wavetables that changed; true if any did. */
+  private async loadTables(params: SynthParams): Promise<boolean> {
+    const oscs = [params.osc1, params.osc2];
+    const changed = oscs.map((o, i) => tableKey(o) !== this.keys[i]);
+    if (!changed.some(Boolean)) return false;
+    oscs.forEach((o, i) => changed[i] && (this.keys[i] = tableKey(o)));
+    const loaded = await Promise.all(oscs.map((o, i) => (changed[i] ? tableFor(o) : null)));
+    loaded.forEach((t, i) => {
+      if (!t || this.keys[i] !== tableKey(oscs[i])) return;
+      this.tables[i] = t;
+      this.node?.port.postMessage({ t: "table", slot: i, data: t });
+    });
+    return true;
+  }
+
+  /** @internal */
+  post(message: Record<string, unknown>): void {
+    this.node?.port.postMessage(message);
+  }
+
+  private send(e: SynthEvent): void {
+    if (this.node) this.node.port.postMessage({ t: "ev", e });
+    else this.pending.push(e);
   }
 
   setParams(params: SynthParams): void {
     this.params = params;
-    this.voices.forEach((v) => v.applyParams(params));
+    void this.loadTables(params);
+    if (this.syncQueued) return;
+    this.syncQueued = true;
+    queueMicrotask(() => {
+      this.syncQueued = false;
+      this.node?.port.postMessage({ t: "set", s: compileSynth(this.params) });
+    });
+  }
+
+  /** Live state for the window, ~45 times a second while someone listens. */
+  setMonitor(listener: ((s: SynthLiveState) => void) | null): void {
+    this.listener = listener;
+    this.node?.port.postMessage({ t: "monitor", v: !!listener });
   }
 
   setDetune(cents: number): void {
-    this.pitchBendCents = cents;
-    this.voices.forEach((v) => v.setPitchBend(cents));
+    // The engine's bend is ±2 semitones at full; the synth scales it by its own range.
+    this.bend = Math.max(-1, Math.min(1, cents / 200));
+    this.node?.port.postMessage({ t: "bend", v: this.bend });
   }
 
   setModWheel(amount: number): void {
-    this.modWheelAmount = amount;
-    this.voices.forEach((v) => v.setModWheel(amount));
+    this.wheel = Math.max(0, Math.min(1, amount));
+    this.node?.port.postMessage({ t: "wheel", v: this.wheel });
+  }
+
+  private seconds(time?: Tone.Unit.Time): number {
+    return time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
+  }
+
+  triggerAttack(note: string, time?: Tone.Unit.Time, velocity = 0.8): void {
+    this.send({ type: "on", note: toMidi(note), vel: velocity, time: this.seconds(time) });
+  }
+
+  triggerRelease(note: string, time?: Tone.Unit.Time): void {
+    this.send({ type: "off", note: toMidi(note), time: this.seconds(time) });
+  }
+
+  triggerAttackRelease(note: string, duration: Tone.Unit.Time, time?: Tone.Unit.Time, velocity = 0.8): void {
+    const start = this.seconds(time);
+    const midi = toMidi(note);
+    this.send({ type: "on", note: midi, vel: velocity, time: start });
+    this.send({ type: "off", note: midi, time: start + Tone.Time(duration).toSeconds() });
+  }
+
+  releaseAll(time?: Tone.Unit.Time): void {
+    this.send({ type: "allOff", time: this.seconds(time) });
   }
 
   connect(node: Tone.InputNode): this {
@@ -455,38 +239,18 @@ export class SynthInstrument implements Instrument {
     return this;
   }
 
-  triggerAttack(note: string, time?: Tone.Unit.Time, velocity = 0.8): void {
-    const seconds = time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
-    this.allocateVoice(seconds).triggerAttack(note, seconds, velocity);
-  }
-
-  triggerRelease(note: string, time?: Tone.Unit.Time): void {
-    const seconds = time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
-    this.voices.filter((v) => v.note === note && !v.isFree(seconds)).forEach((v) => v.triggerRelease(seconds));
-  }
-
-  triggerAttackRelease(
-    note: string,
-    duration: Tone.Unit.Time,
-    time?: Tone.Unit.Time,
-    velocity = 0.8
-  ): void {
-    const seconds = time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
-    const durationSeconds = Tone.Time(duration).toSeconds();
-    const voice = this.allocateVoice(seconds);
-    voice.triggerAttack(note, seconds, velocity);
-    voice.triggerRelease(seconds + durationSeconds);
-  }
-
-  releaseAll(time?: Tone.Unit.Time): void {
-    const seconds = time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
-    this.voices.forEach((v) => {
-      if (!v.isFree(seconds)) v.triggerRelease(seconds);
-    });
-  }
-
   dispose(): void {
-    this.voices.forEach((v) => v.dispose());
+    this.disposed = true;
+    instances.delete(this);
+    if (this.node) {
+      this.node.port.onmessage = null;
+      this.node.port.postMessage({ t: "dispose" });
+      this.node.disconnect();
+    }
     this.output.dispose();
   }
+}
+
+export function defaultSynthParams(): SynthParams {
+  return initSynthParams();
 }

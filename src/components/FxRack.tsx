@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, Settings2, SlashSquare, Waves, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { EQThreeRackCard } from "./EQThreeRackCard";
 import { CompressorRackCard } from "./CompressorRackCard";
@@ -25,7 +25,7 @@ import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
 import { PresetMenu, type PresetChange } from "./PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
-import { WAVETABLES } from "@/lib/wavetables";
+import { SynthRackCard } from "./SynthRackCard";
 import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 
@@ -50,6 +50,8 @@ interface FxRackProps {
   /** Opens the dedicated Synth Settings window - only meaningful while
    * `instrument === "synth"`. */
   onOpenSynthSettings?: () => void;
+  /** Macro knobs on the synth's card. */
+  onSynthParamsChange?: (params: SynthParams) => void;
   onSendChange?: (busId: string, db: number | null) => void;
   /** `atIndex` omitted means "append at the end"; `presetId` loads that
    * preset into the new effect. */
@@ -164,6 +166,7 @@ export function FxRack({
   sends = {},
   onInstrumentChange,
   onOpenSynthSettings,
+  onSynthParamsChange,
   onSendChange,
   onAddEffect,
   onRemoveEffect,
@@ -215,7 +218,7 @@ export function FxRack({
       {!collapsed && (
       <div className="flex flex-1 items-stretch gap-0 overflow-x-auto p-2">
         {channelType === "midi" && (
-          <div className="flex w-56 shrink-0 flex-col rounded border border-border bg-surface-raised p-2">
+          <div className={`flex ${instrument === "synth" ? "w-[262px]" : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
               Instrument
             </div>
@@ -240,21 +243,7 @@ export function FxRack({
               <p className="text-[11px] text-muted">No instrument loaded — this track stays silent.</p>
             )}
             {instrument === "synth" && synthParams && (
-              <div className="flex flex-1 flex-col justify-between gap-1.5">
-                <p className="text-[11px] text-muted">
-                  {WAVETABLES[synthParams.oscA.wavetable].label}
-                  {synthParams.oscBEnabled ? ` + ${WAVETABLES[synthParams.oscB.wavetable].label}` : ""} wavetable
-                  voice
-                </p>
-                <button
-                  type="button"
-                  onClick={onOpenSynthSettings}
-                  className="flex items-center justify-center gap-1.5 rounded border border-border py-1.5 text-[11px] text-muted hover:bg-surface hover:text-accent"
-                >
-                  <Settings2 size={12} />
-                  Synth Settings
-                </button>
-              </div>
+              <SynthRackCard params={synthParams} onChange={onSynthParamsChange} onDragStart={onParamDragStart} onOpen={onOpenSynthSettings} />
             )}
           </div>
         )}

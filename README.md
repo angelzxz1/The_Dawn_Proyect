@@ -33,8 +33,8 @@ Live and Reaper.
   is drawn on its track while you record it.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
-- **Three instruments:** a sampled grand piano, a drum kit, and a wavetable
-  synth.
+- **Three instruments:** a sampled grand piano, a drum kit, and Daybreak, a
+  wavetable synth with a modulation matrix.
 - **18 effects**, most with their own full-size window, graphs and meters,
   plus presets.
 - **Sidechain.** Compressors, gates and multiband dynamics can listen to
@@ -60,7 +60,7 @@ A MIDI track plays one instrument, which you choose in its FX rack.
 | --- | --- |
 | **Piano** | A sampled acoustic grand, the Salamander Grand Piano (a Yamaha C5). |
 | **Drums** | A 10-piece kit: kick, snare, clap, three toms, closed and open hi-hat, crash and ride. |
-| **Synth** | A polyphonic wavetable synth with two oscillators (Classic, Formant, Organ, Metallic and Glitch wavetables with a position control, octave/semi/fine tuning, unison voices and spread), a sub oscillator with glide, an LFO, a resonant filter with its own envelope, and an amp envelope. It has factory presets: Lead, Wavetable Pad, Sub Bass, Pluck, Metallic Bell and Glitch Stab. |
+| **Synth (Daybreak)** | A wavetable synth in the spirit of Ableton's Wavetable and Vital. It has two wavetable oscillators (17 factory tables, or import your own) with warps and up to 16-voice unison, a sub and a noise source, and two filters (11 types). Three envelopes, three LFOs and four macros drive a drag-and-drop modulation matrix. It comes with 28 factory presets, and you can save your own. See [The synth](#the-synth-daybreak). |
 
 All three respond to velocity, the sustain pedal, pitch bend and the mod
 wheel.
@@ -193,7 +193,8 @@ haven't saved to a folder yet.
 - **Mute** and **Solo** work as in any mixer. Each track also has **volume**,
   **pan** and a level meter.
 - **Choose the instrument** for a MIDI track in its FX rack: None, Piano,
-  Drums or Synth. The Synth's full editor opens from there too.
+  Drums or Synth. The synth's window opens from there too (see
+  [The synth](#the-synth-daybreak)).
 - **Choose the input** of an audio track (which microphone or
   audio-interface channel it records from) in its header.
 
@@ -211,6 +212,55 @@ haven't saved to a folder yet.
   piano roll.
 - Keys play the **armed** track (the red button in its header). Only one
   track is armed at a time.
+
+### The synth (Daybreak)
+
+Choose **Synth** as a MIDI track's instrument, then open it from its card in
+the FX rack. The card also shows the preset and the four macro knobs.
+
+- **Presets.** The bar at the top browses the factory sounds by category
+  (Bass, Lead, Pad, Pluck, Keys, FX), with a search box. Use the arrows to step
+  through them. The save button keeps your own sound in this browser.
+- **Oscillators.** Each plays a wavetable, a stack of single-cycle waves.
+  - **Position** scans through the stack; the 3D view lights up the wave being
+    played, as it moves.
+  - **Warp** bends how the wave is read: Sync, Bend, Squeeze, Pulse, Mirror,
+    Fold, Quantize, and FM or Ring from the other oscillator.
+  - **Unison** stacks up to 16 detuned copies, with **Detune**, **Blend** and
+    stereo **Width**.
+  - The arrows next to the table name step through the tables. The upload
+    button imports an audio file as a wavetable (cut into 2048-sample cycles,
+    like Ableton's Wavetable); it's saved with the project.
+  - **F1 / F2 / F1+2 / Out** chooses which filter the oscillator goes through.
+- **Sub and Noise.** The sub is a sine, triangle, saw or square one or two
+  octaves down. The noise source is white or pink.
+- **Filters.** Low and high pass (12 or 24 dB), Ladder, Band, Notch, Morph
+  (low → band → high → notch), Comb + and −, and Vowel. Filter 2 runs after
+  filter 1 (**1 → 2**) or beside it (**1 | 2**).
+- **Voice.** **Poly** plays chords (up to 16 voices); **Mono** plays one note
+  at a time; **Legato** also doesn't restart the envelopes when notes overlap.
+  **Glide** slides between notes, and **Bend** sets the pitch-bend range.
+- **Envelopes.** Env 1 shapes each note's volume; Env 2 and Env 3 are free
+  to modulate anything. Drag the points on the graph to set the times and
+  sustain; drag the small points on each slope to bend it.
+- **LFOs.** Seven shapes, free in Hz or synced to the tempo. Each can
+  **Retrigger** with each note, run **Free**, or play once (**One Shot**),
+  with a start phase and a fade-in.
+
+**Modulation**
+
+- **Add one.** Every source has a **+** handle: on the envelope and LFO tabs,
+  the Sources list (velocity, note, mod wheel, pitch bend, random) and under
+  each macro. Drag it onto a knob.
+- **Set the amount.** The knob gets a colored ring for each modulation. Drag
+  the dot at the end of the ring to set how much it moves the knob.
+- **Edit or remove.** Right-click a knob to see its modulations, change their
+  amount or direction (±), or remove them.
+- **See where it goes.** Click a source's handle to highlight what it
+  modulates.
+- **While you play,** a white dot on each modulated knob shows where it
+  really is.
+- **The Matrix tab** lists every modulation (up to 32) to edit in one place.
 
 ### Recording
 
@@ -373,15 +423,20 @@ From there you can:
   buses and the master.
 - **Scheduling.** Clips are scheduled on the Tone transport. MIDI you play
   live goes straight to the instrument, not through the transport.
-- **The custom effects run in AudioWorklets**, in the audio thread: the
-  compressors, gate, limiter, parametric EQ, multiband effects, saturator and
-  utility. The DSP for each is plain JavaScript kept as a source string (for
+- **The custom effects and the synth run in AudioWorklets**, in the audio
+  thread: the compressors, gate, limiter, parametric EQ, multiband effects,
+  saturator, utility and Daybreak (`synthKernel.ts`). The DSP for each is plain JavaScript kept as a source string (for
   example `glueModel.ts`). The same text runs:
   - in the worklet, to make the sound;
   - in the plugin's window, to draw its curves;
   - in the unit tests, to check it.
 
   So what you see and what's tested is exactly what you hear.
+- **The synth** gets its notes as timestamped events, so each starts on its
+  exact sample. Its wavetables are built on the main thread
+  (`wavetableModel.ts`) as band-limited copies with fewer and fewer
+  harmonics; each note plays the richest one that won't alias. Modulation is
+  worked out every 32 samples and smoothed in between.
 - **NAM Amp** runs Neural Amp Modeler's C++ core compiled to WebAssembly
   (`public/nam`), in a worklet.
 - **Latency compensation.** Each effect reports its latency: lookahead,

@@ -52,7 +52,9 @@ import type {
   AutomationLane,
 } from "./types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
-import { DrumKit, NullInstrument, type Instrument } from "./drumKit";
+import { NullInstrument, type Instrument } from "./drumKit";
+import { DrumRack, type DrumLiveState } from "./drumRack";
+import { defaultDrumKit, type DrumKitParams } from "./drumParams";
 import { SynthInstrument, defaultSynthParams, setSynthTempo, type SynthLiveState } from "./synth";
 import { type EffectType, defaultParams } from "./effects";
 import { CompressorChain, type CompressorMeterReading } from "./compressor";
@@ -239,16 +241,17 @@ export function bumpEffectIdCounter(atLeast: number): void {
 export function createInstrument(
   type: InstrumentType | null,
   onSettled: () => void,
-  synthParams?: SynthParams
+  synthParams?: SynthParams,
+  drumParams?: DrumKitParams
 ): Instrument {
   if (type === null) {
     queueMicrotask(onSettled);
     return new NullInstrument();
   }
   if (type === "drums") {
-    // Synth-built, so it's "ready" the instant it's constructed.
-    queueMicrotask(onSettled);
-    return new DrumKit();
+    const rack = new DrumRack(drumParams ?? defaultDrumKit());
+    void rack.ready.then(onSettled, onSettled);
+    return rack;
   }
   if (type === "synth") {
     // Synth-built too - no samples to wait on.
@@ -1512,7 +1515,8 @@ class AudioEngine {
     id: string,
     channelType: ChannelType,
     instrument: InstrumentType | null,
-    synthParams?: SynthParams
+    synthParams?: SynthParams,
+    drumParams?: DrumKitParams
   ): void {
     if (this.channels.has(id)) return;
 
@@ -1548,7 +1552,8 @@ class AudioEngine {
       instrument: createInstrument(
         channelType === "midi" ? instrument : null,
         onSettled,
-        synthParams
+        synthParams,
+        drumParams
       ),
       part: null,
       heldNotes: new Set(),
@@ -1661,7 +1666,7 @@ class AudioEngine {
   /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums,
    * or null to leave the track empty), disposing the old one and
    * reconnecting the signal chain. No-op on an audio channel. */
-  setInstrument(id: string, type: InstrumentType | null, synthParams?: SynthParams): void {
+  setInstrument(id: string, type: InstrumentType | null, synthParams?: SynthParams, drumParams?: DrumKitParams): void {
     const nodes = this.channels.get(id);
     if (!nodes || nodes.channelType !== "midi" || nodes.instrumentType === type) return;
     nodes.instrument.dispose();
@@ -1671,7 +1676,7 @@ class AudioEngine {
       this.pendingLoads = Math.max(0, this.pendingLoads - 1);
       if (this.pendingLoads === 0) this.setReady(true);
     };
-    nodes.instrument = createInstrument(type, onSettled, synthParams);
+    nodes.instrument = createInstrument(type, onSettled, synthParams, drumParams);
     nodes.instrumentType = type;
     this.rewireChannel(id);
   }
@@ -1684,6 +1689,27 @@ class AudioEngine {
     if (nodes?.instrumentType === "synth") {
       (nodes.instrument as SynthInstrument).setParams(params);
     }
+  }
+
+  /** Applies a new kit to a track's Drum Rack (no-op if it isn't one). */
+  setDrumKit(id: string, kit: DrumKitParams): void {
+    const nodes = this.channels.get(id);
+    if (nodes?.instrumentType === "drums") (nodes.instrument as DrumRack).setKit(kit);
+  }
+
+  /** Plays one of a track's drum pads now (clicking it in the Drum Rack). */
+  auditionDrumPad(id: string, pad: number, velocity = 0.9): void {
+    const nodes = this.channels.get(id);
+    if (nodes?.instrumentType === "drums") (nodes.instrument as DrumRack).audition(pad, velocity);
+  }
+
+  /** Live pad hits from a track's Drum Rack, for its window. Returns a function that stops it. */
+  watchDrums(id: string, listener: (state: DrumLiveState) => void): () => void {
+    const nodes = this.channels.get(id);
+    if (nodes?.instrumentType !== "drums") return () => {};
+    const rack = nodes.instrument as DrumRack;
+    rack.setMonitor(listener);
+    return () => rack.setMonitor(null);
   }
 
   /** Live state from a track's synth (for its window), or nothing if the

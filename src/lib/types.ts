@@ -33,6 +33,8 @@ export interface ChannelConfig {
   /** Live params for the "synth" instrument - only meaningful (and only
    * present) while `instrument === "synth"`. */
   synthParams?: SynthParams;
+  /** The Drum Rack's kit - only present while `instrument === "drums"`. */
+  drumParams?: DrumKitParams;
   muted: boolean;
   /** Soloing any one channel silences every non-soloed channel. */
   solo: boolean;
@@ -54,6 +56,7 @@ export interface ChannelConfig {
 }
 
 import type { SynthParams } from "./synthParams";
+import type { DrumKitParams } from "./drumParams";
 export type { SynthParams };
 
 /** A send/return bus: several tracks can route a copy of their signal into

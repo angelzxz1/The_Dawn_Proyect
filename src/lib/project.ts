@@ -106,7 +106,7 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): 
   });
 
   state.channels.forEach((channel) => {
-    audioEngine.addChannel(channel.id, channel.type, channel.instrument, channel.synthParams);
+    audioEngine.addChannel(channel.id, channel.type, channel.instrument, channel.synthParams, channel.drumParams);
     audioEngine.setVolume(channel.id, channel.volume);
     audioEngine.setPan(channel.id, channel.pan);
     audioEngine.setMute(channel.id, channel.muted);

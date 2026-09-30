@@ -5,6 +5,7 @@ import { AlignHorizontalJustifyStart, Pause, Pencil, MousePointer2, Play, X, Zoo
 import { isBlackKey, midiToNoteName } from "@/lib/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
 import { DRUM_PADS, drumLabelForNote } from "@/lib/drums";
+import type { DrumKitParams } from "@/lib/drumParams";
 import type { InstrumentType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { audioEngine } from "@/lib/audioEngine";
@@ -15,6 +16,8 @@ interface PianoRollEditorProps {
   channelName: string;
   color: TrackColor;
   instrument?: InstrumentType;
+  /** A drum track's kit, to name its rows. */
+  drumKit?: DrumKitParams;
   notes: NoteEvent[];
   length: number;
   bpm: number;
@@ -105,6 +108,7 @@ export function PianoRollEditor({
   channelName,
   color,
   instrument = "piano",
+  drumKit,
   notes: initialNotes,
   length,
   bpm,
@@ -770,7 +774,7 @@ export function PianoRollEditor({
                   const black = isBlackKey(midi);
                   const inScale = scaleSetting.enabled && isNoteInScale(midi, scaleSetting);
                   const drumLabel =
-                    instrument === "drums" ? drumLabelForNote(midiToNoteName(midi)) : undefined;
+                    instrument === "drums" ? drumLabelForNote(midiToNoteName(midi), drumKit) : undefined;
                   return (
                     <div
                       key={midi}

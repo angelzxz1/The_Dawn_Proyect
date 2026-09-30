@@ -8,6 +8,7 @@ import { createInstrument, createEffectNode, applyEffectParam, IrLoaderChain } f
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "./effectFiles";
 import { NamAmpChain } from "./namAmp";
 import { SynthInstrument } from "./synth";
+import { DrumRack } from "./drumRack";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
 import { chainLatency, nodeLatency, planCompensation } from "./latency";
@@ -227,7 +228,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       const clips = params.clipsByChannel[channel.id] ?? [];
 
       if (channel.type === "midi") {
-        const instrument = createInstrument(channel.instrument, () => {}, channel.synthParams);
+        const instrument = createInstrument(channel.instrument, () => {}, channel.synthParams, channel.drumParams);
         instrument.connect(firstNode);
         const flattened = clips
           .filter(isMidiClip)
@@ -241,7 +242,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
               if (instrument instanceof Tone.Sampler) {
                 const check = () => (instrument.loaded ? resolve() : setTimeout(check, 10));
                 check();
-              } else if (instrument instanceof SynthInstrument) {
+              } else if (instrument instanceof SynthInstrument || instrument instanceof DrumRack) {
                 // Its worklet starts once its wavetables are ready (an imported one is decoded first).
                 void instrument.ready.then(resolve, resolve);
               } else {

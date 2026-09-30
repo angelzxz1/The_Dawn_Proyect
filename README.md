@@ -16,6 +16,7 @@ Live and Reaper.
 - [What it can do](#what-it-can-do)
 - [Instruments](#instruments)
 - [Daybreak, the synth](#daybreak-the-synth)
+- [The Drum Rack](#the-drum-rack)
 - [Effects (plugins)](#effects-plugins)
 - [Getting started](#getting-started)
 - [User guide](#user-guide)
@@ -34,8 +35,9 @@ Live and Reaper.
   is drawn on its track while you record it.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
-- **Three instruments:** a sampled grand piano, a drum kit, and Daybreak, a
-  wavetable synth with a modulation matrix.
+- **Three instruments:** a sampled grand piano, a 16-pad Drum Rack (modeled
+  drum-machine voices or your own samples), and Daybreak, a wavetable synth
+  with a modulation matrix.
 - **18 effects**, most with their own full-size window, graphs and meters,
   plus presets.
 - **Sidechain.** Compressors, gates and multiband dynamics can listen to
@@ -60,7 +62,7 @@ A MIDI track plays one instrument, which you choose in its FX rack.
 | Instrument | What it is |
 | --- | --- |
 | **Piano** | A sampled acoustic grand, the Salamander Grand Piano (a Yamaha C5). |
-| **Drums** | A 10-piece kit: kick, snare, clap, three toms, closed and open hi-hat, crash and ride. |
+| **Drums (Drum Rack)** | 16 pads, each a modeled drum voice (kick, snare, clap, hi-hat, cymbal, tom, rim, cowbell, shaker, clave) or a sample you drop in, with its own tune, decay, tone, drive, filter, level, pan and choke group. Eight factory kits (808, 909, Trap, Lo-Fi, Electro, Techno, Studio, Percussion), and you can save your own. See [The Drum Rack](#the-drum-rack). |
 | **Synth (Daybreak)** | A wavetable synth in the spirit of Ableton's Wavetable and Vital. It has two wavetable oscillators (17 factory tables, or import your own) with warps and up to 16-voice unison, a sub and a noise source, and two filters (11 types). Three envelopes, three LFOs and four macros drive a drag-and-drop modulation matrix. It comes with 28 factory presets, and you can save your own. See [Daybreak, the synth](#daybreak-the-synth). |
 
 All three respond to velocity, the sustain pedal, pitch bend and the mod
@@ -270,6 +272,77 @@ Projects saved with either of the earlier synths open with their sound
 converted to Daybreak: their oscillators, filter, envelopes and LFO become
 the matching Daybreak settings and modulations.
 
+## The Drum Rack
+
+![The Drum Rack with the Dawn 808 kit](docs/drum-rack.png)
+
+Choose **Drums** as a MIDI track's instrument to get the Drum Rack: 16 pads
+on the notes C1 to D#2, laid out like Ableton's (C1 at the bottom left).
+Each pad plays either a **modeled drum voice** or **a sample** you drop in.
+Open it from its card in the FX rack; the card also shows the kit, and you
+can click its mini pads to hear them.
+
+### Pads
+
+- **Click a pad** to hear it and edit it on the right. Pads light up when
+  they're hit, from the keyboard, a controller or a clip.
+- **Drop an audio file** onto any pad (or use **Sample** in the editor) to
+  play it there. The file is saved with the project.
+- **Keys:** `A S D F G H J K L ;` play kick, snare, clap, the toms, the hats,
+  crash and ride, the same notes as the earlier ten-pad kit, so old drum
+  clips sound right. `Q W E R T Y` play rim, snap, pedal hat, cowbell,
+  shaker and clave.
+- **Copy, paste and reset** a pad with the buttons under its editor, and
+  rename it by clicking its name.
+
+### Synthesized voices
+
+Each voice models a classic drum-machine circuit, and has **Tune**,
+**Decay** and **Drive**, plus two knobs of its own:
+
+| Voice | How it's made | Its own knobs |
+| --- | --- | --- |
+| **Kick** | A sine with a fast pitch drop, like an 808/909. | Click, Punch (how far the pitch drops) |
+| **Snare** | A tuned two-tone body plus filtered noise. | Tone, Snappy (noise against body) |
+| **Clap** | Four quick bursts of band-passed noise, then a tail. | Tone, Spread (the gap between bursts) |
+| **Hi-Hat** | Six detuned square waves (the 808 recipe) and noise, high-passed. | Tone, Metal (squares against noise) |
+| **Cymbal** | The hi-hat recipe, lower and longer. | Tone, Bell (a ride's ping) |
+| **Tom** | A pitched drum with a pitch drop and a stick attack. | Attack, Punch |
+| **Rim** | A click ringing two tuned resonances. | Tone, Ring |
+| **Cowbell** | Two square waves through a band pass. | Tone, Balance |
+| **Shaker** | High-passed noise with a soft attack. | Tone, Attack |
+| **Clave** | A short, bright wooden ping. | Tone, Knock |
+
+### Samples
+
+A sample pad plays its file with **Tune** (by resampling, so it gets
+shorter as it goes up, like a sampler), **Decay** (at "Full" it plays to
+the end; lower fades it out sooner), **Start** (also set by dragging on its
+waveform), **Reverse** and **Drive**.
+
+### Every pad
+
+- **Level, Pan.**
+- **Filter:** turn it left for a low pass that closes down, right for a
+  high pass that opens up; **Reso** adds resonance.
+- **Velocity:** how much velocity sets the loudness (and, on voices, the
+  brightness).
+- **Choke:** pads in the same group (1 to 4) cut each other off. The
+  default kit puts the closed, pedal and open hats in group 1, so a closed
+  hat stops an open one ringing.
+- **Mute.**
+
+Each pad can ring up to four hits at once; more fade out the oldest.
+
+### Kits
+
+The bar at the top steps through kits (◀ ▶) or lists them. **Dawn 808** is
+the default; **909 Punch**, **Trap**, **Lo-Fi**, **Electro**, **Techno**,
+**Studio** and **Percussion** are the other factory kits, all synthesized so
+nothing has to download. The save button keeps the current kit as yours, in
+this browser. A saved kit with samples points at their files, so those pads
+play in projects that include the files.
+
 ## Effects (plugins)
 
 Effects are grouped in the browser on the left of the screen, the way
@@ -398,7 +471,8 @@ haven't saved to a folder yet.
 - **Mute** and **Solo** work as in any mixer. Each track also has **volume**,
   **pan** and a level meter.
 - **Choose the instrument** for a MIDI track in its FX rack: None, Piano,
-  Drums or Synth. The synth's window opens from there too (see
+  Drums or Synth. The Drum Rack's and the synth's windows open from there
+  too (see [The Drum Rack](#the-drum-rack) and
   [Daybreak, the synth](#daybreak-the-synth)).
 - **Choose the input** of an audio track (which microphone or
   audio-interface channel it records from) in its header.
@@ -409,7 +483,9 @@ haven't saved to a folder yet.
   octave (`Z S X D C V G B H N J M`, black keys on the row above), and the
   `Q` row plays the next one (`Q 2 W 3 E R 5 T 6 Y 7 U I`). The octave
   buttons next to the on-screen piano shift the range by up to 2 octaves.
-- **Drum pads** play from `A S D F G H J K L ;`.
+- **Drum pads** play from `A S D F G H J K L ;` (kick, snare, clap, the
+  three toms, closed and open hat, crash, ride) and `Q W E R T Y` (rim,
+  snap, pedal hat, cowbell, shaker, clave).
 - **MIDI controllers** are picked up automatically. Notes, velocity, the
   sustain pedal, pitch bend and the mod wheel all work.
 - **Scale.** The scale selector (Major, Minor, the modes, pentatonics and so
@@ -575,7 +651,7 @@ From there you can:
 | Ctrl/Cmd+Shift+S | Save As |
 | Ctrl/Cmd+O | Open a project |
 | `Z`…`M`, `Q`…`I` and the number row | Play notes |
-| `A`…`;` | Play drum pads |
+| `A`…`;`, `Q`…`Y` | Play drum pads |
 | **In the piano roll:** | |
 | B | Switch between Draw and Select |
 | Q | Quantize |
@@ -595,9 +671,9 @@ From there you can:
   live goes straight to the instrument, not through the transport.
 - **The custom effects and the synth run in AudioWorklets**, in the audio
   thread: the compressors, gate, limiter, parametric EQ, multiband effects,
-  saturator, utility and Daybreak (`synthKernel.ts`). The DSP for each is
-  plain JavaScript kept as a source string (for example `glueModel.ts`). The
-  same text runs:
+  saturator, utility, Daybreak (`synthKernel.ts`) and the Drum Rack
+  (`drumKernel.ts`). The DSP for each is plain JavaScript kept as a source
+  string (for example `glueModel.ts`). The same text runs:
   - in the worklet, to make the sound;
   - in the plugin's window, to draw its curves;
   - in the unit tests, to check it.

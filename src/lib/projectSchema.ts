@@ -15,6 +15,7 @@ import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, type SnapResolution } from "./timeline";
 import { normalizeSynthParams } from "./synthParams";
+import { normalizeDrumKit } from "./drumParams";
 import type {
   AutomationLane,
   AutomationPoint,
@@ -242,6 +243,7 @@ function normalizeChannel(
     type,
     instrument,
     ...(instrument === "synth" ? { synthParams: normalizeSynthParams(r.synthParams) } : {}),
+    ...(instrument === "drums" ? { drumParams: normalizeDrumKit(r.drumParams) } : {}),
     muted: bool(r.muted, false),
     solo: bool(r.solo, false),
     armed: bool(r.armed, false),

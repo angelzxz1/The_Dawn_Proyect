@@ -26,6 +26,8 @@ import { PresetMenu, type PresetChange } from "./PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { SynthRackCard } from "./SynthRackCard";
+import { DrumRackCard } from "./DrumRackCard";
+import type { DrumKitParams } from "@/lib/drumParams";
 import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 
@@ -40,6 +42,8 @@ interface FxRackProps {
   color: TrackColor;
   instrument?: InstrumentType | null;
   synthParams?: SynthParams;
+  /** The Drum Rack's kit, while `instrument === "drums"`. */
+  drumParams?: DrumKitParams;
   effects: EffectInstance[];
   /** The project's current tempo - only used by the Delay card/window's
    * Sync mode (note-division knobs) and its "@ N BPM" readout. */
@@ -52,6 +56,7 @@ interface FxRackProps {
   onOpenSynthSettings?: () => void;
   /** Macro knobs on the synth's card. */
   onSynthParamsChange?: (params: SynthParams) => void;
+  onOpenDrumRack?: () => void;
   onSendChange?: (busId: string, db: number | null) => void;
   /** `atIndex` omitted means "append at the end"; `presetId` loads that
    * preset into the new effect. */
@@ -160,6 +165,7 @@ export function FxRack({
   color,
   instrument,
   synthParams,
+  drumParams,
   effects,
   bpm,
   buses = [],
@@ -167,6 +173,7 @@ export function FxRack({
   onInstrumentChange,
   onOpenSynthSettings,
   onSynthParamsChange,
+  onOpenDrumRack,
   onSendChange,
   onAddEffect,
   onRemoveEffect,
@@ -218,7 +225,7 @@ export function FxRack({
       {!collapsed && (
       <div className="flex flex-1 items-stretch gap-0 overflow-x-auto p-2">
         {channelType === "midi" && (
-          <div className={`flex ${instrument === "synth" ? "w-[262px]" : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}>
+          <div className={`flex ${instrument === "synth" || instrument === "drums" ? "w-[262px]" : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
               Instrument
             </div>
@@ -242,6 +249,7 @@ export function FxRack({
             {instrument === null && (
               <p className="text-[11px] text-muted">No instrument loaded — this track stays silent.</p>
             )}
+            {instrument === "drums" && drumParams && <DrumRackCard channelId={hostId} kit={drumParams} onOpen={onOpenDrumRack} />}
             {instrument === "synth" && synthParams && (
               <SynthRackCard params={synthParams} onChange={onSynthParamsChange} onDragStart={onParamDragStart} onOpen={onOpenSynthSettings} />
             )}

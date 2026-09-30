@@ -1,27 +1,29 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { DRUM_PADS } from "@/lib/drums";
+import { PAD_KEYS, PAD_KEY_ORDER, defaultKitPads, type DrumKitParams } from "@/lib/drumParams";
+import { drumPads } from "@/lib/drums";
+import { padColor } from "./DrumRackWindow";
 
 interface DrumPadsProps {
+  /** The armed track's kit (names and colors). */
+  kit?: DrumKitParams;
   activeNotes: Set<string>;
   onNoteOn: (note: string, velocity: number) => void;
   onNoteOff: (note: string) => void;
   keyboardShortcutsEnabled?: boolean;
 }
 
-// One QWERTY row maps straight onto the pads, Ableton Drum-Rack style -
-// press a key for a quick hit instead of having to click.
-const PAD_KEYS = ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";"];
 const HIT_DURATION_MS = 90;
 
-export function DrumPads({
-  activeNotes,
-  onNoteOn,
-  onNoteOff,
-  keyboardShortcutsEnabled = true,
-}: DrumPadsProps) {
+/** The armed Drum Rack's 16 pads, laid out like the keys that play them:
+ * A S D F G H J K L ; on top (kick, snare, clap, toms, hats, crash, ride)
+ * and Q W E R T Y below. */
+export function DrumPads({ kit, activeNotes, onNoteOn, onNoteOff, keyboardShortcutsEnabled = true }: DrumPadsProps) {
   const pressedKeys = useRef<Set<string>>(new Set());
+  const pads = drumPads(kit);
+  const params = kit?.pads ?? defaultKitPads();
+  const noteOf = (pad: number) => pads[pad].note;
 
   const hit = (note: string) => {
     onNoteOn(note, 0.9);
@@ -39,9 +41,9 @@ export function DrumPads({
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
       const key = e.key.toLowerCase();
       const idx = PAD_KEYS.indexOf(key);
-      if (idx === -1 || idx >= DRUM_PADS.length || pressedKeys.current.has(key)) return;
+      if (idx === -1 || pressedKeys.current.has(key)) return;
       pressedKeys.current.add(key);
-      hit(DRUM_PADS[idx].note);
+      hit(noteOf(PAD_KEY_ORDER[idx]));
     };
     const handleKeyUp = (e: KeyboardEvent) => {
       pressedKeys.current.delete(e.key.toLowerCase());
@@ -55,32 +57,36 @@ export function DrumPads({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyboardShortcutsEnabled]);
 
+  const pad = (i: number, key: string) => {
+    const note = noteOf(i);
+    const active = activeNotes.has(note);
+    const color = padColor(params[i]);
+    return (
+      <button
+        key={i}
+        type="button"
+        onPointerDown={() => hit(note)}
+        title={`${pads[i].label} · ${note} (${key.toUpperCase()})`}
+        className={`relative flex h-12 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-md border text-[11px] font-medium transition-colors select-none ${
+          active ? "bg-accent/25 text-accent" : "bg-surface-raised hover:bg-surface hover:text-accent"
+        }`}
+        style={{ borderColor: active ? color : undefined, opacity: params[i].mute ? 0.45 : 1 }}
+      >
+        <span className="absolute inset-x-0 top-0 h-0.5" style={{ background: color }} />
+        <span className="max-w-full truncate px-1">{pads[i].label}</span>
+        <span className="font-mono text-[9px] text-muted">{key.toUpperCase()}</span>
+      </button>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <div className="text-xs text-muted">
-        drum rack — click a pad or play with A S D F G H J K L ;
+        {kit?.kit ?? "Drum Rack"} — click a pad or play with A S D F G H J K L ; and Q W E R T Y
       </div>
-      <div className="grid grid-cols-5 gap-2">
-        {DRUM_PADS.map((pad, i) => {
-          const active = activeNotes.has(pad.note);
-          return (
-            <button
-              key={pad.note}
-              type="button"
-              onPointerDown={() => hit(pad.note)}
-              title={`${pad.label} (${PAD_KEYS[i]?.toUpperCase()})`}
-              className={`flex h-14 flex-col items-center justify-center gap-0.5 rounded-md border text-[11px] font-medium transition-colors select-none ${
-                active
-                  ? "border-accent bg-accent/25 text-accent"
-                  : "border-border bg-surface-raised hover:bg-surface hover:text-accent"
-              }`}
-            >
-              <span>{pad.label}</span>
-              <span className="font-mono text-[9px] text-muted">{PAD_KEYS[i]?.toUpperCase()}</span>
-            </button>
-          );
-        })}
-      </div>
+      <div className="grid grid-cols-10 gap-1.5">{PAD_KEYS.slice(0, 10).map((k, j) => pad(PAD_KEY_ORDER[j], k))}</div>
+      <div className="grid grid-cols-10 gap-1.5">{PAD_KEYS.slice(10).map((k, j) => pad(PAD_KEY_ORDER[10 + j], k))}</div>
     </div>
   );
 }
+

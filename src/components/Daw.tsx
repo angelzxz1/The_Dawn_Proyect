@@ -38,6 +38,7 @@ import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
 import { DrumPads } from "./DrumPads";
+import { DrumRackWindow } from "./DrumRackWindow";
 import { ExpressionControls } from "./ExpressionControls";
 import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
@@ -71,6 +72,7 @@ import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
 import { defaultSynthParams } from "@/lib/synth";
+import { defaultDrumKit, type DrumKitParams } from "@/lib/drumParams";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
@@ -342,6 +344,7 @@ export function Daw() {
   /** Whether the dedicated Synth Settings window is open, for whichever
    * channel the FX rack is currently showing. */
   const [synthWindowOpen, setSynthWindowOpen] = useState(false);
+  const [drumWindowOpen, setDrumWindowOpen] = useState(false);
   /** The id of an effect instance (EQ Three, Compressor, ...) whose full
    * custom-UI window is open, or null - effects can appear on any track/
    * bus/master, so this is an id rather than a boolean. */
@@ -896,7 +899,7 @@ export function Daw() {
     const currentIds = new Set(channels.map((c) => c.id));
     channels.forEach((c) => {
       if (!registeredChannelIds.current.has(c.id)) {
-        audioEngine.addChannel(c.id, c.type, c.instrument, c.synthParams);
+        audioEngine.addChannel(c.id, c.type, c.instrument, c.synthParams, c.drumParams);
         audioEngine.setVolume(c.id, c.volume);
         audioEngine.setPan(c.id, c.pan);
         audioEngine.setMute(c.id, c.muted);
@@ -1306,9 +1309,10 @@ export function Daw() {
       // instead of resetting it.
       const synthParams =
         type === "synth" ? current.synthParams ?? defaultSynthParams() : current.synthParams;
-      audioEngine.setInstrument(id, type, synthParams);
+      const drumParams = type === "drums" ? current.drumParams ?? defaultDrumKit() : current.drumParams;
+      audioEngine.setInstrument(id, type, synthParams, drumParams);
       setChannels((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, instrument: type, synthParams } : c))
+        prev.map((c) => (c.id === id ? { ...c, instrument: type, synthParams, drumParams } : c))
       );
     },
     [channels, pushHistory]
@@ -1822,6 +1826,15 @@ export function Daw() {
       });
     },
     [fxChannelId, pushHistory]
+  );
+
+  const handleDrumKitChange = useCallback(
+    (kit: DrumKitParams) => {
+      if (!fxChannelId) return;
+      audioEngine.setDrumKit(fxChannelId, kit);
+      setChannels((prev) => prev.map((c) => (c.id === fxChannelId ? { ...c, drumParams: kit } : c)));
+    },
+    [fxChannelId]
   );
 
   const handleSynthParamsChange = useCallback(
@@ -3517,6 +3530,7 @@ export function Daw() {
           </p>
         ) : armedChannel.instrument === "drums" ? (
           <DrumPads
+            kit={armedChannel.drumParams}
             activeNotes={activeNotes}
             onNoteOn={handleNoteOn}
             onNoteOff={handleNoteOff}
@@ -3563,6 +3577,7 @@ export function Daw() {
           channelName={editingChannel.name}
           color={trackColorForIndex(editingChannel.colorIndex)}
           instrument={editingChannel.instrument ?? "piano"}
+          drumKit={editingChannel.drumParams}
           notes={editingClipInstance.notes}
           length={editingClipInstance.length}
           bpm={bpm}
@@ -3604,6 +3619,8 @@ export function Daw() {
           color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
           synthParams={fxChannel?.synthParams}
+          drumParams={fxChannel?.drumParams}
+          onOpenDrumRack={() => setDrumWindowOpen(true)}
           effects={rackEffects}
           bpm={bpm}
           buses={buses}
@@ -3621,6 +3638,17 @@ export function Daw() {
           onOpenEffectWindow={setExpandedEffectId}
           onLoadEffectFile={(effectId, file) => handleLoadEffectFile(fxHostId, effectId, file)}
           onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
+        />
+      )}
+
+      {drumWindowOpen && fxChannel?.instrument === "drums" && fxChannel.drumParams && (
+        <DrumRackWindow
+          channelId={fxChannel.id}
+          channelName={fxChannel.name}
+          kit={fxChannel.drumParams}
+          onChange={handleDrumKitChange}
+          onClose={() => setDrumWindowOpen(false)}
+          onDragStart={pushHistory}
         />
       )}
 

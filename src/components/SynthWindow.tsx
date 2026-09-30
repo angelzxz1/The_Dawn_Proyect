@@ -229,15 +229,16 @@ function Header({ channelName, tab, onTab, onClose }: { channelName: string; tab
           {voices} {voices === 1 ? "voice" : "voices"}
         </span>
         <Scope width={132} height={32} />
-        <div className="-my-2">
+        <div className="w-[92px]">
           <SynthKnob
+            inline
             label="Volume"
             dest="voice.volume"
             value={v.volume}
             min={VOLUME_MIN}
             max={VOLUME_MAX}
             defaultValue={-6}
-            size={28}
+            size={30}
             format={fmt.db}
             onChange={(x) => ui.update((p) => (p.voice.volume = x))}
           />
@@ -618,8 +619,16 @@ function FilterPanel({ index }: { index: 0 | 1 }) {
 
 // --- sub, noise, voice ---
 
+/** Where the sub or noise goes, laid out like a knob (label above). */
 function DestPicker({ value, onChange }: { value: (typeof OSC_DESTS)[number]; onChange: (v: (typeof OSC_DESTS)[number]) => void }) {
-  return <Select title="Where it goes" width={58} value={value} options={OSC_DESTS.map((v) => ({ value: v, label: OSC_DEST_LABELS[v] }))} onChange={onChange} />;
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={{ color: SYN.muted }}>
+        To
+      </span>
+      <Select title="Where it goes: filter 1, filter 2, both, or straight out" width={60} value={value} options={OSC_DESTS.map((v) => ({ value: v, label: OSC_DEST_LABELS[v] }))} onChange={onChange} />
+    </div>
+  );
 }
 
 function SubPanel() {
@@ -638,7 +647,6 @@ function SubPanel() {
       right={
         <>
           <Segmented small options={SUB_SHAPES} value={s.shape} onChange={(v) => setNow((x) => (x.shape = v))} labels={(v) => ({ sine: "Sin", triangle: "Tri", saw: "Saw", square: "Sqr" })[v]} />
-          <DestPicker value={s.dest} onChange={(v) => setNow((x) => (x.dest = v))} />
         </>
       }
     >
@@ -646,6 +654,7 @@ function SubPanel() {
         <SynthKnob label="Octave" value={s.octave} min={-2} max={0} step={1} defaultValue={-1} format={(v) => (v === 0 ? "0" : `${v} oct`)} size={30} onChange={(v) => ui.update((p) => (p.sub.octave = v))} />
         <SynthKnob label="Level" dest="sub.level" value={s.level} min={0} max={1} defaultValue={0.5} format={fmt.pct} size={30} onChange={(v) => ui.update((p) => (p.sub.level = v))} />
         <SynthKnob label="Pan" dest="sub.pan" value={s.pan} min={-1} max={1} defaultValue={0} format={fmt.pan} size={30} onChange={(v) => ui.update((p) => (p.sub.pan = v))} />
+        <DestPicker value={s.dest} onChange={(v) => setNow((x) => (x.dest = v))} />
       </div>
     </Panel>
   );
@@ -667,13 +676,13 @@ function NoisePanel() {
       right={
         <>
           <Segmented small options={["white", "pink"] as const} value={s.color} onChange={(v) => setNow((x) => (x.color = v))} labels={(v) => (v === "white" ? "White" : "Pink")} />
-          <DestPicker value={s.dest} onChange={(v) => setNow((x) => (x.dest = v))} />
         </>
       }
     >
       <div className="flex w-full items-center justify-around px-1">
         <SynthKnob label="Level" dest="noise.level" value={s.level} min={0} max={1} defaultValue={0.25} format={fmt.pct} size={30} onChange={(v) => ui.update((p) => (p.noise.level = v))} />
         <SynthKnob label="Pan" dest="noise.pan" value={s.pan} min={-1} max={1} defaultValue={0} format={fmt.pan} size={30} onChange={(v) => ui.update((p) => (p.noise.pan = v))} />
+        <DestPicker value={s.dest} onChange={(v) => setNow((x) => (x.dest = v))} />
       </div>
     </Panel>
   );

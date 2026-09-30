@@ -15,6 +15,7 @@ Live and Reaper.
 
 - [What it can do](#what-it-can-do)
 - [Instruments](#instruments)
+- [Daybreak, the synth](#daybreak-the-synth)
 - [Effects (plugins)](#effects-plugins)
 - [Getting started](#getting-started)
 - [User guide](#user-guide)
@@ -60,10 +61,214 @@ A MIDI track plays one instrument, which you choose in its FX rack.
 | --- | --- |
 | **Piano** | A sampled acoustic grand, the Salamander Grand Piano (a Yamaha C5). |
 | **Drums** | A 10-piece kit: kick, snare, clap, three toms, closed and open hi-hat, crash and ride. |
-| **Synth (Daybreak)** | A wavetable synth in the spirit of Ableton's Wavetable and Vital. It has two wavetable oscillators (17 factory tables, or import your own) with warps and up to 16-voice unison, a sub and a noise source, and two filters (11 types). Three envelopes, three LFOs and four macros drive a drag-and-drop modulation matrix. It comes with 28 factory presets, and you can save your own. See [The synth](#the-synth-daybreak). |
+| **Synth (Daybreak)** | A wavetable synth in the spirit of Ableton's Wavetable and Vital. It has two wavetable oscillators (17 factory tables, or import your own) with warps and up to 16-voice unison, a sub and a noise source, and two filters (11 types). Three envelopes, three LFOs and four macros drive a drag-and-drop modulation matrix. It comes with 28 factory presets, and you can save your own. See [Daybreak, the synth](#daybreak-the-synth). |
 
 All three respond to velocity, the sustain pedal, pitch bend and the mod
 wheel.
+
+## Daybreak, the synth
+
+![Daybreak, playing its "Daybreak Lead" preset](docs/daybreak.png)
+
+Daybreak is the app's own wavetable synth, built in the spirit of Ableton's
+Wavetable and Vital. It has two morphing wavetable oscillators, two filters,
+and a modulation system where you drag a source onto any knob. Choose
+**Synth** as a MIDI track's instrument, then open Daybreak from its card in
+the FX rack. The card also shows the preset, a picture of the waves, and the
+four macro knobs, so you can tweak a sound without opening the window.
+
+### How the sound is made
+
+```
+Osc 1 ─┐
+Osc 2 ─┤             ┌─ Filter 1 ─┐
+Sub   ─┼─ F1/F2/Out ─┤            ├─ Amp (Env 1) ─ Volume ─ out
+Noise ─┘             └─ Filter 2 ─┘
+          (filters in series 1 → 2, or side by side 1 | 2)
+```
+
+Every note gets its own voice: its own oscillators, filters, envelopes and
+LFOs. Each source picks where it goes: filter 1, filter 2, both, or straight
+to the output.
+
+### The window
+
+| Area | What's there |
+| --- | --- |
+| **Header** | Preset browser (◀ name ▶, save), the **Synth** and **Matrix** tabs, the number of notes playing, an oscilloscope, and the output **Volume**. |
+| **Osc 1 / Osc 2** | On/off, the wavetable (◀ ▶ to step, ⤒ to import your own), where it goes (F1 / F2 / F1+2 / Out), a 3D view of the table, the warp mode, and the knobs below. |
+| **Filter 1 / Filter 2** | On/off, type, a live response curve, and Cutoff, Reso, Drive, Morph, Key and Mix. Filter 2's header sets series (**1 → 2**) or parallel (**1 \| 2**). |
+| **Sub, Noise** | Shape or color, Level, Pan, and where it goes (**To**). |
+| **Voice** | Poly / Mono / Legato, Voices, Glide, Pitch, Bend range and Velocity. |
+| **Envelopes** | Three tabs (Env 1 is the volume); an editable graph plus Delay, Attack, Hold, Decay, Sustain and Release. |
+| **LFOs** | Three tabs; the shape with a moving dot, Shape, mode, Rate (Hz or synced), Phase and Fade In. |
+| **Sources** | Velocity, Note, Mod Wheel, Pitch Bend, Random, and the four macros. |
+
+### Oscillators
+
+| Knob | What it does |
+| --- | --- |
+| **Position** | Scans through the wavetable's frames. The 3D view lights up the frame being played, warp included, and follows it while it's modulated. |
+| **Warp** | How strongly the warp mode bends the wave (see below). |
+| **Pitch / Fine** | Transpose in semitones (±48) and cents (±100). |
+| **Level / Pan** | Volume and stereo position. |
+| **Unison** | Stacks up to 16 copies of the oscillator. |
+| **Detune** | How far the unison copies spread in pitch (up to ±50 cents). |
+| **Blend** | The outer copies' level against the middle ones. |
+| **Width** | How far the copies spread across the stereo field. |
+| **Phase / Rand** | Where each note starts in the wave, and how much that's randomized. |
+
+**Wavetables** (17 built in):
+
+| Group | Tables |
+| --- | --- |
+| Classic | **Basic Shapes** (sine → triangle → saw → square → pulse), **Daybreak** (a warm saw that opens up, with a rising glint), **Harmonic Series** (one harmonic at a time up to a full saw), **Pulse Width**, **Analog Drift** |
+| Vocal | **Vowels** (a-e-i-o-u), **Choir** |
+| Keys | **Drawbars** (organ registrations), **Bells** |
+| Digital | **FM Sweep**, **FM Octaves**, **Hard Sync**, **Wavefolder**, **Bitcrush**, **Glitch** |
+| Filtered | **Resonant Sweep**, **Growl** |
+
+**Your own wavetables:** the ⤒ button imports any audio file. It's cut into
+2048-sample cycles (up to 64 frames), the way Ableton's Wavetable does it; a
+file shorter than one cycle becomes a single frame. The file is saved in the
+project's `Samples` folder.
+
+All tables are band-limited: each note plays a copy with only as many
+harmonics as it can play without aliasing, so high notes stay clean and low
+notes keep their top end.
+
+**Warp modes:**
+
+| Mode | What it does |
+| --- | --- |
+| **Sync** | Restarts the wave faster than the note (hard sync), for bright, tearing leads. |
+| **Bend** | Pushes the wave toward the start of the cycle. |
+| **Squeeze** | Pinches the wave toward the middle of the cycle. |
+| **Pulse** | Plays the wave in part of the cycle and holds for the rest, like pulse width. |
+| **Mirror** | Plays the first half of the wave forward, then backward. |
+| **Fold** | Folds the wave back on itself (wavefolding); more Warp folds it more times. |
+| **Quantize** | Steps the wave into fewer and fewer samples. |
+| **FM** | The other oscillator bends this one's phase (FM from Osc 2, or from Osc 1). Set the other oscillator's level to 0 to use it only as a modulator. |
+| **Ring** | Multiplies by the other oscillator (ring modulation). |
+
+### Sub and noise
+
+- **Sub:** a sine, triangle, saw or square at the note, one octave down or two.
+- **Noise:** white or pink noise; with a short envelope on its level it makes
+  plucks and breaths.
+
+### Filters
+
+| Type | Sound |
+| --- | --- |
+| **Low 12 / Low 24** | Low pass, 12 or 24 dB per octave. |
+| **Ladder** | A 4-pole low pass modeled on the classic transistor ladder: fat, saturates with Drive, sings at high Reso. |
+| **High 12 / High 24** | High pass. |
+| **Band / Notch** | Keeps or removes a band around the cutoff. |
+| **Morph** | The Morph knob sweeps low pass → band → high pass → notch. |
+| **Comb + / Comb −** | A tuned comb (resonances at the cutoff and its multiples). With Key at 100% it follows the notes; Morph damps it. |
+| **Vowel** | Formants of sung vowels; Morph moves a → e → i → o → u, Cutoff shifts them. |
+
+**Drive** saturates the filter's input (up to +24 dB), **Key** makes the
+cutoff follow the note (100% = an octave per octave), and **Mix** blends the
+filtered and dry sound.
+
+### Envelopes and LFOs
+
+- **Envelopes** have Delay, Attack, Hold, Decay, Sustain and Release, and a
+  curve for each slope. On the graph, drag the big points to set times (the
+  decay point also sets the sustain level) and drag the small points on each
+  slope to bend it; double-click a small point to straighten it. Env 1 is the
+  volume of each note; Env 2 and Env 3 are free for modulation.
+- **LFOs** have seven shapes: Sine, Triangle, Saw Down, Saw Up, Square,
+  Random Steps and Random Smooth. They run in Hz (0.01 to 40) or synced to
+  the tempo, from 8 bars to 1/32 notes, including dotted and triplet values.
+  - **Retrigger** starts over with each note, **Free** keeps running, and
+    **One Shot** runs once per note, like an extra envelope.
+  - **Phase** sets where each cycle starts; **Fade In** brings the LFO in
+    gradually after the note starts (for delayed vibrato).
+
+### Modulation
+
+| Sources | |
+| --- | --- |
+| **Env 1, Env 2, Env 3** | The envelopes. |
+| **LFO 1, LFO 2, LFO 3** | The LFOs. |
+| **Velocity** | How hard the note was played. |
+| **Note** | Which note, low to high. |
+| **Mod Wheel / Pitch Bend** | Your controller's wheels (or the on-screen ones). |
+| **Random** | A new random value for each note. |
+| **Macro 1-4** | The macro knobs: point several knobs at one macro, then turn it (in the window or on the rack card) to move them together. |
+
+Almost every knob can be modulated: each oscillator's Position, Warp, Pitch,
+Fine, Level, Pan, Detune, Blend and Width; Sub and Noise level and pan; each
+filter's Cutoff, Reso, Drive, Morph and Mix; each LFO's rate; and the whole
+synth's pitch and volume.
+
+- **Add one:** drag a source's **+** handle onto a knob. The handles are on
+  the envelope and LFO tabs, in the Sources list, and under each macro.
+- **Set the amount:** the knob gets a colored ring for each modulation. Drag
+  the dot at the end of the ring (Shift for fine). The amount is a share of
+  the knob's full travel.
+- **Direction:** a unipolar modulation pushes one way from the knob; a
+  bipolar one (±) swings both ways around it. LFOs, pitch bend and random
+  start bipolar.
+- **Edit or remove:** right-click a knob to see its modulations, change their
+  amount or direction, or remove them.
+- **See where it goes:** click a source's handle to highlight what it
+  modulates (a number on the handle counts them).
+- **Watch it move:** while you play, a white dot on each modulated knob, the
+  3D wavetable view and the filter curve show where they really are.
+- **The Matrix tab** lists every modulation (up to 32), with its source,
+  destination, amount and direction, to edit in one place.
+
+### Voice
+
+- **Poly** plays chords, up to 16 notes (**Voices**). When you go over, the
+  oldest note fades out quickly to make room.
+- **Mono** plays one note at a time. **Legato** is the same, but a note that
+  overlaps the last one glides to it without restarting the envelopes.
+  Letting go of a note goes back to the one still held.
+- **Glide** is the time to slide from note to note (in Poly, from the last
+  note played).
+- **Pitch** transposes everything, **Bend** sets the pitch-bend range (up to
+  ±24 semitones), and **Vel** how much velocity sets the loudness.
+
+### Presets
+
+The ◀ ▶ arrows step through presets; the name opens the browser, with
+categories and a search box. The save button stores the current sound as
+your own preset, in this browser. A preset keeps everything, including its
+modulations and macros.
+
+| Category | Factory presets |
+| --- | --- |
+| Bass | Dawn Sub, Reese, Acid Line, Growler, Wobble (Macro 1 speeds up the wobble), FM Pluck Bass |
+| Lead | Init, Daybreak Lead, Sync Scream, Pulse Lead, Vowel Lead, Chip Arp |
+| Pad | Sunrise Pad, Glass Pad, Choir Air, Analog Strings, Evolving Wash |
+| Pluck | Crystal Pluck, Dawn Pluck, Plucked String (noise ringing a tuned comb), Kalimba |
+| Keys | Drawbar Organ (Macro 1 adds drawbars), Electric Keys, Bell Keys |
+| FX | Riser, Glitch Stab, Metal Hit, Laser Zap |
+
+### Recipes
+
+- **Filter sweep on each note:** set Filter 1's Cutoff low, drag **Env 2**'s
+  handle onto Cutoff, then drag the ring up. Shape it with Env 2's decay.
+- **Delayed vibrato:** set LFO 2 to Hz, about 5.5 Hz, Fade In around 0.5 s;
+  drag it onto both oscillators' **Pitch** and set a small amount (about 1%).
+- **Evolving tone:** drag an LFO or Env 3 onto **Position**, so the sound
+  moves through the wavetable.
+- **Wobble bass:** sync LFO 1 to 1/8, drag it onto Filter 1's Cutoff; then
+  drag **Macro 1** onto LFO 1's rate to speed it up with one knob.
+- **Plucked string:** turn off the oscillators, turn on Noise at level 0 with
+  a very short Env 2 on its level, and use a **Comb +** filter with Key at
+  100% and high Reso (see the Plucked String preset).
+
+### Older projects
+
+Projects saved with either of the earlier synths open with their sound
+converted to Daybreak: their oscillators, filter, envelopes and LFO become
+the matching Daybreak settings and modulations.
 
 ## Effects (plugins)
 
@@ -194,7 +399,7 @@ haven't saved to a folder yet.
   **pan** and a level meter.
 - **Choose the instrument** for a MIDI track in its FX rack: None, Piano,
   Drums or Synth. The synth's window opens from there too (see
-  [The synth](#the-synth-daybreak)).
+  [Daybreak, the synth](#daybreak-the-synth)).
 - **Choose the input** of an audio track (which microphone or
   audio-interface channel it records from) in its header.
 
@@ -215,52 +420,17 @@ haven't saved to a folder yet.
 
 ### The synth (Daybreak)
 
-Choose **Synth** as a MIDI track's instrument, then open it from its card in
-the FX rack. The card also shows the preset and the four macro knobs.
+1. Choose **Synth** as a MIDI track's instrument in its FX rack, and click
+   the card to open Daybreak.
+2. Pick a sound in the preset browser at the top, or start from **Init**.
+3. Play the armed track: the wavetable views, envelope and LFO dots, and the
+   scope move with each note.
+4. To modulate, drag a source's **+** handle onto a knob, then drag the dot at
+   the end of its colored ring to set the amount.
+5. Save your sound with the save button next to the preset name.
 
-- **Presets.** The bar at the top browses the factory sounds by category
-  (Bass, Lead, Pad, Pluck, Keys, FX), with a search box. Use the arrows to step
-  through them. The save button keeps your own sound in this browser.
-- **Oscillators.** Each plays a wavetable, a stack of single-cycle waves.
-  - **Position** scans through the stack; the 3D view lights up the wave being
-    played, as it moves.
-  - **Warp** bends how the wave is read: Sync, Bend, Squeeze, Pulse, Mirror,
-    Fold, Quantize, and FM or Ring from the other oscillator.
-  - **Unison** stacks up to 16 detuned copies, with **Detune**, **Blend** and
-    stereo **Width**.
-  - The arrows next to the table name step through the tables. The upload
-    button imports an audio file as a wavetable (cut into 2048-sample cycles,
-    like Ableton's Wavetable); it's saved with the project.
-  - **F1 / F2 / F1+2 / Out** chooses which filter the oscillator goes through.
-- **Sub and Noise.** The sub is a sine, triangle, saw or square one or two
-  octaves down. The noise source is white or pink.
-- **Filters.** Low and high pass (12 or 24 dB), Ladder, Band, Notch, Morph
-  (low → band → high → notch), Comb + and −, and Vowel. Filter 2 runs after
-  filter 1 (**1 → 2**) or beside it (**1 | 2**).
-- **Voice.** **Poly** plays chords (up to 16 voices); **Mono** plays one note
-  at a time; **Legato** also doesn't restart the envelopes when notes overlap.
-  **Glide** slides between notes, and **Bend** sets the pitch-bend range.
-- **Envelopes.** Env 1 shapes each note's volume; Env 2 and Env 3 are free
-  to modulate anything. Drag the points on the graph to set the times and
-  sustain; drag the small points on each slope to bend it.
-- **LFOs.** Seven shapes, free in Hz or synced to the tempo. Each can
-  **Retrigger** with each note, run **Free**, or play once (**One Shot**),
-  with a start phase and a fade-in.
-
-**Modulation**
-
-- **Add one.** Every source has a **+** handle: on the envelope and LFO tabs,
-  the Sources list (velocity, note, mod wheel, pitch bend, random) and under
-  each macro. Drag it onto a knob.
-- **Set the amount.** The knob gets a colored ring for each modulation. Drag
-  the dot at the end of the ring to set how much it moves the knob.
-- **Edit or remove.** Right-click a knob to see its modulations, change their
-  amount or direction (±), or remove them.
-- **See where it goes.** Click a source's handle to highlight what it
-  modulates.
-- **While you play,** a white dot on each modulated knob shows where it
-  really is.
-- **The Matrix tab** lists every modulation (up to 32) to edit in one place.
+Everything the synth can do is described in
+[Daybreak, the synth](#daybreak-the-synth).
 
 ### Recording
 
@@ -425,8 +595,9 @@ From there you can:
   live goes straight to the instrument, not through the transport.
 - **The custom effects and the synth run in AudioWorklets**, in the audio
   thread: the compressors, gate, limiter, parametric EQ, multiband effects,
-  saturator, utility and Daybreak (`synthKernel.ts`). The DSP for each is plain JavaScript kept as a source string (for
-  example `glueModel.ts`). The same text runs:
+  saturator, utility and Daybreak (`synthKernel.ts`). The DSP for each is
+  plain JavaScript kept as a source string (for example `glueModel.ts`). The
+  same text runs:
   - in the worklet, to make the sound;
   - in the plugin's window, to draw its curves;
   - in the unit tests, to check it.

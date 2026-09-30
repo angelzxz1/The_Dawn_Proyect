@@ -146,13 +146,15 @@ interface KnobProps {
   step?: number;
   disabled?: boolean;
   title?: string;
+  /** Label and value beside the knob instead of above and below it. */
+  inline?: boolean;
 }
 
 /** A knob: drag (Shift for fine), click to type, double-click to reset.
  * A modulation target also takes dropped sources, shows each modulation as
  * a colored ring whose end you drag to set the amount, and (right-click)
  * lists them. While a note plays, a dot follows the modulated value. */
-export function SynthKnob({ label, value, min, max, defaultValue, onChange, format, dest, scale = "linear", size = 38, step, disabled, title }: KnobProps) {
+export function SynthKnob({ label, value, min, max, defaultValue, onChange, format, dest, scale = "linear", size = 38, step, disabled, title, inline }: KnobProps) {
   const ui = useSynth();
   const spec = dest ? DEST_SPECS[DEST_INDEX[dest]] : null;
   const mode: KnobScale = spec ? (spec.scale === "log" ? "log" : min < 0 && max > 0 ? "bipolar" : "linear") : scale;
@@ -209,10 +211,12 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
   };
 
   return (
-    <div className="relative flex flex-col items-center gap-0.5" style={{ width: size + 18 }}>
-      <span className="w-full truncate text-center text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={{ color: disabled ? SYN.dim : SYN.muted }}>
-        {label}
-      </span>
+    <div className={inline ? "relative flex items-center gap-2" : "relative flex flex-col items-center gap-0.5"} style={inline ? undefined : { width: size + 18 }}>
+      {!inline && (
+        <span className="w-full truncate text-center text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={{ color: disabled ? SYN.dim : SYN.muted }}>
+          {label}
+        </span>
+      )}
       <div
         role="slider"
         aria-label={`${label}, ${format(value)}`}
@@ -332,9 +336,20 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
           />
         )}
       </div>
-      <span className="font-mono text-[10px] leading-none" style={{ color: disabled ? SYN.dim : SYN.text }}>
-        {format(value)}
-      </span>
+      {inline ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-[9.5px] font-semibold uppercase leading-none tracking-[0.1em]" style={{ color: disabled ? SYN.dim : SYN.muted }}>
+            {label}
+          </span>
+          <span className="whitespace-nowrap font-mono text-[10.5px] leading-none" style={{ color: disabled ? SYN.dim : SYN.text }}>
+            {format(value)}
+          </span>
+        </div>
+      ) : (
+        <span className="whitespace-nowrap font-mono text-[10px] leading-none" style={{ color: disabled ? SYN.dim : SYN.text }}>
+          {format(value)}
+        </span>
+      )}
       {menu && dest && <ModMenu dest={dest} onClose={() => setMenu(false)} />}
     </div>
   );

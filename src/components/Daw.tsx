@@ -38,6 +38,7 @@ import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
 import { DrumPads } from "./DrumPads";
+import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "./LoopBar";
 import { DrumRackWindow } from "./DrumRackWindow";
 import { ExpressionControls } from "./ExpressionControls";
 import { PianoRollEditor } from "./PianoRollEditor";
@@ -73,6 +74,7 @@ import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
 import { defaultSynthParams } from "@/lib/synth";
 import { defaultDrumKit, type DrumKitParams } from "@/lib/drumParams";
+import { beatsToSeconds, defaultLoop, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/lib/arrangementLoop";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
@@ -150,6 +152,7 @@ import {
   roundUpToBar,
   secondsPerBar,
   snapSecondsForResolution,
+  snapUnitFor,
   type SnapResolution,
 } from "@/lib/timeline";
 import type {
@@ -416,9 +419,14 @@ export function Daw() {
 
   // --- Snap-to-grid, loop region, count-in ---
   const [snapResolution, setSnapResolution] = useState<SnapResolution>("bar");
-  const [loopEnabled, setLoopEnabled] = useState(false);
-  const [loopStart, setLoopStart] = useState(0);
-  const [loopEnd, setLoopEnd] = useState(0);
+  // The arrangement loop, in beats (it stays on its bars when the tempo changes).
+  const [loop, setLoop] = useState<ArrangementLoop>(() => defaultLoop());
+  const loopEnabled = loop.on;
+  const toggleLoop = useCallback(() => setLoop((l) => ({ ...l, on: !l.on })), []);
+  /** The loop brace is selected: the arrow keys move and resize it. */
+  const [loopSelected, setLoopSelected] = useState(false);
+  // Where playback last started: like Ableton, starting past the loop plays on through.
+  const [playFromSeconds, setPlayFromSeconds] = useState(0);
   const [countInBars, setCountInBars] = useState(0);
 
   // --- Undo/redo: a stack of full-project snapshots. Refs (not state) so
@@ -959,8 +967,44 @@ export function Daw() {
   }, [masterLimiterThreshold]);
 
   useEffect(() => {
-    audioEngine.setLoop(loopEnabled, loopStart, loopEnd);
-  }, [loopEnabled, loopStart, loopEnd]);
+    // Recording runs straight through (a take is one pass).
+    const looping =
+      transportState !== "recording" && (transportState === "stopped" ? loop.on : loopsFrom(loop, secondsToBeats(playFromSeconds, bpm)));
+    audioEngine.setLoop(looping, beatsToSeconds(loop.start, bpm), beatsToSeconds(loop.end, bpm));
+  }, [loop, bpm, transportState, playFromSeconds]);
+
+  // Ctrl/Cmd+L loops the selected clips (or switches the loop on and off
+  // when none are selected); with the loop brace selected, the arrow keys
+  // move it (up/down by its own length, left/right by the grid) and
+  // Ctrl/Cmd+left/right shorten or lengthen it - Ableton's keys.
+  useEffect(() => {
+    if (editingClip) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        const ranges = Object.values(clipsByChannel)
+          .flat()
+          .filter((c) => selectedClipIds.has(c.id))
+          .map((c) => ({ start: secondsToBeats(c.offset, bpm), end: secondsToBeats(c.offset + c.length, bpm) }));
+        const around = loopAround(ranges);
+        if (around) {
+          setLoop({ on: true, ...around });
+          setLoopSelected(true);
+        } else toggleLoop();
+        return;
+      }
+      if (!loopSelected || !e.key.startsWith("Arrow")) return;
+      const unit = secondsToBeats(snapUnitFor(bpm, pxPerSecond, beatsPerBar), bpm);
+      const next = nudgeLoop(loop, e.key, unit, mod);
+      e.preventDefault();
+      if (next) setLoop(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingClip, clipsByChannel, selectedClipIds, bpm, pxPerSecond, beatsPerBar, loop, loopSelected, toggleLoop]);
 
   // Notes (computer keyboard, the on-screen piano/pads, or a MIDI
   // controller) only reach the armed channel - merely clicking a track to
@@ -1144,6 +1188,7 @@ export function Daw() {
   // always snaps back to that marker, the same spot Stop rewinds to.
   const handlePlay = useCallback(async () => {
     if (transportState === "recording") return;
+    setPlayFromSeconds(cursorSeconds);
     audioEngine.seekTo(cursorSeconds);
     await audioEngine.startPlayback();
     setTransportState("playing");
@@ -2546,6 +2591,7 @@ export function Daw() {
       snapResolution,
       countInBars,
       metronomeEnabled,
+      loop,
     }),
     [
       channels,
@@ -2564,6 +2610,7 @@ export function Daw() {
       snapResolution,
       countInBars,
       metronomeEnabled,
+      loop,
     ]
   );
 
@@ -2659,6 +2706,7 @@ export function Daw() {
     setSnapResolution(project.snapResolution);
     setCountInBars(project.countInBars);
     setMetronomeEnabled(project.metronomeEnabled);
+    setLoop(project.loop);
     setSelectedClipIds(new Set());
     setEditingClip(null);
     setExpandedEffectId(null);
@@ -3053,7 +3101,7 @@ export function Daw() {
           recordingMode={armedChannel?.type === "audio" ? "audio" : "midi"}
           armedChannelName={armedChannel?.name ?? null}
           loopEnabled={loopEnabled}
-          onToggleLoop={() => setLoopEnabled((v) => !v)}
+          onToggleLoop={toggleLoop}
           countInBars={countInBars}
           onCountInChange={setCountInBars}
           onPlay={handlePlay}
@@ -3123,9 +3171,9 @@ export function Daw() {
           </label>
           <button
             type="button"
-            onClick={() => setLoopEnabled((v) => !v)}
+            onClick={toggleLoop}
             aria-pressed={loopEnabled}
-            title="Loop the region set by shift-dragging the ruler"
+            title="Loop the arrangement between the loop brace's ends (Ctrl+L)"
             className={`flex h-6 items-center gap-1 rounded border px-1.5 ${
               loopEnabled
                 ? "border-accent bg-accent/20 text-accent"
@@ -3135,6 +3183,7 @@ export function Daw() {
             <Repeat size={12} />
             Loop
           </button>
+          <LoopFields loop={loop} beatsPerBar={beatsPerBar} onChange={setLoop} />
           <button
             type="button"
             onClick={() => void handleExportWav()}
@@ -3159,9 +3208,19 @@ export function Daw() {
             block instead of getting stuck relative to an inner element. */}
         <div className="sticky top-0 z-20 flex shrink-0 bg-surface">
           <div
-            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT }}
-            className="shrink-0 border-b border-r border-border bg-surface"
-          />
+            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT + LOOP_BAR_HEIGHT }}
+            className="flex shrink-0 items-end justify-end border-b border-r border-border bg-surface px-2 pb-[1px]"
+          >
+            <button
+              type="button"
+              onClick={toggleLoop}
+              aria-pressed={loop.on}
+              title={`Loop ${loop.on ? "on" : "off"} (Ctrl+L)`}
+              className={`flex items-center gap-1 rounded px-1 text-[9px] font-semibold uppercase tracking-wider ${loop.on ? "text-accent" : "text-muted hover:text-foreground"}`}
+            >
+              <Repeat size={9} /> Loop
+            </button>
+          </div>
           <div ref={rulerViewportRef} className="flex-1 overflow-hidden border-b border-border">
             <TimelineRuler
               bpm={bpm}
@@ -3169,13 +3228,23 @@ export function Daw() {
               pxPerSecond={pxPerSecond}
               beatsPerBar={beatsPerBar}
               onSeek={handleSeek}
-              loopStart={loopStart}
-              loopEnd={loopEnd}
+              loopStart={loop.on ? beatsToSeconds(loop.start, bpm) : 0}
+              loopEnd={loop.on ? beatsToSeconds(loop.end, bpm) : 0}
               onSetLoopRegion={(start, end) => {
-                setLoopStart(start);
-                setLoopEnd(end);
-                setLoopEnabled(true);
+                setLoop({ on: true, start: secondsToBeats(start, bpm), end: secondsToBeats(end, bpm) });
+                setLoopSelected(true);
               }}
+            />
+            <LoopBar
+              loop={loop}
+              bpm={bpm}
+              pxPerSecond={pxPerSecond}
+              totalSeconds={totalSeconds}
+              beatsPerBar={beatsPerBar}
+              snapUnit={secondsToBeats(snapUnitFor(bpm, pxPerSecond, beatsPerBar), bpm)}
+              selected={loopSelected}
+              onSelect={setLoopSelected}
+              onChange={setLoop}
             />
           </div>
         </div>
@@ -3343,10 +3412,10 @@ export function Daw() {
                 )}
               </div>
             ))}
-            {loopEnd > loopStart && (
+            {loop.on && (
               <div
-                className="pointer-events-none absolute top-0 z-10 h-full border-x border-accent/60 bg-accent/10"
-                style={{ left: loopStart * pxPerSecond, width: (loopEnd - loopStart) * pxPerSecond }}
+                className="pointer-events-none absolute top-0 z-10 h-full border-x border-accent/60 bg-accent/[0.07]"
+                style={{ left: beatsToSeconds(loop.start, bpm) * pxPerSecond, width: beatsToSeconds(loop.end - loop.start, bpm) * pxPerSecond }}
               />
             )}
             <Playhead pxPerSecond={pxPerSecond} height={lanesHeight} />

@@ -31,8 +31,12 @@ Live and Reaper.
   timeline.
 - **Recording.** Record MIDI from the computer keyboard, the on-screen piano
   or drum pads, or a MIDI controller. Record audio from a microphone or an
-  audio interface, with a count-in, a metronome and a loop region. Each clip
-  is drawn on its track while you record it.
+  audio interface, with a count-in and a metronome. Each clip is drawn on
+  its track while you record it.
+- **Arrangement loop**, like Ableton's: a loop brace under the ruler you
+  draw, drag and resize, Ctrl+L to loop the selected clips, start and length
+  fields, and the arrow keys to move it. It stays on its bars when the tempo
+  changes and is saved with the project.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
 - **Three instruments:** a sampled grand piano, a 16-pad Drum Rack (modeled
@@ -511,8 +515,9 @@ Everything the synth can do is described in
 ### Recording
 
 1. **Arm** the track you want to record into.
-2. Optionally, set a **count-in** (bars of clicks before recording starts),
-   turn on the **metronome**, and set a **loop** region.
+2. Optionally, set a **count-in** (bars of clicks before recording starts)
+   and turn on the **metronome**. Recording always runs straight through,
+   even with the loop on.
 3. Press **Record**. The take appears on its track as a red clip that grows
    while you play.
 4. Press **Stop**. The take becomes a normal clip.
@@ -543,7 +548,36 @@ For audio:
   in the track's header. The same buttons import and export `.mid` files.
 - **Move the playhead** by clicking or dragging on the ruler. Play always
   starts from there.
-- **Set a loop region** by Shift-dragging on the ruler.
+- **Loop part of the song** with the arrangement loop (see below).
+
+### The arrangement loop
+
+The strip under the ruler holds the **loop brace**, which marks the part of
+the song that repeats while looping is on. It's orange when the loop is on
+and grey when it's off.
+
+- **Switch it on or off** with the **Loop** button (in the toolbar or next to
+  the strip), by double-clicking the brace, or with **Ctrl+L** (Cmd+L on a
+  Mac) when no clips are selected.
+- **Loop the selected clips:** select one or more clips and press
+  **Ctrl+L**. The loop wraps around them and turns on.
+- **Draw a loop** by dragging on an empty part of the strip, or by
+  Shift-dragging on the ruler.
+- **Move it** by dragging the brace, and **resize it** by dragging its ends.
+  It snaps to the grid shown on the ruler; hold **Alt** to place it freely.
+- **Type it in:** the **Start** (bar.beat.sixteenth, like `5.1.1`) and
+  **Length** (bars.beats.sixteenths, like `4.0.0`) fields in the toolbar.
+  Shorter forms work too: `5` is bar 5, and `0.2` is two beats.
+- **Arrow keys:** click the brace to select it, then press **Up** or
+  **Down** to move it forward or back by its own length (the next or previous
+  section of the same size), **Left** or **Right** to move it by one grid
+  step, and **Ctrl+Left** or **Ctrl+Right** to shorten or lengthen it by a
+  step.
+- **Playing:** playback started before the loop's end jumps back to the
+  loop's start each time it reaches the end. Started after the loop, it plays
+  on through, like in Ableton.
+- The loop is kept in bars and beats, so changing the tempo leaves it on the
+  same bars. It's saved with the project.
 
 ### The piano roll
 
@@ -646,6 +680,10 @@ From there you can:
 | Ctrl/Cmd+C | Copy the clip under the playhead on the selected track |
 | Ctrl/Cmd+V | Paste the copied clip at the playhead |
 | Ctrl/Cmd+D | Duplicate the selected clips |
+| Ctrl/Cmd+L | Loop the selected clips, or switch the loop on/off |
+| Up / Down (loop brace selected) | Move the loop by its own length |
+| Left / Right (loop brace selected) | Move the loop by one grid step |
+| Ctrl/Cmd+Left / Right (loop brace selected) | Shorten / lengthen the loop |
 | Delete / Backspace | Delete the selected clips |
 | Ctrl/Cmd+S | Save |
 | Ctrl/Cmd+Shift+S | Save As |

@@ -13,7 +13,8 @@ import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectI
 import { SIDECHAIN_TAPS } from "./sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
-import { SNAP_RESOLUTIONS, type SnapResolution } from "./timeline";
+import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./timeline";
+import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
 import { normalizeSynthParams } from "./synthParams";
 import { normalizeDrumKit } from "./drumParams";
 import type {
@@ -75,6 +76,8 @@ export interface SerializedProject {
   snapResolution: SnapResolution;
   countInBars: number;
   metronomeEnabled: boolean;
+  /** The arrangement loop, in beats. */
+  loop: ArrangementLoop;
 }
 
 // --- primitives ---
@@ -391,5 +394,9 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     snapResolution: oneOf(r.snapResolution, SNAP_RESOLUTIONS, "bar"),
     countInBars: oneOf(r.countInBars, [0, 1, 2, 4], 0),
     metronomeEnabled: bool(r.metronomeEnabled, false),
+    loop: normalizeArrangementLoop(
+      r.loop,
+      quarterNotesPerBar(int(ts.numerator, 4, 1, 32), oneOf(ts.denominator, [1, 2, 4, 8, 16], 4))
+    ),
   };
 }

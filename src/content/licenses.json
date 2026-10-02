@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "notes": "Every library, font and sound that ships with or is loaded by Dawn. Add an entry before bundling anything new (captures, IRs, samples, kits): where it came from, who made it, its license, and when and how permission was given if it isn't an open license. The Credits screen reads this file.",
+  "entries": [
+    {
+      "id": "salamander-grand-piano",
+      "name": "Salamander Grand Piano V3",
+      "kind": "sound",
+      "author": "Alexander Holm",
+      "license": "CC BY 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "url": "https://archive.org/details/SalamanderGrandPianoV3",
+      "usedFor": "The Piano instrument (a Yamaha C5, sampled)",
+      "source": "MP3 conversion hosted by Tone.js at tonejs.github.io/audio/salamander; loaded on demand, not bundled",
+      "added": "2026-09-18"
+    },
+    {
+      "id": "nam-core",
+      "name": "NeuralAmpModelerCore",
+      "kind": "software",
+      "author": "Steven Atkinson",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/sdatkinson/NeuralAmpModelerCore/blob/main/LICENSE",
+      "url": "https://github.com/sdatkinson/NeuralAmpModelerCore",
+      "usedFor": "The NAM Amp's neural network engine",
+      "source": "Compiled to WebAssembly in neural-amp-modeler-wasm; license file in public/nam",
+      "added": "2026-09-25"
+    },
+    {
+      "id": "nam-wasm",
+      "name": "neural-amp-modeler-wasm",
+      "kind": "software",
+      "author": "TONE3000",
+      "license": "MIT",
+      "licenseUrl": "https://www.npmjs.com/package/neural-amp-modeler-wasm",
+      "url": "https://www.npmjs.com/package/neural-amp-modeler-wasm",
+      "usedFor": "The WebAssembly build and audio worklet behind the NAM Amp",
+      "source": "Version 2.0.1, vendored unmodified in public/nam with its license file",
+      "added": "2026-09-25"
+    },
+    {
+      "id": "tone",
+      "name": "Tone.js",
+      "kind": "software",
+      "author": "Yotam Mann and contributors",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/Tonejs/Tone.js/blob/main/LICENSE.md",
+      "url": "https://tonejs.github.io/",
+      "usedFor": "The audio engine, transport and timing"
+    },
+    {
+      "id": "tonejs-midi",
+      "name": "@tonejs/midi",
+      "kind": "software",
+      "author": "Yotam Mann and contributors",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/Tonejs/Midi/blob/master/LICENSE",
+      "url": "https://github.com/Tonejs/Midi",
+      "usedFor": "Reading and writing MIDI files"
+    },
+    {
+      "id": "standardized-audio-context",
+      "name": "standardized-audio-context",
+      "kind": "software",
+      "author": "Christoph Guttandin",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/chrisguttandin/standardized-audio-context/blob/master/LICENSE",
+      "url": "https://github.com/chrisguttandin/standardized-audio-context",
+      "usedFor": "A consistent Web Audio API across browsers"
+    },
+    {
+      "id": "next",
+      "name": "Next.js",
+      "kind": "software",
+      "author": "Vercel and contributors",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/vercel/next.js/blob/canary/license.md",
+      "url": "https://nextjs.org",
+      "usedFor": "The app framework"
+    },
+    {
+      "id": "react",
+      "name": "React",
+      "kind": "software",
+      "author": "Meta Platforms, Inc. and affiliates",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/facebook/react/blob/main/LICENSE",
+      "url": "https://react.dev",
+      "usedFor": "The interface"
+    },
+    {
+      "id": "lucide",
+      "name": "Lucide",
+      "kind": "software",
+      "author": "Lucide contributors",
+      "license": "ISC",
+      "licenseUrl": "https://lucide.dev/license",
+      "url": "https://lucide.dev",
+      "usedFor": "Icons"
+    },
+    {
+      "id": "geist",
+      "name": "Geist and Geist Mono",
+      "kind": "font",
+      "author": "Vercel",
+      "license": "SIL OFL 1.1",
+      "licenseUrl": "https://github.com/vercel/geist-font/blob/main/OFL.txt",
+      "url": "https://vercel.com/font",
+      "usedFor": "The interface typeface"
+    },
+    {
+      "id": "space-grotesk",
+      "name": "Space Grotesk",
+      "kind": "font",
+      "author": "Florian Karsten",
+      "license": "SIL OFL 1.1",
+      "licenseUrl": "https://github.com/floriankarsten/space-grotesk/blob/master/OFL.txt",
+      "url": "https://fonts.google.com/specimen/Space+Grotesk",
+      "usedFor": "The plugin windows"
+    },
+    {
+      "id": "fraunces",
+      "name": "Fraunces",
+      "kind": "font",
+      "author": "Undercase Type (Phaedra Charles and Flavia Zimbardi)",
+      "license": "SIL OFL 1.1",
+      "licenseUrl": "https://github.com/undercasetype/Fraunces/blob/master/OFL.txt",
+      "url": "https://fonts.google.com/specimen/Fraunces",
+      "usedFor": "Plugin window titles"
+    },
+    {
+      "id": "dawn-sounds",
+      "name": "Dawn's factory sounds",
+      "kind": "original",
+      "author": "The Dawn Project",
+      "license": "Part of Dawn",
+      "url": "https://github.com/angelzxz1/The_Dawn_Proyect",
+      "usedFor": "Drum Rack kits (synthesized), Daybreak wavetables and presets, effect presets",
+      "source": "Made for Dawn; generated in code, no third-party recordings",
+      "added": "2026-09-30"
+    }
+  ]
+}

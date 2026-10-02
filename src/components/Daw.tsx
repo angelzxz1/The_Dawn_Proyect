@@ -17,6 +17,7 @@ import {
   Download,
   FileAudio,
   FilePlus2,
+  Info,
   Loader2,
   Pencil,
   Redo2,
@@ -84,6 +85,7 @@ import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
 import { loadProject, saveProject } from "@/lib/persistence";
 import { ProjectMenu } from "./ProjectMenu";
+import { AboutWindow, type AboutTab } from "./AboutWindow";
 import {
   BUNDLE_EXTENSION,
   MAX_SAVED_HISTORY,
@@ -348,6 +350,7 @@ export function Daw() {
    * channel the FX rack is currently showing. */
   const [synthWindowOpen, setSynthWindowOpen] = useState(false);
   const [drumWindowOpen, setDrumWindowOpen] = useState(false);
+  const [aboutTab, setAboutTab] = useState<AboutTab | null>(null);
   /** The id of an effect instance (EQ Three, Compressor, ...) whose full
    * custom-UI window is open, or null - effects can appear on any track/
    * bus/master, so this is an id rather than a boolean. */
@@ -3074,15 +3077,26 @@ export function Daw() {
           </div>
           {projectNotice && <span className="text-xs text-muted">{projectNotice}</span>}
         </div>
-        <p className={`text-xs ${micError || importError ? "text-record" : "text-muted"}`}>
-          {micError
-            ? micError
-            : importError
-              ? importError
-              : samplesReady
-                ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
-                : "loading piano sounds…"}
-        </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <p className={`truncate text-xs ${micError || importError ? "text-record" : "text-muted"}`}>
+            {micError
+              ? micError
+              : importError
+                ? importError
+                : samplesReady
+                  ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
+                  : "loading piano sounds…"}
+          </p>
+          <button
+            type="button"
+            onClick={() => setAboutTab("about")}
+            title="About Dawn: credits, privacy and license"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted hover:bg-surface-raised hover:text-foreground"
+          >
+            <Info size={12} />
+            About
+          </button>
+        </div>
       </header>
 
       <div className="shrink-0">
@@ -3709,6 +3723,8 @@ export function Daw() {
           onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
         />
       )}
+
+      {aboutTab && <AboutWindow initialTab={aboutTab} onClose={() => setAboutTab(null)} />}
 
       {drumWindowOpen && fxChannel?.instrument === "drums" && fxChannel.drumParams && (
         <DrumRackWindow

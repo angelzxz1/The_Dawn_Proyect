@@ -23,6 +23,7 @@ Live and Reaper.
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [How it works](#how-it-works)
 - [Development](#development)
+- [License and credits](#license-and-credits)
 
 ## What it can do
 
@@ -784,3 +785,21 @@ npm start       # serve out/ locally
 - [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore)
   (WebAssembly) for the NAM Amp. Its licenses are in `public/nam`.
 - [lucide-react](https://lucide.dev) for icons.
+
+## License and credits
+
+Your music is yours: you can use Dawn to make, record, mix and export music,
+and use or sell what you make for any purpose.
+
+Dawn's source code is under the
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0):
+you can read, run, change and share it for any noncommercial purpose, while
+hosting, selling or otherwise using the code commercially needs permission.
+See [LICENSE.md](LICENSE.md) for the full terms.
+
+Every library, font and sound Dawn uses is listed, with its author and
+license, in [`src/content/licenses.json`](src/content/licenses.json), which
+the **About → Credits** screen shows. Add an entry there before bundling any
+new sound (captures, IRs, samples, kits); a unit test checks the list is
+complete. The privacy policy is at `/privacy` and under **About → Privacy**.
+

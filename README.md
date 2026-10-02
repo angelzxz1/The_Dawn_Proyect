@@ -56,7 +56,8 @@ Live and Reaper.
 - **Projects on your computer.** New, Open, Save and Save As, with recent
   projects. A project is a folder holding the song, its audio files and its
   undo history, or a single `.dawnproject` file.
-- **Export** the mix to a WAV file, and clips or tracks to `.mid` files.
+- **Export** the mix or one file per track (stems) as WAV or MP3, the whole
+  song or just the loop, and clips or tracks as `.mid` files.
 - **Import** audio files (by drag and drop or the file picker) and `.mid`
   files.
 
@@ -425,7 +426,7 @@ The app works best in **Chrome** or **Edge** on a desktop computer.
 ### The screen
 
 - **Header.** The **File** menu, the project's name (a dot means unsaved
-  changes), the audio engine's load and latency, and **Export WAV**.
+  changes), the audio engine's load and latency, and **Export**.
 - **Transport.** Record, play/pause, stop, metronome, loop, tempo, time
   signature and count-in.
 - **Effect browser** (left). Every effect and preset, with a search box.
@@ -658,9 +659,22 @@ offered.
 
 ### Exporting
 
-- **Export WAV** (in the header) renders the whole project to a WAV file,
-  with every effect, send, sidechain, automation and the master bus, and with
-  delay compensation applied.
+**Export** (in the toolbar) opens the export dialog. Everything is rendered
+faster than real time with every effect, send, sidechain, automation and the
+master bus, and with delay compensation applied, so the file sounds like
+playback.
+
+- **Mix** or **Stems.** Stems are one file per track that's heard and has
+  clips, delivered as a ZIP ("Song - Guitar.wav", …). They all start at the
+  same point and include each track's sends to buses, so they line up in any
+  other DAW and add up to the mix before the master effects (or switch on
+  **Master effects on each stem**).
+- **WAV** (16 or 24-bit) or **MP3** (128, 192 or 320 kbps). MP3s are encoded
+  in the background and tagged "Made with The Dawn Project".
+- **Range:** the whole song, or just the loop region when the loop is on.
+  Nothing starts after the end of the range; the **tail** keeps reverb and
+  delay ringing out for the seconds you choose.
+- **Normalize** raises or lowers the mix so its loudest peak is at −1 dB.
 - **Export .mid** saves a single clip (from its right-click menu) or a whole
   track (from its header) as a standard MIDI file.
 

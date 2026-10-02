@@ -75,7 +75,7 @@ import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
 import { audioEngine, bumpEffectIdCounter, type AudioClipTiming } from "@/lib/audioEngine";
 import { defaultSynthParams } from "@/lib/synth";
 import { defaultDrumKit, type DrumKitParams } from "@/lib/drumParams";
-import { beatsToSeconds, defaultLoop, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/lib/arrangementLoop";
+import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/lib/arrangementLoop";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
@@ -87,7 +87,7 @@ import { loadProject, saveProject } from "@/lib/persistence";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
 import { TelemetrySwitch } from "./TelemetrySwitch";
-import { reportError, startTelemetry, track, trackAppOpened, trackOnce } from "@/lib/telemetry";
+import { startTelemetry, track, trackAppOpened, trackOnce } from "@/lib/telemetry";
 import {
   BUNDLE_EXTENSION,
   MAX_SAVED_HISTORY,
@@ -122,7 +122,8 @@ import {
   readRecoveryNotice,
   startFreshKeepingBackup,
 } from "@/lib/projectRecovery";
-import { bounceProjectToWav, downloadWavBlob } from "@/lib/bounce";
+import type { BounceParams } from "@/lib/bounce";
+import { ExportDialog } from "./ExportDialog";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
 import {
   EFFECT_LABELS,
@@ -476,7 +477,7 @@ export function Daw() {
   /** The next autosave rewrites all stored audio (another project opened). */
   const fullAutosaveRef = useRef(false);
   const forceDirtyRef = useRef(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const samplesReady = useSyncExternalStore(
     useCallback((listener) => audioEngine.onReadyChange(listener), []),
     () => audioEngine.samplesReady,
@@ -2570,47 +2571,23 @@ export function Daw() {
     [pushHistory]
   );
 
-  const handleExportWav = useCallback(async () => {
-    if (isExporting) return;
-    setIsExporting(true);
-    try {
-      await audioEngine.ensureStarted();
-      const contentEnd = channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0);
-      const blob = await bounceProjectToWav({
-        channels,
-        clipsByChannel,
-        channelEffects,
-        buses,
-        busEffects,
-        masterVolume,
-        masterPan,
-        masterLimiterThreshold,
-        masterEffects,
-        contentEndSeconds: contentEnd,
-        delayCompensation: loadAudioPrefs().delayCompensation,
-      });
-      downloadWavBlob(blob, masterName);
-      track("export_completed", { format: "wav" });
-    } catch (err) {
-      reportError(err, "export");
-      throw err;
-    } finally {
-      setIsExporting(false);
-    }
-  }, [
-    isExporting,
-    channels,
-    endOfContent,
-    clipsByChannel,
-    channelEffects,
-    buses,
-    busEffects,
-    masterVolume,
-    masterPan,
-    masterLimiterThreshold,
-    masterEffects,
-    masterName,
-  ]);
+  /** The project as it is right now, for an offline render (export). */
+  const buildBounceParams = useCallback(
+    (): BounceParams => ({
+      channels,
+      clipsByChannel,
+      channelEffects,
+      buses,
+      busEffects,
+      masterVolume,
+      masterPan,
+      masterLimiterThreshold,
+      masterEffects,
+      contentEndSeconds: channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
+      delayCompensation: loadAudioPrefs().delayCompensation,
+    }),
+    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects]
+  );
 
   // --- Save/load: the whole project autosaves to IndexedDB a moment after
   // any change (a working copy that survives a reload or a crash), and is
@@ -3246,13 +3223,12 @@ export function Daw() {
           <LoopFields loop={loop} beatsPerBar={beatsPerBar} onChange={setLoop} />
           <button
             type="button"
-            onClick={() => void handleExportWav()}
-            disabled={isExporting}
-            title="Bounce the whole project to a WAV file"
-            className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-muted hover:bg-surface-raised disabled:opacity-40"
+            onClick={() => setExportOpen(true)}
+            title="Export the song (or the loop) as WAV or MP3, or one file per track (stems)"
+            className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-muted hover:bg-surface-raised"
           >
-            {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            {isExporting ? "Bouncing…" : "Export WAV"}
+            <Download size={12} />
+            Export
           </button>
           <span className="text-muted/70" title="A working copy is kept in this browser as you go, so a reload or crash loses nothing. File > Save writes the project to your computer.">
             {saveStatus === "saving" ? "autosaving…" : saveStatus === "saved" ? "autosaved" : saveStatus === "error" ? "autosave failed" : ""}
@@ -3767,6 +3743,21 @@ export function Daw() {
           onOpenEffectWindow={setExpandedEffectId}
           onLoadEffectFile={(effectId, file) => handleLoadEffectFile(fxHostId, effectId, file)}
           onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
+        />
+      )}
+
+      {exportOpen && (
+        <ExportDialog
+          songName={projectName}
+          buildParams={buildBounceParams}
+          loop={loop.on ? { start: beatsToSeconds(loop.start, bpm), end: beatsToSeconds(loop.end, bpm) } : null}
+          loopLabel={`${formatPosition(loop.start, beatsPerBar)}–${formatPosition(loop.end, beatsPerBar)}`}
+          onClose={() => setExportOpen(false)}
+          onExported={(result, settings) => {
+            track("export_completed", { format: settings.format, kind: settings.what, where: settings.range });
+            flashProjectNotice(result.files > 1 ? `Exported ${result.files} stems` : `Exported "${result.fileName}"`);
+            setExportOpen(false);
+          }}
         />
       )}
 

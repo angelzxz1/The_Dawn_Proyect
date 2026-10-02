@@ -69,6 +69,27 @@
       "usedFor": "A consistent Web Audio API across browsers"
     },
     {
+      "id": "lamejs",
+      "name": "lamejs (@breezystack/lamejs)",
+      "kind": "software",
+      "author": "Alex Zhukov, the LAME project and contributors",
+      "license": "LGPL-3.0",
+      "licenseUrl": "https://github.com/shijinyu/lamejs/blob/master/LICENSE",
+      "url": "https://github.com/shijinyu/lamejs",
+      "usedFor": "MP3 export",
+      "source": "Version 1.2.7, unmodified; runs in its own worker file (the MP3 encoder) that can be replaced"
+    },
+    {
+      "id": "fflate",
+      "name": "fflate",
+      "kind": "software",
+      "author": "Arjun Barrett",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/101arrowz/fflate/blob/master/LICENSE",
+      "url": "https://github.com/101arrowz/fflate",
+      "usedFor": "ZIP files (stems)"
+    },
+    {
       "id": "next",
       "name": "Next.js",
       "kind": "software",

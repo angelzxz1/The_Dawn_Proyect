@@ -1,7 +1,8 @@
-// Renders the whole project to a WAV file using Tone.Offline - a second,
-// throwaway audio graph built the same way the live engine builds its
-// channels, rendered faster than real time, with no audible side effects on
-// the real engine or speakers.
+// Renders the project offline using Tone.Offline - a second, throwaway
+// audio graph built the same way the live engine builds its channels,
+// rendered faster than real time, with no audible side effects on the real
+// engine or speakers. The whole mix, a range of it, or one track at a time
+// (stems), which exportProject.ts turns into WAV or MP3 files.
 
 import * as Tone from "tone";
 import { createInstrument, createEffectNode, applyEffectParam, IrLoaderChain } from "./audioEngine";
@@ -19,7 +20,8 @@ import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from ".
 import type { EffectInstance } from "./effects";
 
 const MIN_NOTE_DURATION = 0.05;
-const TAIL_SECONDS = 2; // extra render time so reverb/delay tails aren't cut off
+/** Default extra render time so reverb/delay tails aren't cut off. */
+export const TAIL_SECONDS = 2;
 
 export interface BounceParams {
   channels: ChannelConfig[];
@@ -40,6 +42,28 @@ export interface BounceParams {
 
 /** Longest delay compensation can add to one path (s). */
 const MAX_COMPENSATION = 2;
+
+export interface RenderOptions {
+  /** Render only this track (with its sends into buses), for a stem. Tracks
+   * keying its sidechains are still rendered, silently. */
+  only?: string;
+  /** Run the master bus's effects and limiter (default true). Stems leave
+   * them out so they add up to the mix as it enters the master effects. */
+  masterChain?: boolean;
+  /** The part of the song to render (s); defaults to all of it. Nothing
+   * starts after `end`, and notes or clips still playing are cut there;
+   * the tail after it is only effects ringing out. */
+  start?: number;
+  end?: number;
+  /** Seconds kept after the end for reverb and delay tails. */
+  tailSeconds?: number;
+}
+
+export interface RenderedAudio {
+  /** One array per channel (stereo). */
+  channels: Float32Array[];
+  sampleRate: number;
+}
 
 /** Linearly interpolates an automation lane's value at time `t` - flat
  * before the first point and after the last. Kept in sync with
@@ -105,17 +129,34 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
   return c.kind === "midi";
 }
 
-/** Renders the project offline and resolves with a WAV file Blob. */
+/** The tracks heard in the mix: the soloed ones if any are, else every unmuted one. */
+export function audibleChannels(channels: ChannelConfig[]): ChannelConfig[] {
+  const soloed = channels.filter((c) => c.solo);
+  return soloed.length > 0 ? soloed : channels.filter((c) => !c.muted);
+}
+
+/** Renders the project offline and resolves with a 16-bit WAV file Blob. */
 export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
+  const audio = await renderProject(params);
+  return encodeWav(audio.channels, audio.sampleRate, 16);
+}
+
+/** Renders the project (or part of it, or one track of it) offline. */
+export async function renderProject(params: BounceParams, options: RenderOptions = {}): Promise<RenderedAudio> {
+  const rangeStart = Math.max(0, options.start ?? 0);
+  const rangeEnd = options.end ?? params.contentEndSeconds;
+  const cutAt = options.end; // only a chosen range cuts sources off
+  const tail = Math.max(0, options.tailSeconds ?? TAIL_SECONDS);
+  const masterChain = options.masterChain ?? true;
   // Room for the mix's own latency, which is trimmed off the front after.
-  const duration = Math.max(1, params.contentEndSeconds + TAIL_SECONDS) + MAX_COMPENSATION;
+  const renderEnd = Math.max(rangeStart + 1, rangeEnd + tail);
+  const duration = renderEnd + MAX_COMPENSATION;
   let latency = 0;
 
   // Only the channels that would actually be heard in the real mix: if any
   // channel is soloed, everything else is silent; otherwise muted channels
-  // are simply left out of the render.
-  const soloed = params.channels.filter((c) => c.solo);
-  const audible = new Set(soloed.length > 0 ? soloed : params.channels.filter((c) => !c.muted));
+  // are simply left out of the render. A stem is its one track.
+  const audible = new Set(options.only ? params.channels.filter((c) => c.id === options.only) : audibleChannels(params.channels));
   // A track keying a sidechain is rendered even when it isn't heard (a
   // muted "ghost" kick ducking the bass), with its strip muted as it is in
   // playback.
@@ -143,19 +184,23 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
     // Same LimiterChain the live engine's master uses, so the export
     // limits identically to playback.
     // Same release as the live master limiter (LookaheadLimiter's default).
-    const masterLimiter = createEffectNode("limiter", {
-      threshold: params.masterLimiterThreshold,
-      gain: 0,
-      release: 0.1,
-      softClip: 0,
-    }).connect(masterMeter);
+    const masterLimiter = masterChain
+      ? createEffectNode("limiter", {
+          threshold: params.masterLimiterThreshold,
+          gain: 0,
+          release: 0.1,
+          softClip: 0,
+        }).connect(masterMeter)
+      : null;
     masterMeter.toDestination();
     // channelCount: 2 on every Channel here - see audioEngine.ts's
     // addChannel for why: Tone.Channel's Panner defaults to explicit
     // mono, silently folding any stereo content (a stereo delay, etc.)
     // down before panning, at each stage it passes through.
     const master = new Tone.Channel({ volume: params.masterVolume, pan: params.masterPan, channelCount: 2 });
-    const { entry: masterEntry, latency: masterLatency, built: masterBuilt } = buildOfflineEffectsChain(params.masterEffects, masterLimiter, files);
+    const { entry: masterEntry, latency: masterLatency, built: masterBuilt } = masterLimiter
+      ? buildOfflineEffectsChain(params.masterEffects, masterLimiter, files)
+      : { entry: masterMeter, latency: 0, built: [] };
     master.connect(masterEntry);
 
     // Delay compensation, as the live engine does it (see latency.ts).
@@ -232,7 +277,9 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
         instrument.connect(firstNode);
         const flattened = clips
           .filter(isMidiClip)
-          .flatMap((clip) => notesWithinClip(clip).map((n) => ({ ...n, time: clip.offset + n.time })));
+          .flatMap((clip) => notesWithinClip(clip).map((n) => ({ ...n, time: clip.offset + n.time })))
+          .filter((n) => cutAt === undefined || n.time < cutAt)
+          .map((n) => (cutAt === undefined ? n : { ...n, duration: Math.min(n.duration, cutAt - n.time) }));
         // Notes are scheduled once the instrument's samples (if any) have
         // loaded - Tone.Offline awaits every promise pushed here before it
         // starts rendering.
@@ -266,6 +313,8 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       } else {
         clips.forEach((clip) => {
           if (clip.kind !== "audio") return;
+          if (cutAt !== undefined && clip.offset >= cutAt) return;
+          const playLength = cutAt === undefined ? clip.length : Math.min(clip.length, cutAt - clip.offset);
           const gain = new Tone.Volume(clip.gainDb).connect(firstNode);
           const player = new Tone.Player({ fadeIn: clip.fadeIn, fadeOut: clip.fadeOut });
           player.connect(gain);
@@ -277,7 +326,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
           loadPromises.push(
             player.load(clip.url).then(() => {
               try {
-                player.start(clip.offset, clip.sourceOffset, clip.length);
+                player.start(clip.offset, clip.sourceOffset, playLength);
               } catch {
                 // clip runs past the render window or similar - skip it
               }
@@ -291,7 +340,7 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
       enabled: params.delayCompensation ?? true,
       channels: compensation.channels.map((c) => ({ id: c.id, latency: c.latency, live: false })),
       buses: compensation.buses,
-      master: masterLatency + nodeLatency(masterLimiter),
+      master: masterLatency + (masterLimiter ? nodeLatency(masterLimiter) : 0),
     });
     compensation.channels.forEach((c) => (c.pdc.delayTime.value = plan.channel.get(c.id) ?? 0));
     compensation.buses.forEach((b) => (b.pdc.delayTime.value = plan.bus.get(b.id) ?? 0));
@@ -374,13 +423,15 @@ export async function bounceProjectToWav(params: BounceParams): Promise<Blob> {
 
   const raw = buffer.get();
   if (!raw) throw new Error("Offline render produced no audio buffer");
-  // The mix comes out `latency` late: trim that off so the file starts on
-  // the downbeat, and drop the spare room at the end.
-  const start = Math.round(latency * raw.sampleRate);
-  const frames = Math.round(Math.max(1, params.contentEndSeconds + TAIL_SECONDS) * raw.sampleRate);
-  const length = Math.min(frames, raw.length - start);
-  const channels = Array.from({ length: raw.numberOfChannels }, (_, ch) => raw.getChannelData(ch).subarray(start, start + length));
-  return encodeWav(channels, raw.sampleRate, 16);
+  // The mix comes out `latency` late: trim that off (and anything before
+  // the range) so the file starts on the downbeat, and drop the spare room
+  // at the end. Every stem is trimmed by its own latency, so they all line
+  // up with the mix.
+  const start = Math.round((latency + rangeStart) * raw.sampleRate);
+  const frames = Math.round((renderEnd - rangeStart) * raw.sampleRate);
+  const length = Math.max(0, Math.min(frames, raw.length - start));
+  const channels = Array.from({ length: raw.numberOfChannels }, (_, ch) => raw.getChannelData(ch).slice(start, start + length));
+  return { channels, sampleRate: raw.sampleRate };
 }
 
 export function downloadWavBlob(blob: Blob, name: string): void {

@@ -1,6 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { DesktopOnly } from "@/components/DesktopOnly";
+
+const loading = <div className="flex flex-1 items-center justify-center text-sm text-muted">loading the studio…</div>;
 
 // The DAW is entirely Web Audio/client-side interactive (and assigns things
 // like per-channel colors from module-level counters), so it's rendered
@@ -8,13 +11,14 @@ import dynamic from "next/dynamic";
 // state that isn't meant to be deterministic across a server/client boundary.
 const Daw = dynamic(() => import("@/components/Daw").then((mod) => mod.Daw), {
   ssr: false,
-  loading: () => (
-    <div className="flex flex-1 items-center justify-center text-sm text-muted">
-      loading the studio…
-    </div>
-  ),
+  loading: () => loading,
 });
 
-export default function Home() {
-  return <Daw />;
+/** The studio. Phones and tablets get a note instead (see DesktopOnly). */
+export default function Studio() {
+  return (
+    <DesktopOnly loading={loading}>
+      <Daw />
+    </DesktopOnly>
+  );
 }

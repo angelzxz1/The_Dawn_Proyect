@@ -1,7 +1,9 @@
 # Deploying Dawn
 
-Dawn is one client-side page, so `npm run build` produces a plain static site
-in `out/` (Next's `output: "export"`). Any static host can serve it; the steps
+Dawn is a static site: the website at `/` (landing, Features, How it works,
+FAQ, Support, Credits, License, Privacy) and the studio itself at `/app`.
+`npm run build` produces it as plain files in `out/` (Next's
+`output: "export"`). Any static host can serve it; the steps
 below are for Cloudflare Pages, which the launch plan recommends (free,
 unlimited bandwidth for static files, 25 MiB per file).
 
@@ -131,12 +133,18 @@ These are optional too. A Support button (in the header, the About window and
 the note after an export) appears once at least one page is set, and the
 Discord button once its invite is. Use full `https://` addresses.
 
+On the website, the membership buttons go to the Patreon page and read
+"Memberships open soon" until it's set; the Ko-fi, GitHub Sponsors and
+Discord buttons only appear once theirs are set. Keep the tiers and prices in
+`src/content/tiers.ts` in step with Patreon.
+
 | Variable | Page |
 | --- | --- |
 | `NEXT_PUBLIC_PATREON_URL` | Patreon (shown first) |
 | `NEXT_PUBLIC_GITHUB_SPONSORS_URL` | GitHub Sponsors |
 | `NEXT_PUBLIC_KOFI_URL` | Ko-fi |
 | `NEXT_PUBLIC_DISCORD_URL` | The Discord invite |
+| `NEXT_PUBLIC_DEMO_VIDEO_URL` | The 60-second demo video (YouTube or similar). The landing page's "Watch the demo" button and video card only show once it's set. |
 | `NEXT_PUBLIC_FEEDBACK_URL` | A feedback form (Tally, Google Forms…). Dawn adds `browser` and `version` query parameters, which Tally can use as hidden fields. Without it, **Feedback** opens a new GitHub issue with the same details filled in. |
 
 After an export, Dawn thanks the person and offers the first support page,
@@ -155,7 +163,9 @@ they agree); people who used an older version see the notes once.
 `public/sw.js` from `scripts/sw.template.js` with a new build id, so every
 deploy ships a new service worker and open copies of Dawn show the reload
 prompt. The worker only runs in production builds (not `npm run dev`), and
-`_headers` makes browsers always re-check `/sw.js`.
+`_headers` makes browsers always re-check `/sw.js`. The installed app opens
+on the studio (`/app`); copies installed before the website existed open `/`
+and are sent on to `/app`.
 
 ## Large files
 
@@ -166,8 +176,11 @@ sample libraries, for example) on Cloudflare R2 and load it on demand.
 
 ```bash
 npm run build
-npx serve out        # or: python3 -m http.server -d out 8080
+npx serve out
 ```
+
+Use `serve` (or another server that maps `/features` to `features.html`, as
+Cloudflare Pages does); a bare file server only finds the pages with `.html`.
 
 Open the printed address (`localhost` counts as secure, so audio and
 recording work).

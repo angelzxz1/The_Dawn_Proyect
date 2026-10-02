@@ -1,7 +1,8 @@
 // Dawn's service worker (generated into public/sw.js by scripts/build-sw.mjs
 // at build time, with this build's id). It makes the installed app open
 // offline and load faster:
-// - pages: network first, falling back to the cached app shell offline;
+// - pages: network first, falling back to the cached copy (or the studio)
+//   offline;
 // - hashed build files (/_next/static): cached forever once used;
 // - everything else Dawn fetches (the amp engine, piano samples, tones):
 //   cached as it's used, refreshed in the background.
@@ -13,7 +14,7 @@ const BUILD = "__BUILD_ID__";
 const SHELL = `dawn-shell-${BUILD}`;
 const ASSETS = "dawn-assets-v1"; // hashed, so safe across builds
 const RUNTIME = `dawn-runtime-${BUILD}`;
-const SHELL_URLS = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/logo-icon.png"];
+const SHELL_URLS = ["/app", "/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/logo-icon.png"];
 // Cross-origin files worth keeping offline (the piano's samples).
 const CACHEABLE_ORIGINS = ["https://tonejs.github.io"];
 
@@ -68,10 +69,10 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         try {
           const res = await fetch(req);
-          if (res.ok) (await caches.open(SHELL)).put("/", res.clone());
+          if (res.ok) (await caches.open(SHELL)).put(req, res.clone());
           return res;
         } catch {
-          return (await caches.match(req)) || (await caches.match("/")) || Response.error();
+          return (await caches.match(req, { ignoreSearch: true })) || (await caches.match("/app")) || Response.error();
         }
       })()
     );

@@ -10,7 +10,10 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "The Dawn Project",
     short_name: "Dawn",
     description: "A studio in a tab: record, amp up your guitar, make beats and finish your demo.",
-    start_url: "/",
+    // The id stays "/" (the start address before the website existed), so
+    // copies installed back then are still the same app.
+    id: "/",
+    start_url: "/app",
     scope: "/",
     display: "standalone",
     background_color: "#131316",

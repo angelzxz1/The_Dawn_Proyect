@@ -419,7 +419,10 @@ npm install
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Then open [http://localhost:3000](http://localhost:3000) for the website, or
+[http://localhost:3000/app](http://localhost:3000/app) for the studio. On a
+phone or a touch-only tablet the studio shows a note that Dawn needs a
+computer, with a way to open it anyway.
 
 `npm run build` writes the whole app as a static site to `out/`, and
 `npm start` serves that folder locally. Any static host can put it online;

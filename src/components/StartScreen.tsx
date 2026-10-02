@@ -12,7 +12,7 @@ const ICONS: Record<TemplateId, typeof Guitar> = {
   empty: FilePlus2,
 };
 
-export const GUIDE_URL = "https://github.com/angelzxz1/The_Dawn_Proyect#user-guide";
+export const GUIDE_URL = "/how-it-works#setup";
 
 /** Shown on the first visit and from File → New: start from a template,
  * open a project, or pick a recent one. */

@@ -56,7 +56,7 @@ function AboutTabBody({ extra }: { extra?: ReactNode }) {
   );
 }
 
-function CreditsTabBody() {
+export function CreditsTabBody() {
   return (
     <div className="flex flex-col gap-5">
       <p className="text-[12.5px] leading-relaxed text-muted">
@@ -92,7 +92,7 @@ function CreditsTabBody() {
   );
 }
 
-function LicenseTabBody() {
+export function LicenseTabBody() {
   return (
     <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-muted">
       <p className="text-foreground">

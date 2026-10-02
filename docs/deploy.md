@@ -150,6 +150,23 @@ Discord buttons only appear once theirs are set. Keep the tiers and prices in
 After an export, Dawn thanks the person and offers the first support page,
 at most once per visit and never in the way of the download.
 
+## The demo song
+
+The plan's first-run experience opens a demo song on the very first visit.
+To add it: make the song in Dawn, choose **File → Export Project File…**, and
+put the file at `public/demo/demo-song.dawnproject` (the name matters). The
+start screen then offers "Listen to the demo song" (from the next build, or after restarting `npm run dev`), the first visit loads it
+behind the welcome screen, and File → New offers to open it again. Without
+the file, none of that shows. Keep it small (a minute or so; recordings make
+the file bigger) since every first visit downloads it.
+
+## Search engines
+
+`sitemap.xml` and `robots.txt` are generated from `NEXT_PUBLIC_SITE_URL`, so
+set it before the first public deploy. The studio (`/app`) is kept out of
+search results. Unknown addresses get the site's "page not found" page
+(`404.html`).
+
 ## Release notes
 
 `src/content/whatsNew.ts` holds the **What's new** notes. With each release,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Mic2, X } from "lucide-react";
+import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mic2, Play, X } from "lucide-react";
+import { demoSongAvailable } from "@/lib/demoSong";
 import type { RecentProject } from "@/lib/projectFiles";
 import { PROJECT_TEMPLATES, type ProjectTemplate, type TemplateId } from "@/lib/templates";
 
@@ -14,8 +15,12 @@ const ICONS: Record<TemplateId, typeof Guitar> = {
 
 export const GUIDE_URL = "/how-it-works#setup";
 
+type DemoState = "checking" | "none" | "available" | "loading" | "loaded";
+
 /** Shown on the first visit and from File → New: start from a template,
- * open a project, or pick a recent one. */
+ * open a project, pick a recent one, or hear the demo song. On the first
+ * visit the demo song (when this deployment has one) is loaded behind the
+ * window straight away, so closing it leaves something to play. */
 export function StartScreen({
   firstVisit,
   folders,
@@ -24,6 +29,8 @@ export function StartScreen({
   onOpen,
   onOpenRecent,
   onImport,
+  onLoadDemo,
+  onListenDemo,
   onClose,
 }: {
   firstVisit: boolean;
@@ -34,9 +41,44 @@ export function StartScreen({
   onOpen: () => void;
   onOpenRecent: (r: RecentProject) => void;
   onImport: (file: File) => void;
+  /** Loads the demo song into the studio; resolves false if it failed. */
+  onLoadDemo: () => Promise<boolean>;
+  /** Closes the start screen and plays the (loaded) demo song. */
+  onListenDemo: () => void;
   onClose: () => void;
 }) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
+  const [demo, setDemo] = useState<DemoState>("checking");
+
+  useEffect(() => {
+    let live = true;
+    void demoSongAvailable().then(async (ok) => {
+      if (!live) return;
+      if (!ok || !firstVisit) {
+        setDemo(ok ? "available" : "none");
+        return;
+      }
+      setDemo("loading");
+      const loaded = await onLoadDemo();
+      if (live) setDemo(loaded ? "loaded" : "none");
+    });
+    return () => {
+      live = false;
+    };
+    // Checked once, when the screen opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const listen = async () => {
+    if (demo === "available") {
+      setDemo("loading");
+      if (!(await onLoadDemo())) {
+        setDemo("none");
+        return;
+      }
+    }
+    onListenDemo();
+  };
 
   useEffect(() => {
     if (folders) void listRecent().then((r) => setRecent(r.slice(0, 5)));
@@ -62,7 +104,7 @@ export function StartScreen({
             <div>
               <h2 className="text-lg font-semibold">{firstVisit ? "Welcome to The Dawn Project" : "New project"}</h2>
               <p className="text-[12.5px] text-muted">
-                {firstVisit ? "A studio in a tab. Pick a starting point - you can change everything later." : "Pick a starting point."}
+                {firstVisit ? "A studio in a tab. Pick a starting point for your own song - you can change everything later." : "Pick a starting point."}
               </p>
             </div>
           </div>
@@ -70,6 +112,28 @@ export function StartScreen({
             <X size={16} />
           </button>
         </div>
+
+        {demo !== "none" && demo !== "checking" && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3">
+            <div className="flex flex-col">
+              <span className="text-[13.5px] font-semibold">Hear what Dawn can do</span>
+              <span className="text-[12px] text-muted">
+                {firstVisit
+                  ? "The demo song is open behind this window: an amp tone, a groove, the synth and a mix, all made in Dawn."
+                  : "A short song made in Dawn, with an amp tone, a groove, the synth and a mix."}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void listen()}
+              disabled={demo === "loading"}
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-black hover:brightness-110 disabled:opacity-60"
+            >
+              {demo === "loading" ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              {firstVisit ? "Listen to the demo song" : "Open the demo song"}
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-[1fr_230px] gap-5 max-md:grid-cols-1">
           <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">

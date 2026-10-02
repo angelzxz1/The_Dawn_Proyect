@@ -128,6 +128,9 @@ import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
 import { StartScreen } from "./StartScreen";
+import { Tour, tourDone } from "./Tour";
+import { HelpMenu } from "./HelpMenu";
+import { fetchDemoSong } from "@/lib/demoSong";
 import { PacksWindow } from "./PacksWindow";
 import { AppUpdater } from "./AppUpdater";
 import { installPack, removePack, restorePacks } from "@/lib/packStore";
@@ -340,6 +343,20 @@ function automationTargetKey(target: AutomationTarget): string {
   return target.kind === "effect" ? `effect:${target.effectId}:${target.paramKey}` : target.kind;
 }
 
+/** What an empty track lane suggests doing. */
+function laneHint(channel: ChannelConfig, armed: boolean): string {
+  if (channel.type === "audio") {
+    return armed
+      ? "Press R to record here, or drop an audio file"
+      : "Arm this track (the red button) and press R to record, or drop an audio file here";
+  }
+  if (!channel.instrument) return "Pick an instrument for this track in the rack below, or right-click to add a clip";
+  if (channel.instrument === "drums") return "Drop a groove here from the Grooves tab, or right-click to add a clip";
+  return armed
+    ? "Press R and play your MIDI keyboard or computer keys, or right-click to add a clip"
+    : "Arm this track to play and record it, or right-click to add a clip";
+}
+
 export function Daw() {
   const [channels, setChannels] = useState<ChannelConfig[]>(() => [
     createChannel("MIDI 1", "midi"),
@@ -370,6 +387,23 @@ export function Daw() {
   const [aboutTab, setAboutTab] = useState<AboutTab | null>(null);
   /** The start screen: on the first visit, and from File > New. */
   const [startScreen, setStartScreen] = useState<null | "welcome" | "new">(null);
+  const [tourOpen, setTourOpen] = useState(false);
+  /** The start screen is the first visit's welcome: the tour follows it. */
+  const welcomeRef = useRef(false);
+  /** The first visit went straight to the demo song: the tour follows the
+   * first stop or pause. */
+  const tourAfterListenRef = useRef(false);
+  const tourAfterListen = () => {
+    if (!tourAfterListenRef.current) return;
+    tourAfterListenRef.current = false;
+    if (!tourDone()) setTourOpen(true);
+  };
+  const closeStartScreen = useCallback(() => {
+    setStartScreen(null);
+    if (!welcomeRef.current) return;
+    welcomeRef.current = false;
+    if (!tourDone()) setTourOpen(true);
+  }, []);
   const [supportAsk, setSupportAsk] = useState(false);
   /** The Sound Packs window, with the outcome of a pack dropped on the app. */
   const [packs, setPacks] = useState<{ message: { ok: boolean; text: string } | null } | null>(null);
@@ -1218,6 +1252,7 @@ export function Daw() {
   const [recordingChannelId, setRecordingChannelId] = useState<string | null>(null);
 
   const handleStop = useCallback(async () => {
+    tourAfterListen();
     if (transportState === "recording") {
       const recChannelId = recordingChannelRef.current;
       recordingChannelRef.current = null;
@@ -1260,8 +1295,14 @@ export function Daw() {
     trackOnce("sound_made", { via: "playback" });
   }, [transportState, cursorSeconds]);
 
+  const playRef = useRef(handlePlay);
+  useEffect(() => {
+    playRef.current = handlePlay;
+  }, [handlePlay]);
+
   const handlePause = useCallback(() => {
     if (transportState !== "playing") return;
+    tourAfterListen();
     audioEngine.pauseAll();
     setTransportState("paused");
     setActiveNotes(new Set());
@@ -2868,7 +2909,10 @@ export function Daw() {
       setIsLoadingProject(false);
       // Nothing saved in this browser yet: a first visit. Someone coming
       // back after an update sees what's new, once.
-      if (!result) setStartScreen("welcome");
+      if (!result) {
+        welcomeRef.current = true;
+        setStartScreen("welcome");
+      }
       try {
         const seen = localStorage.getItem("dawn.lastSeenVersion");
         if (result && seen !== LATEST_VERSION) setAboutTab("news");
@@ -3046,10 +3090,10 @@ export function Daw() {
       projectFolderRef.current = null;
       setProjectFolderName(null);
       setCursorSeconds(0);
-      setStartScreen(null);
+      closeStartScreen();
       track("template_chosen", { template: template.id });
     },
-    [applyDocument]
+    [applyDocument, closeStartScreen]
   );
 
   const openFolder = useCallback(
@@ -3100,6 +3144,18 @@ export function Daw() {
     },
     [confirmDiscard, openDocument, flashProjectNotice]
   );
+
+  /** Opens the demo song (the start screen's offer, and the first visit). */
+  const handleLoadDemo = useCallback(async (): Promise<boolean> => {
+    try {
+      openDocument(await decodeBundle(await fetchDemoSong()), null);
+      track("template_chosen", { template: "demo" });
+      return true;
+    } catch (err) {
+      flashProjectNotice(`Couldn't open the demo song: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  }, [openDocument, flashProjectNotice]);
 
   // Ctrl/Cmd+S saves, +Shift saves as, Ctrl/Cmd+O opens - everywhere, even
   // while typing or in the piano roll.
@@ -3251,6 +3307,7 @@ export function Daw() {
                   ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
                   : "loading piano sounds…"}
           </p>
+          <HelpMenu onTour={() => setTourOpen(true)} onFeedback={() => openFeedback("help")} />
           <button
             type="button"
             onClick={() => openFeedback("header")}
@@ -3286,7 +3343,7 @@ export function Daw() {
         </div>
       </header>
 
-      <div className="shrink-0">
+      <div className="shrink-0" data-tour="transport">
         <TransportBar
           status={<AudioStatus />}
           bpm={bpm}
@@ -3388,6 +3445,7 @@ export function Daw() {
           <button
             type="button"
             onClick={() => setExportOpen(true)}
+            data-tour="export"
             title="Export the song (or the loop) as WAV or MP3, or one file per track (stems)"
             className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-muted hover:bg-surface-raised"
           >
@@ -3452,7 +3510,7 @@ export function Daw() {
         <div className="flex">
           <div className="flex shrink-0 flex-col">
             {channels.map((channel, idx) => (
-              <div key={channel.id}>
+              <div key={channel.id} data-tour={idx === 0 ? "track" : undefined}>
                 <TrackHeader
                   channel={channel}
                   color={trackColorForIndex(channel.colorIndex)}
@@ -3585,6 +3643,7 @@ export function Daw() {
                   onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
                   onClipDragStart={pushHistory}
                   acceptsFileDrop={channel.type === "audio"}
+                  hint={laneHint(channel, channel.id === armedChannelId)}
                   onDropAudioFile={(file, atSeconds) => void handleDropAudioFile(channel.id, file, atSeconds)}
                   onDropGroove={
                     channel.type === "midi"
@@ -3941,20 +4000,32 @@ export function Daw() {
           listRecent={recentProjects}
           onTemplate={handleTemplate}
           onOpen={() => {
-            setStartScreen(null);
+            closeStartScreen();
             void handleOpenProject();
           }}
           onOpenRecent={(r) => {
-            setStartScreen(null);
+            closeStartScreen();
             void handleOpenRecent(r);
           }}
           onImport={(f) => {
-            setStartScreen(null);
+            closeStartScreen();
             void handleImportProjectFile(f);
           }}
-          onClose={() => setStartScreen(null)}
+          onLoadDemo={handleLoadDemo}
+          onListenDemo={() => {
+            // The tour waits until the song has been heard: it opens on the
+            // first stop or pause.
+            tourAfterListenRef.current = welcomeRef.current;
+            welcomeRef.current = false;
+            setStartScreen(null);
+            // After the song's tracks reach the engine (the next render).
+            setTimeout(() => void playRef.current(), 200);
+          }}
+          onClose={closeStartScreen}
         />
       )}
+
+      {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
 
       {packs && (
         <PacksWindow

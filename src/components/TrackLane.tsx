@@ -51,6 +51,8 @@ interface TrackLaneProps {
   onDropAudioFile: (file: File, atSeconds: number) => void;
   /** A groove dragged from the browser was dropped here (MIDI tracks only). */
   onDropGroove?: (grooveId: string, atSeconds: number) => void;
+  /** What to do here, shown while the lane is empty. */
+  hint?: string;
 }
 
 export function TrackLane({
@@ -79,6 +81,7 @@ export function TrackLane({
   acceptsFileDrop,
   onDropAudioFile,
   onDropGroove,
+  hint,
 }: TrackLaneProps) {
   const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
   const [fileDragOver, setFileDragOver] = useState(false);
@@ -172,6 +175,9 @@ export function TrackLane({
           }}
         />
       ))}
+      {hint && clips.length === 0 && !recording && !fileDragOver && !grooveDragOver && (
+        <div className="pointer-events-none absolute inset-y-0 left-3 z-0 flex items-center text-[11.5px] text-muted/80">{hint}</div>
+      )}
       {recording && <RecordingClip channelId={channelId} pxPerSecond={pxPerSecond} />}
       {clips.map((clip) => (
         <ClipBlock

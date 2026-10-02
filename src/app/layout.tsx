@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { SITE_URL } from "@/lib/siteUrl";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,7 +19,7 @@ const SUMMARY =
 export const metadata: Metadata = {
   // Where the site lives, for absolute social-card image links. Set
   // NEXT_PUBLIC_SITE_URL when deploying (see docs/deploy.md).
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(SITE_URL),
   title: { default: "The Dawn Project — Your studio, one tab away", template: "%s · The Dawn Project" },
   applicationName: "The Dawn Project",
   appleWebApp: { capable: true, title: "Dawn", statusBarStyle: "black-translucent" },

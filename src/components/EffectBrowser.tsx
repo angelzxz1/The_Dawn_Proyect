@@ -79,7 +79,7 @@ export function EffectBrowser({ onAddEffect, grooves, onAddChain }: EffectBrowse
   })).filter((g) => g.devices.length > 0);
 
   return (
-    <div className="flex w-48 shrink-0 flex-col overflow-hidden border-r border-border bg-surface">
+    <div data-tour="browser" className="flex w-48 shrink-0 flex-col overflow-hidden border-r border-border bg-surface">
       <div role="tablist" aria-label="Browser" className="flex border-b border-border">
         {(
           [

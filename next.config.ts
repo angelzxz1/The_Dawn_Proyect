@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { existsSync } from "fs";
 import { version } from "./package.json";
 
 const nextConfig: NextConfig = {
@@ -7,6 +8,8 @@ const nextConfig: NextConfig = {
   output: "export",
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
+    // Whether there's a demo song to offer (src/lib/demoSong.ts).
+    NEXT_PUBLIC_HAS_DEMO_SONG: existsSync("public/demo/demo-song.dawnproject") ? "1" : "",
   },
 };
 

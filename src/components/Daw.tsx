@@ -86,6 +86,8 @@ import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project
 import { loadProject, saveProject } from "@/lib/persistence";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
+import { TelemetrySwitch } from "./TelemetrySwitch";
+import { reportError, startTelemetry, track, trackAppOpened, trackOnce } from "@/lib/telemetry";
 import {
   BUNDLE_EXTENSION,
   MAX_SAVED_HISTORY,
@@ -351,6 +353,12 @@ export function Daw() {
   const [synthWindowOpen, setSynthWindowOpen] = useState(false);
   const [drumWindowOpen, setDrumWindowOpen] = useState(false);
   const [aboutTab, setAboutTab] = useState<AboutTab | null>(null);
+
+  // Usage statistics (only when set up for this deployment and allowed).
+  useEffect(() => {
+    startTelemetry();
+    trackAppOpened();
+  }, []);
   /** The id of an effect instance (EQ Three, Compressor, ...) whose full
    * custom-UI window is open, or null - effects can appear on any track/
    * bus/master, so this is an id rather than a boolean. */
@@ -360,6 +368,12 @@ export function Daw() {
    * the wrong file type) - drag-and-drop has no OS-level file-type filter
    * the way the "Import audio" picker's `accept="audio/*"` does. */
   const [importError, setImportError] = useState<string | null>(null);
+  useEffect(() => {
+    if (micError) track("error_shown", { area: "input" });
+  }, [micError]);
+  useEffect(() => {
+    if (importError) track("error_shown", { area: "import" });
+  }, [importError]);
   /** The browser's available audio input devices, and which one
    * recordings currently use (null = the browser's default). Refreshed on
    * mount and whenever the OS reports a device was plugged/unplugged. */
@@ -1017,6 +1031,7 @@ export function Daw() {
       if (!armedChannelId) return;
       await audioEngine.ensureStarted();
       audioEngine.noteOn(armedChannelId, note, velocity);
+      trackOnce("sound_made", { via: "note" });
       setActiveNotes((prev) => {
         const next = new Set(prev);
         next.add(note);
@@ -1114,6 +1129,7 @@ export function Daw() {
       void audioEngine.setInputMonitoring(id, true).then((ok) => {
         if (ok) {
           setMicError(null);
+          trackOnce("sound_made", { via: "input" });
           return;
         }
         open.delete(id);
@@ -1195,6 +1211,7 @@ export function Daw() {
     audioEngine.seekTo(cursorSeconds);
     await audioEngine.startPlayback();
     setTransportState("playing");
+    trackOnce("sound_made", { via: "playback" });
   }, [transportState, cursorSeconds]);
 
   const handlePause = useCallback(() => {
@@ -1222,6 +1239,7 @@ export function Daw() {
         await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar);
         setMicError(null);
         setTransportState("recording");
+        track("recording_started", { kind: "audio" });
         refreshInputDevices();
       } catch {
         recordingChannelRef.current = null;
@@ -1233,6 +1251,7 @@ export function Daw() {
       return;
     }
     setTransportState("recording");
+    track("recording_started", { kind: "midi" });
     await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar);
   }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices]);
 
@@ -2174,11 +2193,13 @@ export function Daw() {
           return `Couldn't load "${file.name}": ${error}`;
         }
         setEffectFile(hostId, effectId, result.ref);
+        track("nam_model_loaded", { via: "file" });
         return null;
       }
       const result = await importAudioEffectFile(file, audioEngine.sampleRate, MAX_IR_SECONDS);
       if ("error" in result) return result.error;
       setEffectFile(hostId, effectId, result.ref);
+      track("ir_loaded", { via: "file" });
       return null;
     },
     [setEffectFile]
@@ -2551,6 +2572,10 @@ export function Daw() {
         delayCompensation: loadAudioPrefs().delayCompensation,
       });
       downloadWavBlob(blob, masterName);
+      track("export_completed", { format: "wav" });
+    } catch (err) {
+      reportError(err, "export");
+      throw err;
     } finally {
       setIsExporting(false);
     }
@@ -2827,8 +2852,10 @@ export function Daw() {
         markSaved(doc);
         await rememberRecent(name, folder);
         flashProjectNotice(`Saved to the folder "${folder.name}"`);
+        track("project_saved", { target: "folder" });
       } catch (err) {
         flashProjectNotice(`Couldn't save: ${err instanceof Error ? err.message : String(err)}`);
+        track("error_shown", { area: "save" });
       } finally {
         setProjectBusy(false);
       }
@@ -2847,6 +2874,7 @@ export function Daw() {
       a.click();
       a.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+      track("project_saved", { target: "file" });
     },
     [buildDocument]
   );
@@ -3724,7 +3752,7 @@ export function Daw() {
         />
       )}
 
-      {aboutTab && <AboutWindow initialTab={aboutTab} onClose={() => setAboutTab(null)} />}
+      {aboutTab && <AboutWindow initialTab={aboutTab} onClose={() => setAboutTab(null)} privacyExtra={<TelemetrySwitch />} />}
 
       {drumWindowOpen && fxChannel?.instrument === "drums" && fxChannel.drumParams && (
         <DrumRackWindow

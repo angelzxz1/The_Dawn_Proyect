@@ -30,6 +30,43 @@ Dawn doesn't use `SharedArrayBuffer`, so it doesn't need cross-origin
 isolation headers (COOP/COEP). Don't add them: they would block the piano
 samples, which load from another site.
 
+## Usage statistics and error reports
+
+Nothing is collected unless you set these environment variables in the
+Cloudflare Pages project (Settings → Variables), then redeploy. Each is
+optional; set only the services you use.
+
+| Variable | What it turns on |
+| --- | --- |
+| `NEXT_PUBLIC_CF_BEACON_TOKEN` | Cloudflare Web Analytics page views (or turn on Web Analytics for the Pages project in the dashboard instead, which needs no code) |
+| `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | Product events through Umami. `NEXT_PUBLIC_UMAMI_SRC` points at a self-hosted Umami's `script.js` (default: Umami Cloud) |
+| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | Product events through Plausible instead. `NEXT_PUBLIC_PLAUSIBLE_SRC` overrides the script address |
+| `NEXT_PUBLIC_SENTRY_DSN` | Error reports to Sentry (a project's DSN, from its Client Keys settings) |
+
+The events, their properties, and what they answer:
+
+| Event | Properties | Question |
+| --- | --- | --- |
+| `app_opened` | `returning` | How many people come, and do they come back? |
+| `template_chosen` | `template` | Which starting points do people want? |
+| `sound_made` | `via`: `note`, `playback` or `input` | Did a new visitor get to sound? (activation; once per visit) |
+| `recording_started` | `kind`: `audio` or `midi` | Are people recording? |
+| `nam_model_loaded`, `ir_loaded` | `via` | Is the guitar hook used? |
+| `export_completed` | `format` | Did they finish a demo? |
+| `project_saved` | `target`: `folder` or `file` | Are they investing in Dawn? |
+| `pack_imported` | | Are packs reaching people? |
+| `support_link_clicked`, `feedback_opened` | `where` | Is the support ask visible? |
+| `error_shown` | `area` | What's breaking? |
+
+`src/lib/telemetry.ts` only accepts these property names, each holding a
+short code, so names, paths and typed text can't end up in an event. Error
+reports carry the error message with file names and quoted text removed,
+the stack, the browser string and the release, and at most ten are sent per
+visit. People can switch both off in **About → Privacy**, and nothing is
+sent when the browser sends Do Not Track or Global Privacy Control. If you
+change what's collected, update the privacy policy
+(`src/components/PrivacyPolicy.tsx`) and its date.
+
 ## Large files
 
 Cloudflare Pages refuses files over 25 MiB. Put anything bigger (long

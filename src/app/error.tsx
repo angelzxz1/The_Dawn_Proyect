@@ -18,6 +18,12 @@ export default function StudioError({
 
   useEffect(() => {
     console.error(error);
+    // Loaded on demand, like the recovery code below.
+    void import("@/lib/telemetry").then((t) => {
+      t.startTelemetry();
+      t.reportError(error, "crash");
+      t.track("error_shown", { area: "crash" });
+    });
   }, [error]);
 
   const startFresh = async () => {

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "notes": "Amp captures (.nam) and cabinet IRs (.wav) bundled with Dawn, shown in the NAM Amp's and IR Loader's tone browsers. Put the files in this folder and list them here: { id, kind: amp|ir, name, description, creator, creatorUrl, license, file: tones/..., light?, use?: guitar|bass }. Only ship files you made or have written permission or an open license for, and add each one to src/content/licenses.json. Dawn's own cabinets are generated in code and need no entry here.",
+  "tones": []
+}

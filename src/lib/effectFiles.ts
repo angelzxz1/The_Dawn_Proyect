@@ -9,6 +9,7 @@ import type { EffectFileRef, EffectInstance } from "./effects";
 import { MAX_NAM_BYTES, parseNamFile } from "./namModel";
 import type { SynthParams } from "./synthParams";
 import type { DrumKitParams } from "./drumParams";
+import { factoryFileBlob, isFactoryFile } from "./tones";
 
 const files = new Map<string, Blob>();
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
@@ -26,8 +27,17 @@ export function registerEffectFile(id: string, blob: Blob): void {
   files.set(id, blob);
 }
 
+/** The file, generating it first if it's one of Dawn's factory files (its cabinets). */
+function blobOf(id: string): Blob | undefined {
+  const blob = files.get(id);
+  if (blob || !isFactoryFile(id)) return blob;
+  const made = factoryFileBlob(id);
+  if (made) files.set(id, made);
+  return made ?? undefined;
+}
+
 export function effectFileBlob(id: string): Blob | undefined {
-  return files.get(id);
+  return blobOf(id);
 }
 
 function forgetEffectFile(id: string): void {
@@ -40,7 +50,7 @@ function forgetEffectFile(id: string): void {
 export function readEffectFileText(id: string): Promise<string | null> {
   const cached = texts.get(id);
   if (cached) return cached;
-  const blob = files.get(id);
+  const blob = blobOf(id);
   if (!blob) return Promise.resolve(null);
   const promise = blob.text().catch(() => {
     texts.delete(id);
@@ -51,7 +61,7 @@ export function readEffectFileText(id: string): Promise<string | null> {
 }
 
 export function hasEffectFile(id: string): boolean {
-  return files.has(id);
+  return files.has(id) || isFactoryFile(id);
 }
 
 /** Every file referenced by these effect lists, and by these tracks'
@@ -75,7 +85,7 @@ export function decodeEffectFileAudio(id: string, sampleRate: number): Promise<A
   const key = `${id}@${sampleRate}`;
   const cached = decoded.get(key);
   if (cached) return cached;
-  const blob = files.get(id);
+  const blob = blobOf(id);
   if (!blob) return Promise.resolve(null);
   const promise = blob
     .arrayBuffer()

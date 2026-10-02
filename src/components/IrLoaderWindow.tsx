@@ -8,6 +8,7 @@ import { IrFileSlot, useImpulseResponse } from "./IrFileSlot";
 import { paramSpecs, type EffectFileRef, type ParamSpec } from "@/lib/effects";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 import { WindowPresetMenu } from "./PresetMenu";
+import { TonePicker } from "./TonePicker";
 
 interface IrLoaderWindowProps {
   channelName: string;
@@ -20,6 +21,8 @@ interface IrLoaderWindowProps {
   onParamDragStart?: () => void;
   onLoadFile: (file: File) => Promise<string | null>;
   onClearFile: () => void;
+  /** Loads one of Dawn's factory files (a cabinet) by reference. */
+  onPickFile?: (ref: EffectFileRef) => void;
 }
 
 export const IR_LOADER_KNOBS: { key: string; mode: KnobMode }[] = [
@@ -57,6 +60,7 @@ export function IrLoaderWindow({
   onParamDragStart,
   onLoadFile,
   onClearFile,
+  onPickFile,
 }: IrLoaderWindowProps) {
   const value = (key: string) => irLoaderParam(params, key);
   const impulse = useImpulseResponse(file);
@@ -112,6 +116,11 @@ export function IrLoaderWindow({
         <div className="flex items-center gap-6">
           <div className="w-[300px] shrink-0">
             <IrFileSlot file={file} impulse={impulse} onLoad={onLoadFile} onClear={onClearFile} />
+            {onPickFile && (
+              <div className="mt-2">
+                <TonePicker kind="ir" currentId={file?.id} onPick={onPickFile} onLoadFile={onLoadFile} />
+              </div>
+            )}
           </div>
           <div className="flex flex-1 justify-around">
             {IR_LOADER_KNOBS.map(({ key, mode }) => {

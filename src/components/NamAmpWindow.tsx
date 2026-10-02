@@ -9,6 +9,7 @@ import { paramSpecs, type EffectFileRef, type ParamSpec } from "@/lib/effects";
 import { normalizationDb } from "@/lib/namModel";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 import { WindowPresetMenu } from "./PresetMenu";
+import { TonePicker } from "./TonePicker";
 
 interface NamAmpWindowProps {
   hostId: string;
@@ -23,6 +24,8 @@ interface NamAmpWindowProps {
   onParamDragStart?: () => void;
   onLoadFile: (file: File) => Promise<string | null>;
   onClearFile: () => void;
+  /** Loads one of Dawn's factory files (a cabinet) by reference. */
+  onPickFile?: (ref: EffectFileRef) => void;
 }
 
 export const NAM_AMP_KNOBS: { key: string; mode: KnobMode }[] = [
@@ -100,6 +103,7 @@ export function NamAmpWindow({
   onParamDragStart,
   onLoadFile,
   onClearFile,
+  onPickFile,
 }: NamAmpWindowProps) {
   const value = (key: string) => namAmpParam(params, key);
   const model = useNamModel(file);
@@ -163,6 +167,11 @@ export function NamAmpWindow({
         <div className="flex items-center gap-6">
           <div className="w-[280px] shrink-0">
             <NamFileSlot file={file} model={model} onLoad={onLoadFile} onClear={onClearFile} />
+            {onPickFile && (
+              <div className="mt-2">
+                <TonePicker kind="amp" currentId={file?.id} onPick={onPickFile} onLoadFile={onLoadFile} />
+              </div>
+            )}
           </div>
           <div className="flex flex-1 justify-around">
             {NAM_AMP_KNOBS.map(({ key, mode }) => {

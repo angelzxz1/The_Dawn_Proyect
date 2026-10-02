@@ -125,6 +125,7 @@ import {
 import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
+import type { EffectChain } from "@/lib/chains";
 import { grooveBeats, grooveById, grooveHits, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
 import {
@@ -1881,6 +1882,33 @@ export function Daw() {
     [fxChannelId, pushHistory, withPreset]
   );
 
+  /** Adds a ready-made chain (see chains.ts) to the end of the selected
+   * track's effects, as one undo step. */
+  const handleAddChain = useCallback(
+    (chain: EffectChain) => {
+      const hostId = fxChannelId;
+      if (!hostId) return;
+      pushHistory();
+      const added: EffectInstance[] = [];
+      chain.steps.forEach((step) => {
+        const fx = audioEngine.addEffect(hostId, step.type);
+        if (!fx) return;
+        let created = withPreset(hostId, fx, step.preset);
+        if (step.params) {
+          Object.entries(step.params).forEach(([key, value]) => audioEngine.setEffectParam(hostId, created.id, key, value));
+          created = { ...created, params: { ...created.params, ...step.params } };
+        }
+        if (step.file) {
+          created = { ...created, file: step.file };
+          void audioEngine.setEffectFile(hostId, created.id, step.file.id);
+        }
+        added.push(created);
+      });
+      setChannelEffects((prev) => ({ ...prev, [hostId]: [...(prev[hostId] ?? []), ...added] }));
+    },
+    [fxChannelId, pushHistory, withPreset]
+  );
+
   const handleRemoveEffect = useCallback(
     (effectId: string) => {
       if (!fxChannelId) return;
@@ -3106,6 +3134,7 @@ export function Daw() {
       )}
       <EffectBrowser
         onAddEffect={handleSidebarAddEffect}
+        onAddChain={fxChannel ? handleAddChain : undefined}
         grooves={
           <GrooveBrowser
             canAdd={fxChannel?.type === "midi"}
@@ -4101,6 +4130,10 @@ export function Daw() {
           onParamDragStart={pushHistory}
           onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
           onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
+          onPickFile={(ref) => {
+            setEffectFile(fxHostId, expandedEffectId, ref);
+            track(expandedEffect.type === "namAmp" ? "nam_model_loaded" : "ir_loaded", { via: "browser" });
+          }}
         />
       )}
 
@@ -4126,6 +4159,10 @@ export function Daw() {
           onParamDragStart={pushHistory}
           onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
           onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
+          onPickFile={(ref) => {
+            setEffectFile(fxHostId, expandedEffectId, ref);
+            track(expandedEffect.type === "namAmp" ? "nam_model_loaded" : "ir_loaded", { via: "browser" });
+          }}
         />
       )}
 

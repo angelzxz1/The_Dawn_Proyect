@@ -406,7 +406,7 @@ automated and saved as a preset, and most come with factory presets.
 | Effect | What it does |
 | --- | --- |
 | **NAM Amp** | Loads [Neural Amp Modeler](https://www.neuralampmodeler.com/) `.nam` amp captures, with input, a bass/middle/treble tone stack, output and normalize. |
-| **IR Loader** | Loads an impulse response (a speaker cabinet, a room) from an audio file, with low and high cut, dry/wet and normalize. It draws the IR's frequency response. |
+| **IR Loader** | Loads an impulse response (a speaker cabinet, a room) from an audio file, or one of Dawn's six built-in cabinets (four guitar, two bass), with low and high cut, dry/wet and normalize. It draws the IR's frequency response. |
 | **Utility** | Gain, stereo width, balance, mono, bass mono, per-channel phase invert, channel select (stereo, left, right or swapped), a DC filter and mute. |
 | **Tuner** | A chromatic tuner with an adjustable reference pitch (A4 = 410 to 480 Hz), sharps or flats, and an option to mute the track while tuning. |
 
@@ -641,7 +641,16 @@ Double-click a MIDI clip to open it.
   Your own presets are kept in this browser; factory presets are built in.
 - **Effects with files:** the **IR Loader** takes an audio file (a cabinet or
   room impulse response) and the **NAM Amp** takes a `.nam` model. The file
-  is saved inside the project's `Samples` folder.
+  is saved inside the project's `Samples` folder. **Browse cabinets** in the
+  IR Loader's window picks one of Dawn's own cabinets (1x12 Open Back, 2x12
+  Combo, 4x12 Closed Back, 4x12 Vintage Dark, 1x15 and 8x10 bass cabs), each
+  with a short description; they're generated in the app, so there's nothing
+  to download.
+- **Chains** (at the top of the Effects browser) add a whole ready-made chain
+  to the selected track in one click: **Clean Guitar**, **Crunch Guitar**,
+  **High-Gain Guitar**, **Bass**, **Acoustic Guitar** and **Vocal**. The
+  guitar chains use the Saturator as the amp; swap in a **NAM Amp** with your
+  favorite capture for an even more real tone.
 
 ### Sidechain
 
@@ -838,5 +847,8 @@ Every library, font and sound Dawn uses is listed, with its author and
 license, in [`src/content/licenses.json`](src/content/licenses.json), which
 the **About → Credits** screen shows. Add an entry there before bundling any
 new sound (captures, IRs, samples, kits); a unit test checks the list is
-complete. The privacy policy is at `/privacy` and under **About → Privacy**.
+complete. Licensed amp captures and IRs go in `public/tones/` and are listed
+in `public/tones/manifest.json` (it explains the fields); they then appear in
+the NAM Amp's and IR Loader's tone browsers with their creator's credit, and
+are only downloaded when picked. The privacy policy is at `/privacy` and under **About → Privacy**.
 

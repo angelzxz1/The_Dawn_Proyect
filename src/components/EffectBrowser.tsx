@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronRight, Drum, Search, Sliders, X } from "lucide-react";
+import { ChevronRight, Drum, Link2, Search, Sliders, X } from "lucide-react";
+import { EFFECT_CHAINS, type EffectChain } from "@/lib/chains";
 import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/lib/effects";
 import { presetsFor, type EffectPreset } from "@/lib/presets";
 import { useUserPresets } from "./PresetMenu";
@@ -19,6 +20,8 @@ interface EffectBrowserProps {
   onAddEffect: (type: EffectType, presetId?: string) => void;
   /** The Grooves tab's contents. */
   grooves?: ReactNode;
+  /** Adds a ready-made chain of effects to the selected track. */
+  onAddChain?: (chain: EffectChain) => void;
 }
 
 const matches = (text: string, query: string) => text.toLowerCase().includes(query);
@@ -31,7 +34,7 @@ const matches = (text: string, query: string) => text.toLowerCase().includes(que
  * and clickable (adds it straight to the currently selected track/bus).
  * The search box filters devices and presets by name.
  */
-export function EffectBrowser({ onAddEffect, grooves }: EffectBrowserProps) {
+export function EffectBrowser({ onAddEffect, grooves, onAddChain }: EffectBrowserProps) {
   const [tab, setTab] = useState<"effects" | "grooves">("effects");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [openDevices, setOpenDevices] = useState<Set<EffectType>>(new Set());
@@ -55,6 +58,8 @@ export function EffectBrowser({ onAddEffect, grooves }: EffectBrowserProps) {
       e.dataTransfer.effectAllowed = "copy";
     },
   });
+
+  const chains = EFFECT_CHAINS.filter((c) => !q || matches(c.name, q) || matches("chains", q));
 
   // Filtered view: which devices show, and which of their presets.
   const view = EFFECT_GROUPS.map((group) => ({
@@ -123,7 +128,35 @@ export function EffectBrowser({ onAddEffect, grooves }: EffectBrowserProps) {
             </label>
           </div>
           <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-            {view.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Nothing matches “{query.trim()}”.</p>}
+            {onAddChain && chains.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => toggle<string>(setCollapsedGroups, "Chains")}
+                  className="flex w-full items-center gap-1 rounded px-1 py-1.5 text-left text-[11px] font-medium text-foreground/80 hover:bg-surface-raised"
+                >
+                  <ChevronRight size={11} className={`shrink-0 transition-transform ${!q && collapsedGroups.has("Chains") ? "" : "rotate-90"}`} />
+                  Chains
+                </button>
+                {(q || !collapsedGroups.has("Chains")) && (
+                  <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1">
+                    {chains.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => onAddChain(c)}
+                        title={`${c.description} Click to add it to the selected track.`}
+                        className="flex min-w-0 items-center gap-1.5 rounded border border-transparent px-1.5 py-1 text-left text-[11px] text-muted hover:border-accent hover:bg-surface-raised hover:text-accent"
+                      >
+                        <Link2 size={10} className="shrink-0" />
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {view.length === 0 && chains.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Nothing matches “{query.trim()}”.</p>}
             {view.map((group) => {
               const isCollapsed = !q && collapsedGroups.has(group.name);
               return (

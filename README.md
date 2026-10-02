@@ -27,6 +27,8 @@ Live and Reaper.
 
 ## What it can do
 
+- **Templates.** Start from Guitar Demo, Beat, Voice + Guitar or an empty
+  project, each set up and ready to play or record.
 - **Grooves.** 60 drum patterns in 12 genres (intro, verse, chorus, fill,
   ending) to drag onto a track and play over.
 - **MIDI and audio tracks.** Add as many tracks as you like. Each holds any
@@ -457,11 +459,30 @@ The app works best in **Chrome** or **Edge** on a desktop computer.
 - **FX rack** (bottom). The selected track's (or bus's) instrument and effect
   chain, left to right. You can collapse it.
 
+### Starting a project
+
+The first time you open Dawn, and whenever you choose **File → New
+Project**, the start screen offers four templates:
+
+- **Guitar Demo:** a 20-bar rock drum arrangement, a guitar track already
+  armed with the Crunch Guitar chain, a bass track, a reverb bus, the
+  metronome and a one-bar count-in. Press Play to hear the drums, or Record
+  to play over them.
+- **Beat:** a trap beat on the Trap kit with a sub bass that ducks under the
+  drums (sidechain), pad chords, a lead hook in the chorus, a reverb bus,
+  and the loop on over the verse.
+- **Voice + Guitar:** a vocal track (armed) and an acoustic guitar track,
+  each with its chain, sharing a plate reverb.
+- **Empty Project:** two MIDI tracks and an audio track.
+
+It also opens a project folder, lists recent projects, and links to this
+guide. Close it to keep what's on screen.
+
 ### Projects
 
 Everything is in the **File** menu:
 
-- **New Project** starts an empty song.
+- **New Project** opens the start screen.
 - **Open Project…** (Ctrl+O) opens a project folder.
 - **Recent** reopens a project you've used before.
 - **Save** (Ctrl+S) saves into the project's folder. The first time, it asks

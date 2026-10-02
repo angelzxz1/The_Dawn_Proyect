@@ -115,7 +115,7 @@ import {
   type SavedHistory,
   type SerializedSnapshot,
 } from "@/lib/projectFiles";
-import { PROJECT_VERSION, normalizeProject, type SerializedProject } from "@/lib/projectSchema";
+import { PROJECT_VERSION, type SerializedProject } from "@/lib/projectSchema";
 import {
   clearRecoveryNotice,
   downloadLatestBackup,
@@ -125,6 +125,8 @@ import {
 import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
+import { StartScreen } from "./StartScreen";
+import type { ProjectTemplate } from "@/lib/templates";
 import type { EffectChain } from "@/lib/chains";
 import { grooveBeats, grooveById, grooveHits, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
@@ -357,6 +359,8 @@ export function Daw() {
   const [synthWindowOpen, setSynthWindowOpen] = useState(false);
   const [drumWindowOpen, setDrumWindowOpen] = useState(false);
   const [aboutTab, setAboutTab] = useState<AboutTab | null>(null);
+  /** The start screen: on the first visit, and from File > New. */
+  const [startScreen, setStartScreen] = useState<null | "welcome" | "new">(null);
 
   // Usage statistics (only when set up for this deployment and allowed).
   useEffect(() => {
@@ -2838,6 +2842,8 @@ export function Daw() {
       }
       projectLoadedRef.current = true;
       setIsLoadingProject(false);
+      // Nothing saved in this browser yet: a first visit.
+      if (!result) setStartScreen("welcome");
     })();
     return () => {
       cancelled = true;
@@ -2976,19 +2982,27 @@ export function Daw() {
     [applyDocument, flashProjectNotice]
   );
 
+  /** File > New: the start screen, once unsaved changes are dealt with. */
   const handleNewProject = useCallback(() => {
-    if (!confirmDiscard()) return;
-    audioEngine.stopAll();
-    setTransportState("stopped");
-    const fresh = normalizeProject({
-      channels: [createChannel("MIDI 1", "midi"), createChannel("MIDI 2", "midi"), createChannel("Audio 1", "audio")],
-    })!;
-    applyDocument(fresh, new Map(), null);
-    fullAutosaveRef.current = true;
-    setProjectName("Untitled");
-    projectFolderRef.current = null;
-    setProjectFolderName(null);
-  }, [confirmDiscard, applyDocument]);
+    if (confirmDiscard()) setStartScreen("new");
+  }, [confirmDiscard]);
+
+  /** Starts a new project from a template (the start screen's cards). */
+  const handleTemplate = useCallback(
+    (template: ProjectTemplate) => {
+      audioEngine.stopAll();
+      setTransportState("stopped");
+      applyDocument(template.build(), new Map(), null);
+      fullAutosaveRef.current = true;
+      setProjectName(template.id === "empty" ? "Untitled" : template.name);
+      projectFolderRef.current = null;
+      setProjectFolderName(null);
+      setCursorSeconds(0);
+      setStartScreen(null);
+      track("template_chosen", { template: template.id });
+    },
+    [applyDocument]
+  );
 
   const openFolder = useCallback(
     async (folder: ProjectFolder) => {
@@ -3844,6 +3858,28 @@ export function Daw() {
             flashProjectNotice(result.files > 1 ? `Exported ${result.files} stems` : `Exported "${result.fileName}"`);
             setExportOpen(false);
           }}
+        />
+      )}
+
+      {startScreen && (
+        <StartScreen
+          firstVisit={startScreen === "welcome"}
+          folders={supportsFolders()}
+          listRecent={recentProjects}
+          onTemplate={handleTemplate}
+          onOpen={() => {
+            setStartScreen(null);
+            void handleOpenProject();
+          }}
+          onOpenRecent={(r) => {
+            setStartScreen(null);
+            void handleOpenRecent(r);
+          }}
+          onImport={(f) => {
+            setStartScreen(null);
+            void handleImportProjectFile(f);
+          }}
+          onClose={() => setStartScreen(null)}
         />
       )}
 

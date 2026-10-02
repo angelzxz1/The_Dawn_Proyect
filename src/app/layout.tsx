@@ -13,6 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Where the site lives, for absolute social-card image links. Set
+  // NEXT_PUBLIC_SITE_URL when deploying (see docs/deploy.md).
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   title: "The Dawn Project — Online DAW",
   description:
     "A browser-based digital audio workstation for recording and creating MIDI.",

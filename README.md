@@ -398,8 +398,11 @@ npm install
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000). For a production
-build, run `npm run build` and then `npm start`.
+Then open [http://localhost:3000](http://localhost:3000).
+
+`npm run build` writes the whole app as a static site to `out/`, and
+`npm start` serves that folder locally. Any static host can put it online;
+[docs/deploy.md](docs/deploy.md) walks through Cloudflare Pages.
 
 ### Browser support
 
@@ -756,7 +759,8 @@ From there you can:
 npm run dev     # start the dev server
 npm test        # unit tests (Vitest): DSP kernels, routing, latency, presets, project files
 npm run lint    # ESLint
-npm run build   # production build
+npm run build   # static site in out/ (see docs/deploy.md)
+npm start       # serve out/ locally
 ```
 
 - `src/app/`: the Next.js App Router entry (the whole app is one client page).

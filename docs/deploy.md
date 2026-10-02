@@ -67,6 +67,29 @@ sent when the browser sends Do Not Track or Global Privacy Control. If you
 change what's collected, update the privacy policy
 (`src/components/PrivacyPolicy.tsx`) and its date.
 
+## Support, community and feedback links
+
+These are optional too. A Support button (in the header, the About window and
+the note after an export) appears once at least one page is set, and the
+Discord button once its invite is. Use full `https://` addresses.
+
+| Variable | Page |
+| --- | --- |
+| `NEXT_PUBLIC_PATREON_URL` | Patreon (shown first) |
+| `NEXT_PUBLIC_GITHUB_SPONSORS_URL` | GitHub Sponsors |
+| `NEXT_PUBLIC_KOFI_URL` | Ko-fi |
+| `NEXT_PUBLIC_DISCORD_URL` | The Discord invite |
+| `NEXT_PUBLIC_FEEDBACK_URL` | A feedback form (Tally, Google Forms…). Dawn adds `browser` and `version` query parameters, which Tally can use as hidden fields. Without it, **Feedback** opens a new GitHub issue with the same details filled in. |
+
+After an export, Dawn thanks the person and offers the first support page,
+at most once per visit and never in the way of the download.
+
+## Release notes
+
+`src/content/whatsNew.ts` holds the **What's new** notes. With each release,
+add an entry and bump `version` in `package.json` to match (a test checks
+they agree); people who used an older version see the notes once.
+
 ## Large files
 
 Cloudflare Pages refuses files over 25 MiB. Put anything bigger (long

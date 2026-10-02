@@ -4,16 +4,18 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { CREDIT_KINDS, creditsOfKind } from "@/lib/credits";
 import { PrivacyPolicy } from "./PrivacyPolicy";
+import { SupportSection, WhatsNew } from "./SupportViews";
 
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 export const REPO_URL = "https://github.com/angelzxz1/The_Dawn_Proyect";
 const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE.md`;
 const POLYFORM_URL = "https://polyformproject.org/licenses/noncommercial/1.0.0";
 
-export type AboutTab = "about" | "credits" | "privacy" | "license";
+export type AboutTab = "about" | "news" | "credits" | "privacy" | "license";
 
 const TABS: { id: AboutTab; label: string }[] = [
   { id: "about", label: "About" },
+  { id: "news", label: "What's new" },
   { id: "credits", label: "Credits" },
   { id: "privacy", label: "Privacy" },
   { id: "license", label: "License" },
@@ -166,7 +168,8 @@ export function AboutWindow({
           </button>
         </div>
         <div className="overflow-y-auto p-5">
-          {tab === "about" && <AboutTabBody extra={aboutExtra} />}
+          {tab === "about" && <AboutTabBody extra={aboutExtra ?? <SupportSection />} />}
+          {tab === "news" && <WhatsNew />}
           {tab === "credits" && <CreditsTabBody />}
           {tab === "privacy" && (
             <div className="flex flex-col gap-5">

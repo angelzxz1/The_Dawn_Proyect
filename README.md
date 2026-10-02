@@ -478,6 +478,10 @@ Project**, the start screen offers four templates:
 It also opens a project folder, lists recent projects, and links to this
 guide. Close it to keep what's on screen.
 
+The header's **Feedback** button opens a form (or a GitHub issue) with your
+browser and Dawn's version filled in, and **About** has the credits, privacy
+policy, license and **What's new**, which also opens once after an update.
+
 ### Projects
 
 Everything is in the **File** menu:

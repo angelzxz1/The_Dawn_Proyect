@@ -2839,7 +2839,9 @@ class AudioEngine {
   }
 
   getTransportSeconds(): number {
-    return Tone.getTransport().seconds;
+    // Stopping a transport whose context hasn't run yet can leave it a hair
+    // below zero (the stop lands a lookahead later); the timeline starts at 0.
+    return Math.max(0, Tone.getTransport().seconds);
   }
 
   /** Sets (or clears) the transport's loop region. When enabled, playback

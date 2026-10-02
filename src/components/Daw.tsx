@@ -17,8 +17,10 @@ import {
   Download,
   FileAudio,
   FilePlus2,
+  Heart,
   Info,
   Loader2,
+  MessageSquare,
   Pencil,
   Redo2,
   Repeat,
@@ -126,6 +128,9 @@ import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
 import { StartScreen } from "./StartScreen";
+import { openFeedback, PostExportNote } from "./SupportViews";
+import { shouldAskAfterExport, supportLinks } from "@/lib/support";
+import { LATEST_VERSION } from "@/content/whatsNew";
 import type { ProjectTemplate } from "@/lib/templates";
 import type { EffectChain } from "@/lib/chains";
 import { grooveBeats, grooveById, grooveHits, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
@@ -361,6 +366,8 @@ export function Daw() {
   const [aboutTab, setAboutTab] = useState<AboutTab | null>(null);
   /** The start screen: on the first visit, and from File > New. */
   const [startScreen, setStartScreen] = useState<null | "welcome" | "new">(null);
+  const [supportAsk, setSupportAsk] = useState(false);
+  const hasSupportLinks = supportLinks().length > 0;
 
   // Usage statistics (only when set up for this deployment and allowed).
   useEffect(() => {
@@ -2842,8 +2849,16 @@ export function Daw() {
       }
       projectLoadedRef.current = true;
       setIsLoadingProject(false);
-      // Nothing saved in this browser yet: a first visit.
+      // Nothing saved in this browser yet: a first visit. Someone coming
+      // back after an update sees what's new, once.
       if (!result) setStartScreen("welcome");
+      try {
+        const seen = localStorage.getItem("dawn.lastSeenVersion");
+        if (result && seen !== LATEST_VERSION) setAboutTab("news");
+        localStorage.setItem("dawn.lastSeenVersion", LATEST_VERSION);
+      } catch {
+        // No storage: skip the release notes.
+      }
     })();
     return () => {
       cancelled = true;
@@ -3168,7 +3183,7 @@ export function Daw() {
         <div className="flex items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-icon.png" alt="" className="h-6 w-6 rounded-md" />
-          <h1 className="text-lg font-semibold tracking-tight">
+          <h1 className="whitespace-nowrap text-lg font-semibold tracking-tight">
             The Dawn Project
           </h1>
           <div className="ml-3">
@@ -3190,10 +3205,10 @@ export function Daw() {
               saveAsRequest={saveAsRequest}
             />
           </div>
-          {projectNotice && <span className="text-xs text-muted">{projectNotice}</span>}
+          {projectNotice && <span className="max-w-[220px] truncate text-xs text-muted">{projectNotice}</span>}
         </div>
         <div className="flex min-w-0 items-center gap-3">
-          <p className={`truncate text-xs ${micError || importError ? "text-record" : "text-muted"}`}>
+          <p className={`truncate text-xs ${micError || importError ? "text-record" : "hidden text-muted 2xl:block"}`}>
             {micError
               ? micError
               : importError
@@ -3202,6 +3217,29 @@ export function Daw() {
                   ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
                   : "loading piano sounds…"}
           </p>
+          <button
+            type="button"
+            onClick={() => openFeedback("header")}
+            title="Send feedback or report a problem (your browser and Dawn's version are filled in)"
+            className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted hover:bg-surface-raised hover:text-foreground"
+          >
+            <MessageSquare size={12} />
+            Feedback
+          </button>
+          {hasSupportLinks && (
+            <button
+              type="button"
+              onClick={() => {
+                track("support_link_clicked", { where: "header" });
+                setAboutTab("about");
+              }}
+              title="Dawn is free: support it"
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted hover:bg-surface-raised hover:text-foreground"
+            >
+              <Heart size={12} className="text-record" />
+              Support
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setAboutTab("about")}
@@ -3857,6 +3895,7 @@ export function Daw() {
             track("export_completed", { format: settings.format, kind: settings.what, where: settings.range });
             flashProjectNotice(result.files > 1 ? `Exported ${result.files} stems` : `Exported "${result.fileName}"`);
             setExportOpen(false);
+            if (shouldAskAfterExport()) setSupportAsk(true);
           }}
         />
       )}
@@ -3882,6 +3921,8 @@ export function Daw() {
           onClose={() => setStartScreen(null)}
         />
       )}
+
+      {supportAsk && <PostExportNote onClose={() => setSupportAsk(false)} />}
 
       {aboutTab && <AboutWindow initialTab={aboutTab} onClose={() => setAboutTab(null)} privacyExtra={<TelemetrySwitch />} />}
 

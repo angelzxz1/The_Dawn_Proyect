@@ -18,9 +18,35 @@ unlimited bandwidth for static files, 25 MiB per file).
      `https://dawnproject.app` (used for social-card images)
 3. Deploy. Every branch also gets its own preview URL; keep a `beta` branch
    deployed for early access.
-4. **Custom domains → Set up a domain** to connect your own domain. HTTPS is
-   automatic, and Dawn needs it: AudioWorklets, the microphone and saving
-   project folders only work on HTTPS (or `localhost`).
+4. Connect your domain (next section). HTTPS is automatic, and Dawn needs
+   it: AudioWorklets, the microphone and saving project folders only work
+   on HTTPS (or `localhost`).
+
+## Your own domain
+
+1. **Buy it** in the Cloudflare dashboard: **Domain Registration → Register
+   Domains**. A domain bought there already uses Cloudflare's DNS, so
+   there's nothing to point anywhere.
+2. **Attach it to the site:** **Workers & Pages →** your project **→ Custom
+   domains → Set up a custom domain**, enter the bare domain (for example
+   `dawnproject.app`) and confirm. Cloudflare adds the DNS record and the
+   HTTPS certificate itself; the domain shows **Active** after a few
+   minutes.
+3. **Add `www` too:** set up `www.dawnproject.app` the same way, then send
+   it to the bare domain: **your domain → Rules → Redirect Rules → Create
+   rule →** the "Redirect from WWW to root" template. One address keeps
+   saved projects, installs and analytics in one place.
+4. **Tell Dawn its address:** **Settings → Variables and Secrets →**
+   `NEXT_PUBLIC_SITE_URL` = `https://dawnproject.app` (Production), then
+   **Deployments → ⋯ → Retry deployment**. Every `NEXT_PUBLIC_` variable is
+   built into the site, so a change only shows after a new deployment.
+5. **An address for email** without exposing yours: **your domain → Email →
+   Email Routing**, add `hello@dawnproject.app` and forward it to your own
+   inbox.
+
+Keep using that one address from launch on: the browser keeps each
+person's autosave, presets and installed packs per address, so moving to
+a new domain later would make them start empty.
 
 `public/_headers` is copied into `out/` and sets the caching rules (a year
 for hashed build files, a day for the amp engine), the `.wasm` content type,
@@ -35,6 +61,38 @@ samples, which load from another site.
 Nothing is collected unless you set these environment variables in the
 Cloudflare Pages project (Settings → Variables), then redeploy. Each is
 optional; set only the services you use.
+
+### Step by step
+
+1. **Page views, Cloudflare Web Analytics (free).** Dashboard → **Analytics
+   & Logs → Web Analytics → Add a site**, enter your domain and pick the
+   **manual setup (JS snippet)**. From the snippet, copy only the `token`
+   value into `NEXT_PUBLIC_CF_BEACON_TOKEN`. Don't use the "automatic setup"
+   on the Pages project: it injects the script into every page and ignores
+   the in-app switch that lets people turn statistics off.
+2. **Product events, Umami Cloud (free hobby plan).** Sign up at
+   [cloud.umami.is](https://cloud.umami.is), **Add website** with your
+   domain, then copy its **Website ID** into `NEXT_PUBLIC_UMAMI_WEBSITE_ID`.
+   The events listed below show up under **Events**; `sound_made` over
+   `app_opened` is your activation rate, `export_completed` over
+   `sound_made` your demo rate.
+3. **Error reports, Sentry (free developer plan).** At
+   [sentry.io](https://sentry.io), **Create Project → Browser JavaScript**,
+   name it `dawn`. Copy the DSN from **Project Settings → Client Keys** into
+   `NEXT_PUBLIC_SENTRY_DSN` (it's meant to be public). Then, in **Project
+   Settings → Security & Privacy**, put your domain in **Allowed Domains**
+   (so no one else can send reports to it) and turn on **Prevent Storing of
+   IP Addresses** (the privacy policy promises reports aren't linked to
+   people).
+4. **Add the variables** in Pages: **Settings → Variables and Secrets**, for
+   **Production** only (so your preview deployments don't count as
+   visits), then **Deployments → ⋯ → Retry deployment**.
+5. **Check it works:** open your site in a normal (not private) window,
+   play a note, and watch Umami's realtime view for `app_opened` and
+   `sound_made`. Open `https://your-domain/?test-error` once: a "Test error
+   from The Dawn Project" appears in Sentry within a minute. If your own
+   browser sends Do Not Track, Dawn sends nothing; check from a browser
+   that doesn't.
 
 | Variable | What it turns on |
 | --- | --- |

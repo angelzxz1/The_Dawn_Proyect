@@ -146,6 +146,8 @@ export function startTelemetry() {
     w.plausible("pageview");
   }
   if (env.sentryDsn) installErrorReporting();
+  // Opening Dawn with ?test-error sends one test report, to check Sentry is set up.
+  if (env.sentryDsn && new URLSearchParams(location.search).has("test-error")) reportError(new Error("Test error from The Dawn Project"), "test");
   flush();
 }
 

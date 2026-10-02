@@ -874,21 +874,21 @@ npm start       # serve out/ locally
 
 ## License and credits
 
-Your music is yours: you can use Dawn to make, record, mix and export music,
-and use or sell what you make for any purpose.
+Copyright © 2026 Angel Fernando Zuñiga Navarro. All rights reserved.
 
-Dawn's source code is under the
-[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0):
-you can read, run, change and share it for any noncommercial purpose, while
-hosting, selling or otherwise using the code commercially needs permission.
-See [LICENSE.md](LICENSE.md) for the full terms.
+**Your music is yours:** you can use the app to make, record, mix and export
+music, and use, share or sell what you make for any purpose, with no payment
+or credit required.
+
+**The code isn't licensed for use.** The source is public so it can be read,
+but using, copying, modifying, hosting or redistributing it, or the sounds
+and presets made for Dawn, needs written permission. See
+[LICENSE.md](LICENSE.md) for the full terms.
 
 Every library, font and sound Dawn uses is listed, with its author and
 license, in [`src/content/licenses.json`](src/content/licenses.json), which
 the **About → Credits** screen shows. Add an entry there before bundling any
 new sound (captures, IRs, samples, kits); a unit test checks the list is
 complete. Licensed amp captures and IRs go in `public/tones/` and are listed
-in `public/tones/manifest.json` (it explains the fields); they then appear in
-the NAM Amp's and IR Loader's tone browsers with their creator's credit, and
-are only downloaded when picked. The privacy policy is at `/privacy` and under **About → Privacy**.
-
+in `public/tones/manifest.json` (see [docs/tones.md](docs/tones.md)). The
+privacy policy is at `/privacy` and under **About → Privacy**.

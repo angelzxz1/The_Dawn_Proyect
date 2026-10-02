@@ -9,7 +9,6 @@ import { SupportSection, WhatsNew } from "./SupportViews";
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 export const REPO_URL = "https://github.com/angelzxz1/The_Dawn_Proyect";
 const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE.md`;
-const POLYFORM_URL = "https://polyformproject.org/licenses/noncommercial/1.0.0";
 
 export type AboutTab = "about" | "news" | "credits" | "privacy" | "license";
 
@@ -97,14 +96,14 @@ function LicenseTabBody() {
   return (
     <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-muted">
       <p className="text-foreground">
-        <strong>Your music is yours.</strong> You can use Dawn to make, record, mix and export music, and use, publish
-        or sell what you make for any purpose, commercial or not.
+        <strong>Your music is yours.</strong> Use Dawn to make, record, mix and export music, and use, share, publish or
+        sell what you make for any purpose, commercial or not, with no payment or credit required.
       </p>
       <p>
-        Dawn&rsquo;s source code is under the <Link href={POLYFORM_URL}>PolyForm Noncommercial License 1.0.0</Link>.
-        You can read it, run it, change it and share it for any noncommercial purpose: personal projects, study,
-        teaching, research, or use by a charity, school or public institution. Hosting, selling or otherwise using
-        the code itself commercially needs permission.
+        The app itself is &copy; 2026 Angel Fernando Zu&ntilde;iga Navarro, all rights reserved. Its code, and the sounds
+        and presets made for it, aren&rsquo;t licensed for use: copying, modifying, hosting or redistributing them needs
+        written permission. You can use Dawn&rsquo;s built-in sounds in your music, but not pass them on by themselves
+        as a sample pack or preset bank.
       </p>
       <p>
         The libraries, fonts and sounds listed under Credits keep their own licenses. The full terms are in{" "}

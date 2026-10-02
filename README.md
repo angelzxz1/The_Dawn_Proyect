@@ -528,6 +528,12 @@ Everything the synth can do is described in
 
 For audio:
 
+- Arming an audio track opens its input and shows an **input meter** in the
+  track header. Aim for peaks around the mark (−12 dB). The light next to it
+  turns red if the input clips; click it to reset.
+- Dawn records the input clean: the browser's echo cancellation, noise
+  suppression and automatic gain are turned off, since they're made for
+  calls and would squash an instrument.
 - **Monitor** (the headphones button) lets you hear the input live through
   the track's effects, for example through an amp model.
 - Recordings are lined up with the beat automatically, using the latency the

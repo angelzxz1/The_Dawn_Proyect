@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
+import { InputMeter } from "./InputMeter";
 import type { ChannelConfig } from "@/lib/types";
 import { TRACK_COLOR_PALETTE, type TrackColor } from "@/lib/colors";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/lib/timeline";
@@ -487,7 +488,7 @@ export function TrackHeader({
               <ActivitySquare size={12} />
             </IconButton>
           )}
-          <div className="flex-1" />
+          {!isMidi && channel.armed ? <InputMeter /> : <div className="flex-1" />}
           {canRemove && (
             <IconButton title="Remove channel" onClick={() => onRemove?.()} danger>
               <X size={12} />

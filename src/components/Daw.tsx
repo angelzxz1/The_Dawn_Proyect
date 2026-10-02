@@ -496,6 +496,24 @@ export function Daw() {
   const armedChannelId = armedChannel?.id ?? null;
   // The armed MIDI track is played live, so it can skip delay compensation.
   useEffect(() => audioEngine.setArmedChannel(armedChannelId), [armedChannelId]);
+  // Arming an audio track opens the input, so its meter shows the level
+  // before recording. Not on the first render: a restored project
+  // shouldn't ask for the microphone before anyone touches anything.
+  const armedAudio = armedChannel?.type === "audio" ? armedChannelId : null;
+  const firstArmRender = useRef(true);
+  useEffect(() => {
+    if (firstArmRender.current) {
+      firstArmRender.current = false;
+      return;
+    }
+    if (!armedAudio) return;
+    audioEngine
+      .openInput()
+      .then(() => setMicError(null))
+      .catch(() =>
+        setMicError("Couldn't open your audio input - allow microphone access in the browser, and pick your interface in the track's Input menu.")
+      );
+  }, [armedAudio]);
 
   const registeredChannelIds = useRef(new Set<string>());
   const registeredBusIds = useRef(new Set<string>());

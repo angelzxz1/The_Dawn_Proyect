@@ -2547,8 +2547,11 @@ class AudioEngine {
   private micDeviceId: string | null = null;
 
   /** Per-channel live input-monitor taps - open only while that channel is
-   * both armed and monitoring is enabled (see `setInputMonitoring`). */
-  private monitorNodes = new Map<string, Tone.UserMedia>();
+   * both armed and monitoring is enabled (see `setInputMonitoring`). Each
+   * is fed by the shared mic source, so what you hear is the same clean
+   * capture (no echo cancellation, noise suppression or auto gain) that
+   * gets recorded. */
+  private monitorNodes = new Map<string, Tone.Gain>();
 
   /** One long-lived graph input for the mic stream, shared by every
    * capture (see InputRecorder.start). */
@@ -2559,8 +2562,34 @@ class AudioEngine {
     if (!this.micSource || this.micSource.mediaStream !== stream) {
       this.micSource?.disconnect();
       this.micSource = Tone.getContext().createMediaStreamSource(stream) as unknown as MediaStreamAudioSourceNode;
+      // The input meter listens to the raw input, before any effect.
+      this.inputAnalyser ??= Tone.getContext().createAnalyser() as unknown as AnalyserNode;
+      this.inputAnalyser.fftSize = 2048;
+      this.micSource.connect(this.inputAnalyser);
     }
     return this.micSource;
+  }
+
+  private inputAnalyser: AnalyserNode | null = null;
+  private inputSamples: Float32Array<ArrayBuffer> | null = null;
+
+  /** The input's peak level (0..1, 1 = full scale) over the last ~40 ms,
+   * or null while no input is open. For the armed track's input meter. */
+  getInputPeak(): number | null {
+    const analyser = this.inputAnalyser;
+    if (!analyser || !this.micSource) return null;
+    if (this.inputSamples?.length !== analyser.fftSize) this.inputSamples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(this.inputSamples);
+    let peak = 0;
+    for (const v of this.inputSamples) peak = Math.max(peak, Math.abs(v));
+    return peak;
+  }
+
+  /** Opens the input (asking for permission the first time) so the armed
+   * track's meter shows the level before recording. */
+  async openInput(): Promise<void> {
+    await this.ensureStarted();
+    await this.ensureMicSource();
   }
 
   private async ensureMicStream(): Promise<MediaStream> {
@@ -2569,9 +2598,9 @@ class AudioEngine {
     // than whatever multi-channel width the selected device natively
     // exposes - without it, some audio interfaces hand back every input
     // channel summed together regardless of which single `deviceId` was
-    // requested. echo/noise/gain processing is turned off since it can
-    // audibly mangle a mic or instrument signal, matching what a DAW's own
-    // input path should do (same constraints Tone.UserMedia uses below).
+    // requested. Echo cancellation, noise suppression and auto gain are
+    // made for calls: they pump, gate and dull an instrument, so they're
+    // off. Recording and monitoring both use this one stream.
     this.micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         ...(this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : {}),
@@ -2634,6 +2663,13 @@ class AudioEngine {
     if (!enabled) {
       const mic = this.monitorNodes.get(channelId);
       if (mic) {
+        if (this.micSource) {
+          try {
+            Tone.disconnect(this.micSource, mic);
+          } catch {
+            // Already unplugged (the input device changed).
+          }
+        }
         mic.dispose();
         this.monitorNodes.delete(channelId);
         this.rewireChannel(channelId);
@@ -2643,19 +2679,19 @@ class AudioEngine {
     if (!this.channels.has(channelId)) return false;
     if (this.monitorNodes.has(channelId)) return true;
     await this.ensureStarted();
-    const mic = new Tone.UserMedia();
+    let source: MediaStreamAudioSourceNode;
     try {
-      await mic.open(this.micDeviceId ?? undefined);
+      source = await this.ensureMicSource();
     } catch {
-      mic.dispose();
       return false;
     }
     // The channel (or the whole engine) may have gone away while the
     // permission prompt/device open was in flight.
     if (!this.channels.has(channelId) || this.monitorNodes.has(channelId)) {
-      mic.dispose();
       return this.monitorNodes.has(channelId);
     }
+    const mic = new Tone.Gain(1);
+    Tone.connect(source, mic);
     this.monitorNodes.set(channelId, mic);
     this.rewireChannel(channelId);
     return true;

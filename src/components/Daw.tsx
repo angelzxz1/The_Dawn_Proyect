@@ -124,6 +124,8 @@ import {
 } from "@/lib/projectRecovery";
 import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
+import { GrooveBrowser } from "./GrooveBrowser";
+import { grooveBeats, grooveById, grooveHits, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
 import {
   EFFECT_LABELS,
@@ -1765,6 +1767,37 @@ export function Daw() {
     [bpm, beatsPerBar, pasteClipAt]
   );
 
+  /** Puts a groove from the browser on a MIDI track as a clip, snapped to
+   * the nearest bar, at the project's tempo - one undo step. A track with
+   * no drums gets the kit the groove was made with. */
+  const handleAddGroove = useCallback(
+    (channelId: string, groove: Groove, atSeconds: number) => {
+      const channel = channels.find((c) => c.id === channelId);
+      if (!channel || channel.type !== "midi") return;
+      pushHistory();
+      if (channel.instrument !== "drums") {
+        const drumParams = channel.drumParams ?? structuredClone(grooveKit(groove));
+        audioEngine.setInstrument(channelId, "drums", channel.synthParams, drumParams);
+        setChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, instrument: "drums", drumParams } : c)));
+      }
+      const bar = secondsPerBar(bpm, beatsPerBar);
+      const offset = Math.max(0, Math.round(atSeconds / bar) * bar);
+      const clip: MidiClipInstance = {
+        id: newClipId(),
+        kind: "midi",
+        offset,
+        length: (grooveBeats(groove) * 60) / bpm,
+        notes: grooveNotes(groove, bpm),
+        loopLength: null,
+      };
+      const updated = [...clipsOf(channelId), clip];
+      setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
+      rebuildMidiPart(channelId, updated.filter(isMidiClip));
+      setSelectedClipIds(new Set([clip.id]));
+    },
+    [channels, pushHistory, bpm, beatsPerBar, clipsOf, rebuildMidiPart]
+  );
+
   const handleAddEmptyClipAt = useCallback(
     (channelId: string, atSeconds: number) => {
       const bar = secondsPerBar(bpm, beatsPerBar);
@@ -2545,6 +2578,7 @@ export function Daw() {
                 ...c,
                 offset: c.offset * ratio,
                 length: c.length * ratio,
+                loopLength: c.loopLength ? c.loopLength * ratio : c.loopLength,
                 notes: c.notes.map((n) => ({
                   ...n,
                   time: n.time * ratio,
@@ -3070,7 +3104,22 @@ export function Daw() {
           </button>
         </div>
       )}
-      <EffectBrowser onAddEffect={handleSidebarAddEffect} />
+      <EffectBrowser
+        onAddEffect={handleSidebarAddEffect}
+        grooves={
+          <GrooveBrowser
+            canAdd={fxChannel?.type === "midi"}
+            onAdd={(g) => fxChannel && handleAddGroove(fxChannel.id, g, cursorSeconds)}
+            onPreview={(g) => {
+              // On the selected track's kit when it has one, else the groove's own.
+              const kit = fxChannel?.instrument === "drums" && fxChannel.drumParams ? fxChannel.drumParams : grooveKit(g);
+              const spb = 60 / bpm;
+              void audioEngine.previewDrums(kit, grooveHits(g).map((h) => ({ pad: h.pad, time: h.beat * spb, velocity: h.velocity })));
+            }}
+            onStopPreview={() => audioEngine.stopPreview()}
+          />
+        }
+      />
       <div className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
       <header className="flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-2">
@@ -3422,6 +3471,14 @@ export function Daw() {
                   onClipDragStart={pushHistory}
                   acceptsFileDrop={channel.type === "audio"}
                   onDropAudioFile={(file, atSeconds) => void handleDropAudioFile(channel.id, file, atSeconds)}
+                  onDropGroove={
+                    channel.type === "midi"
+                      ? (id, atSeconds) => {
+                          const groove = grooveById(id);
+                          if (groove) handleAddGroove(channel.id, groove, atSeconds);
+                        }
+                      : undefined
+                  }
                 />
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">

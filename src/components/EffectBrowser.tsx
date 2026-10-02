@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronRight, Search, Sliders, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronRight, Drum, Search, Sliders, X } from "lucide-react";
 import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/lib/effects";
 import { presetsFor, type EffectPreset } from "@/lib/presets";
 import { useUserPresets } from "./PresetMenu";
@@ -17,6 +17,8 @@ interface EffectBrowserProps {
    * track/bus the FX rack currently targets - the click-to-add alternative
    * to dragging. */
   onAddEffect: (type: EffectType, presetId?: string) => void;
+  /** The Grooves tab's contents. */
+  grooves?: ReactNode;
 }
 
 const matches = (text: string, query: string) => text.toLowerCase().includes(query);
@@ -29,7 +31,8 @@ const matches = (text: string, query: string) => text.toLowerCase().includes(que
  * and clickable (adds it straight to the currently selected track/bus).
  * The search box filters devices and presets by name.
  */
-export function EffectBrowser({ onAddEffect }: EffectBrowserProps) {
+export function EffectBrowser({ onAddEffect, grooves }: EffectBrowserProps) {
+  const [tab, setTab] = useState<"effects" | "grooves">("effects");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [openDevices, setOpenDevices] = useState<Set<EffectType>>(new Set());
   const [query, setQuery] = useState("");
@@ -72,93 +75,117 @@ export function EffectBrowser({ onAddEffect }: EffectBrowserProps) {
 
   return (
     <div className="flex w-48 shrink-0 flex-col overflow-hidden border-r border-border bg-surface">
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted">
-        <Sliders size={12} />
-        Audio Effects
+      <div role="tablist" aria-label="Browser" className="flex border-b border-border">
+        {(
+          [
+            ["effects", "Effects", <Sliders key="i" size={12} />],
+            ["grooves", "Grooves", <Drum key="i" size={12} />],
+          ] as const
+        ).map(([id, label, icon]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide ${
+              tab === id ? "border-accent text-foreground" : "border-transparent text-muted hover:text-foreground"
+            }`}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
       </div>
-      <div className="border-b border-border p-2">
-        <label className="flex items-center gap-1.5 rounded border border-border bg-background px-2 py-1 focus-within:border-accent">
-          <Search size={11} className="shrink-0 text-muted" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Escape") setQuery("");
-            }}
-            placeholder="Search devices, presets"
-            aria-label="Search devices and presets"
-            className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted"
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery("")} title="Clear search" className="text-muted hover:text-foreground">
-              <X size={11} />
-            </button>
-          )}
-        </label>
-      </div>
-      <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {view.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Nothing matches “{query.trim()}”.</p>}
-        {view.map((group) => {
-          const isCollapsed = !q && collapsedGroups.has(group.name);
-          return (
-            <div key={group.name}>
-              <button
-                type="button"
-                onClick={() => toggle(setCollapsedGroups, group.name)}
-                className="flex w-full items-center gap-1 rounded px-1 py-1.5 text-left text-[11px] font-medium text-foreground/80 hover:bg-surface-raised"
-              >
-                <ChevronRight size={11} className={`shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
-                {group.name}
-              </button>
-              {!isCollapsed && (
-                <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1">
-                  {group.devices.map(({ type, presets, expanded }) => (
-                    <div key={type}>
-                      <div className="flex items-center">
-                        <button
-                          type="button"
-                          onClick={() => toggle(setOpenDevices, type)}
-                          title={expanded ? "Hide presets" : "Show presets"}
-                          aria-label={`${expanded ? "Hide" : "Show"} ${EFFECT_LABELS[type]} presets`}
-                          aria-expanded={expanded}
-                          className="flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted hover:text-foreground"
-                        >
-                          <ChevronRight size={10} className={`transition-transform ${expanded ? "rotate-90" : ""}`} />
-                        </button>
-                        <div
-                          {...dragProps(type)}
-                          onClick={() => onAddEffect(type)}
-                          title="Drag onto the FX rack, or click to add it to the selected track/bus"
-                          className="min-w-0 flex-1 cursor-grab select-none truncate rounded border border-transparent px-1.5 py-1 text-[11px] text-muted hover:border-accent hover:bg-surface-raised hover:text-accent active:cursor-grabbing"
-                        >
-                          {EFFECT_LABELS[type]}
-                        </div>
-                      </div>
-                      {expanded && (
-                        <div className="mb-1 ml-4 flex flex-col border-l border-border/60 pl-1">
-                          {presets.map((p) => (
-                            <div
-                              key={p.id}
-                              {...dragProps(type, p)}
-                              onClick={() => onAddEffect(type, p.id)}
-                              title={`${EFFECT_LABELS[type]}: ${p.name}${p.factory ? "" : " (your preset)"} - drag onto the FX rack, or click to add`}
-                              className="flex min-w-0 cursor-grab select-none items-center gap-1 rounded px-1.5 py-[3px] text-[10.5px] text-muted hover:bg-surface-raised hover:text-accent active:cursor-grabbing"
-                            >
-                              {!p.factory && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />}
-                              <span className="truncate">{p.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+      {tab === "grooves" ? (
+        grooves
+      ) : (
+        <>
+          <div className="border-b border-border p-2">
+            <label className="flex items-center gap-1.5 rounded border border-border bg-background px-2 py-1 focus-within:border-accent">
+              <Search size={11} className="shrink-0 text-muted" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Escape") setQuery("");
+                }}
+                placeholder="Search devices, presets"
+                aria-label="Search devices and presets"
+                className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted"
+              />
+              {query && (
+                <button type="button" onClick={() => setQuery("")} title="Clear search" className="text-muted hover:text-foreground">
+                  <X size={11} />
+                </button>
               )}
-            </div>
-          );
-        })}
-      </div>
+            </label>
+          </div>
+          <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+            {view.length === 0 && <p className="px-1 py-2 text-[11px] text-muted">Nothing matches “{query.trim()}”.</p>}
+            {view.map((group) => {
+              const isCollapsed = !q && collapsedGroups.has(group.name);
+              return (
+                <div key={group.name}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(setCollapsedGroups, group.name)}
+                    className="flex w-full items-center gap-1 rounded px-1 py-1.5 text-left text-[11px] font-medium text-foreground/80 hover:bg-surface-raised"
+                  >
+                    <ChevronRight size={11} className={`shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
+                    {group.name}
+                  </button>
+                  {!isCollapsed && (
+                    <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1">
+                      {group.devices.map(({ type, presets, expanded }) => (
+                        <div key={type}>
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => toggle(setOpenDevices, type)}
+                              title={expanded ? "Hide presets" : "Show presets"}
+                              aria-label={`${expanded ? "Hide" : "Show"} ${EFFECT_LABELS[type]} presets`}
+                              aria-expanded={expanded}
+                              className="flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted hover:text-foreground"
+                            >
+                              <ChevronRight size={10} className={`transition-transform ${expanded ? "rotate-90" : ""}`} />
+                            </button>
+                            <div
+                              {...dragProps(type)}
+                              onClick={() => onAddEffect(type)}
+                              title="Drag onto the FX rack, or click to add it to the selected track/bus"
+                              className="min-w-0 flex-1 cursor-grab select-none truncate rounded border border-transparent px-1.5 py-1 text-[11px] text-muted hover:border-accent hover:bg-surface-raised hover:text-accent active:cursor-grabbing"
+                            >
+                              {EFFECT_LABELS[type]}
+                            </div>
+                          </div>
+                          {expanded && (
+                            <div className="mb-1 ml-4 flex flex-col border-l border-border/60 pl-1">
+                              {presets.map((p) => (
+                                <div
+                                  key={p.id}
+                                  {...dragProps(type, p)}
+                                  onClick={() => onAddEffect(type, p.id)}
+                                  title={`${EFFECT_LABELS[type]}: ${p.name}${p.factory ? "" : " (your preset)"} - drag onto the FX rack, or click to add`}
+                                  className="flex min-w-0 cursor-grab select-none items-center gap-1 rounded px-1.5 py-[3px] text-[10.5px] text-muted hover:bg-surface-raised hover:text-accent active:cursor-grabbing"
+                                >
+                                  {!p.factory && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />}
+                                  <span className="truncate">{p.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }

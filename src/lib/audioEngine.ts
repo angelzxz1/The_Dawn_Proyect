@@ -54,7 +54,7 @@ import type {
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { NullInstrument, type Instrument } from "./drumKit";
 import { DrumRack, type DrumLiveState } from "./drumRack";
-import { defaultDrumKit, type DrumKitParams } from "./drumParams";
+import { defaultDrumKit, padNote, type DrumKitParams } from "./drumParams";
 import { SynthInstrument, defaultSynthParams, setSynthTempo, type SynthLiveState } from "./synth";
 import { type EffectType, defaultParams } from "./effects";
 import { CompressorChain, type CompressorMeterReading } from "./compressor";
@@ -1701,6 +1701,41 @@ class AudioEngine {
   auditionDrumPad(id: string, pad: number, velocity = 0.9): void {
     const nodes = this.channels.get(id);
     if (nodes?.instrumentType === "drums") (nodes.instrument as DrumRack).audition(pad, velocity);
+  }
+
+  private preview: { rack: DrumRack; gain: Tone.Gain; timer: number } | null = null;
+  private previewToken = 0;
+
+  /** Plays drum hits once on a kit through the master bus (a groove
+   * previewed from the browser), replacing any preview still playing.
+   * `time` is seconds from now. Resolves when the hits are scheduled. */
+  async previewDrums(kit: DrumKitParams, hits: { pad: number; time: number; velocity: number }[]): Promise<void> {
+    this.stopPreview();
+    const token = ++this.previewToken;
+    await this.ensureStarted();
+    const rack = new DrumRack(kit);
+    const gain = new Tone.Gain(Tone.dbToGain(-3));
+    rack.connect(gain);
+    gain.connect(this.ensureMaster().channel);
+    await rack.ready;
+    if (token !== this.previewToken) {
+      rack.dispose();
+      gain.dispose();
+      return;
+    }
+    const start = Tone.now() + 0.05;
+    hits.forEach((h) => rack.triggerAttack(Tone.Frequency(padNote(h.pad), "midi").toNote(), start + h.time, h.velocity));
+    const end = hits.reduce((m, h) => Math.max(m, h.time), 0) + 2.5;
+    this.preview = { rack, gain, timer: window.setTimeout(() => this.stopPreview(), end * 1000) };
+  }
+
+  stopPreview(): void {
+    this.previewToken++;
+    if (!this.preview) return;
+    window.clearTimeout(this.preview.timer);
+    this.preview.rack.dispose();
+    this.preview.gain.dispose();
+    this.preview = null;
   }
 
   /** Live pad hits from a track's Drum Rack, for its window. Returns a function that stops it. */

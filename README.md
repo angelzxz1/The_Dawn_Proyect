@@ -27,6 +27,8 @@ Live and Reaper.
 
 ## What it can do
 
+- **Grooves.** 60 drum patterns in 12 genres (intro, verse, chorus, fill,
+  ending) to drag onto a track and play over.
 - **MIDI and audio tracks.** Add as many tracks as you like. Each holds any
   number of clips that you move, trim, loop, split and duplicate on the
   timeline.
@@ -344,10 +346,25 @@ Each pad can ring up to four hits at once; more fade out the oldest.
 
 The bar at the top steps through kits (◀ ▶) or lists them. **Dawn 808** is
 the default; **909 Punch**, **Trap**, **Lo-Fi**, **Electro**, **Techno**,
-**Studio** and **Percussion** are the other factory kits, all synthesized so
-nothing has to download. The save button keeps the current kit as yours, in
+**Studio**, **Rock Kit**, **Brushes** and **Percussion** are the other factory
+kits, all synthesized so nothing has to download. The save button keeps the current kit as yours, in
 this browser. A saved kit with samples points at their files, so those pads
 play in projects that include the files.
+
+### Grooves
+
+The **Grooves** tab of the left browser holds drum patterns programmed for
+Dawn: 12 genres (Rock, Hard Rock / Metal, Punk, Pop, Funk, Blues Shuffle,
+6/8 Ballad, Hip-Hop, Trap, Reggaeton, Lo-Fi and House), each with an intro,
+verse, chorus, fill and ending.
+
+- Click one (or its ▶) to hear it, at the project's tempo.
+- Drag it onto a MIDI track to add it as a clip, snapped to the nearest bar,
+  or press **+** to add it at the playhead on the selected track. A track
+  without drums gets the kit the groove was made with.
+- It's an ordinary MIDI clip from then on: loop it, edit it in the piano
+  roll, and it follows tempo changes. Every factory kit keeps each sound on
+  the same pad, so a groove plays right on any of them.
 
 ## Effects (plugins)
 

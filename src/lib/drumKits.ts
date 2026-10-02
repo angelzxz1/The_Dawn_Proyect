@@ -81,6 +81,36 @@ export const FACTORY_KITS: DrumKitPreset[] = [
     Crash: { decay: 0.85, character: 0.05, tone: 0.55 },
     Ride: { decay: 0.75, character: 0.8, tone: 0.55 },
   }),
+  // A live rock kit, synthesized: a deep kick with beater click, a fat
+  // snare with plenty of wires, long toms, washy hats and big cymbals.
+  kit("Rock Kit", {
+    Kick: { decay: 0.4, character: 0.55, tone: 0.7, tune: -2, drive: 0.15, level: -2 },
+    Snare: { decay: 0.6, character: 0.8, tone: 0.55, tune: -1, drive: 0.15, level: -4 },
+    Clap: { decay: 0.35, character: 0.4, tone: 0.5, level: -9 },
+    "Closed Hat": { decay: 0.16, tone: 0.5, character: 0.45, level: -11 },
+    "Pedal Hat": { decay: 0.1, tone: 0.4, character: 0.45, level: -13 },
+    "Open Hat": { decay: 0.65, tone: 0.5, character: 0.45, level: -12 },
+    "Low Tom": { decay: 0.8, character: 0.45, tone: 0.65, tune: -7, level: -4 },
+    "Mid Tom": { decay: 0.75, character: 0.45, tone: 0.65, tune: -2, level: -4 },
+    "High Tom": { decay: 0.7, character: 0.45, tone: 0.65, tune: 3, level: -4 },
+    Crash: { decay: 0.95, character: 0.1, tone: 0.5, level: -9 },
+    Ride: { decay: 0.85, character: 0.85, tone: 0.5, level: -12 },
+  }),
+  // Brushes for ballads and shuffles: a swishing snare, a soft kick and
+  // a gentle ride, all a little darker.
+  kit(
+    "Brushes",
+    {
+      Kick: { decay: 0.35, character: 0.15, tone: 0.05, tune: 2, level: -6 },
+      Snare: { decay: 0.75, character: 0.95, tone: 0.15, tune: 3, filter: -0.25, velocity: 0.9, level: -8 },
+      Clap: { decay: 0.6, character: 0.9, tone: 0.2, filter: -0.3, level: -12 },
+      "Closed Hat": { decay: 0.1, tone: 0.3, character: 0.3, level: -15 },
+      "Open Hat": { decay: 0.45, tone: 0.3, character: 0.3, level: -15 },
+      Ride: { decay: 0.8, character: 0.8, tone: 0.4, level: -11 },
+      Crash: { decay: 0.8, character: 0.15, tone: 0.3, level: -13 },
+    },
+    { velocity: 0.85 }
+  ),
   kit("Percussion", {
     Kick: { decay: 0.3, character: 0.2, tone: 0.1, level: -8 },
     Rim: { level: -6 },

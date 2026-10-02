@@ -6,6 +6,7 @@ import { RecordingClip } from "./RecordingClip";
 import type { ClipInstance } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import { GROOVE_DRAG_MIME } from "@/lib/grooves";
 
 interface TrackLaneProps {
   clips: ClipInstance[];
@@ -48,6 +49,8 @@ interface TrackLaneProps {
   /** Fires once a dropped file lands - `atSeconds` is where on the
    * timeline it was dropped, unsnapped (the caller snaps it to the bar). */
   onDropAudioFile: (file: File, atSeconds: number) => void;
+  /** A groove dragged from the browser was dropped here (MIDI tracks only). */
+  onDropGroove?: (grooveId: string, atSeconds: number) => void;
 }
 
 export function TrackLane({
@@ -75,9 +78,12 @@ export function TrackLane({
   onClipDragStart,
   acceptsFileDrop,
   onDropAudioFile,
+  onDropGroove,
 }: TrackLaneProps) {
   const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
   const [fileDragOver, setFileDragOver] = useState(false);
+  const [grooveDragOver, setGrooveDragOver] = useState(false);
+  const isGroove = (e: React.DragEvent) => !!onDropGroove && e.dataTransfer.types.includes(GROOVE_DRAG_MIME);
 
   const atSecondsFromEvent = (e: React.DragEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -93,11 +99,21 @@ export function TrackLane({
         onLaneContextMenu(e, Math.max(0, (e.clientX - rect.left) / pxPerSecond));
       }}
       onDragEnter={(e) => {
+        if (isGroove(e)) {
+          e.preventDefault();
+          setGrooveDragOver(true);
+          return;
+        }
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         if (acceptsFileDrop) setFileDragOver(true);
       }}
       onDragOver={(e) => {
+        if (isGroove(e)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          return;
+        }
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = acceptsFileDrop ? "copy" : "none";
@@ -105,8 +121,16 @@ export function TrackLane({
       onDragLeave={(e) => {
         if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
         setFileDragOver(false);
+        setGrooveDragOver(false);
       }}
       onDrop={(e) => {
+        if (isGroove(e)) {
+          e.preventDefault();
+          setGrooveDragOver(false);
+          const id = e.dataTransfer.getData(GROOVE_DRAG_MIME);
+          if (id) onDropGroove?.(id, atSecondsFromEvent(e));
+          return;
+        }
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
         setFileDragOver(false);
@@ -116,11 +140,16 @@ export function TrackLane({
       }}
       className={`relative cursor-pointer border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
-      } ${fileDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
+      } ${fileDragOver || grooveDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
       style={{ height: TRACK_ROW_HEIGHT, width: totalSeconds * pxPerSecond }}
     >
       {armed && (
         <div className="pointer-events-none absolute inset-0 z-0 border border-record/40" />
+      )}
+      {grooveDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-xs font-medium text-accent">
+          Drop the groove here
+        </div>
       )}
       {fileDragOver && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-xs font-medium text-accent">

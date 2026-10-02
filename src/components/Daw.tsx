@@ -128,6 +128,9 @@ import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
 import { StartScreen } from "./StartScreen";
+import { PacksWindow } from "./PacksWindow";
+import { installPack, removePack, restorePacks } from "@/lib/packStore";
+import { PACK_EXTENSION } from "@/lib/dawnPack";
 import { openFeedback, PostExportNote } from "./SupportViews";
 import { shouldAskAfterExport, supportLinks } from "@/lib/support";
 import { LATEST_VERSION } from "@/content/whatsNew";
@@ -367,6 +370,8 @@ export function Daw() {
   /** The start screen: on the first visit, and from File > New. */
   const [startScreen, setStartScreen] = useState<null | "welcome" | "new">(null);
   const [supportAsk, setSupportAsk] = useState(false);
+  /** The Sound Packs window, with the outcome of a pack dropped on the app. */
+  const [packs, setPacks] = useState<{ message: { ok: boolean; text: string } | null } | null>(null);
   const hasSupportLinks = supportLinks().length > 0;
 
   // Usage statistics (only when set up for this deployment and allowed).
@@ -940,9 +945,16 @@ export function Daw() {
   // audio track's own lane calls preventDefault itself and stops
   // propagation for a drop it actually handles, so this is purely the
   // catch-all for everywhere else.
+  const installPackRef = useRef<(file: File) => Promise<{ ok: boolean; message: string }>>(async () => ({ ok: false, message: "" }));
   useEffect(() => {
     const suppressFileDrop = (e: DragEvent) => {
-      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      // A sound pack dropped anywhere installs, and the packs window says how it went.
+      const file = e.type === "drop" ? e.dataTransfer.files[0] : undefined;
+      if (file && file.name.toLowerCase().endsWith(PACK_EXTENSION)) {
+        void installPackRef.current(file).then((r) => setPacks({ message: { ok: r.ok, text: r.message } }));
+      }
     };
     window.addEventListener("dragover", suppressFileDrop);
     window.addEventListener("drop", suppressFileDrop);
@@ -2823,7 +2835,11 @@ export function Daw() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [result, info] = await Promise.all([loadProject().catch(() => null), readOpenProject().catch(() => null)]);
+      const [result, info] = await Promise.all([
+        loadProject().catch(() => null),
+        readOpenProject().catch(() => null),
+        restorePacks().catch(() => undefined),
+      ]);
       if (cancelled) return;
       if (result) {
         try {
@@ -2996,6 +3012,22 @@ export function Daw() {
     },
     [applyDocument, flashProjectNotice]
   );
+
+  const handleInstallPack = useCallback(async (file: File): Promise<{ ok: boolean; message: string }> => {
+    if (file.size > 400 * 1024 * 1024) return { ok: false, message: `"${file.name}" is too large to be a Dawn pack.` };
+    const result = await installPack(new Uint8Array(await file.arrayBuffer()), audioEngine.sampleRate);
+    if (!result.ok) {
+      track("error_shown", { area: "pack" });
+      return { ok: false, message: result.error };
+    }
+    track("pack_imported", { kind: result.replaced ? "update" : "new" });
+    const p = result.pack;
+    const skipped = result.skipped.length ? ` ${result.skipped.length} file${result.skipped.length === 1 ? " was" : "s were"} damaged and left out.` : "";
+    return { ok: true, message: `${result.replaced ? "Updated" : "Installed"} "${p.name}" ${p.version} by ${p.author}.${skipped}` };
+  }, []);
+  useEffect(() => {
+    installPackRef.current = handleInstallPack;
+  }, [handleInstallPack]);
 
   /** File > New: the start screen, once unsaved changes are dealt with. */
   const handleNewProject = useCallback(() => {
@@ -3202,6 +3234,7 @@ export function Daw() {
               onSaveAs={(n) => void handleSaveAs(n)}
               onImport={(f) => void handleImportProjectFile(f)}
               onExport={() => void downloadProjectFile(projectName)}
+              onPacks={() => setPacks({ message: null })}
               saveAsRequest={saveAsRequest}
             />
           </div>
@@ -3919,6 +3952,15 @@ export function Daw() {
             void handleImportProjectFile(f);
           }}
           onClose={() => setStartScreen(null)}
+        />
+      )}
+
+      {packs && (
+        <PacksWindow
+          initialMessage={packs.message}
+          onInstall={handleInstallPack}
+          onRemove={removePack}
+          onClose={() => setPacks(null)}
         />
       )}
 

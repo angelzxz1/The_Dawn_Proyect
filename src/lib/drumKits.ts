@@ -9,6 +9,8 @@ export interface DrumKitPreset {
   name: string;
   factory: boolean;
   kit: DrumKitParams;
+  /** The sound pack it came with (removed with the pack). */
+  pack?: string;
 }
 
 /** The default kit's pads, with changes by pad name. */
@@ -132,7 +134,13 @@ function readUser(): DrumKitPreset[] {
     if (!Array.isArray(raw)) return [];
     return raw
       .filter((r) => r && typeof r.id === "string" && typeof r.name === "string")
-      .map((r) => ({ id: r.id, name: String(r.name).slice(0, 60), factory: false, kit: normalizeDrumKit(r.kit) }));
+      .map((r) => ({
+        id: r.id,
+        name: String(r.name).slice(0, 60),
+        factory: false,
+        kit: normalizeDrumKit(r.kit),
+        ...(typeof r.pack === "string" && r.pack ? { pack: r.pack as string } : {}),
+      }));
   } catch {
     return [];
   }
@@ -166,7 +174,7 @@ function changed(list: DrumKitPreset[]) {
   cache = list;
   all = null;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.map(({ id, name, kit }) => ({ id, name, kit }))));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.map(({ id, name, kit, pack }) => ({ id, name, kit, ...(pack ? { pack } : {}) }))));
   } catch {
     // Storage full or blocked: it lasts until the page closes.
   }
@@ -181,6 +189,41 @@ export function saveDrumKit(name: string, kit: DrumKitParams): DrumKitPreset {
   const preset: DrumKitPreset = { id: existing?.id ?? `user:${Date.now().toString(36)}`, name: clean, factory: false, kit: { ...structuredClone(kit), kit: clean } };
   changed(existing ? list.map((k) => (k.id === existing.id ? preset : k)) : [...list, preset]);
   return preset;
+}
+
+/** A pack's kits, added under that pack (names that are taken get the
+ * pack's name after them). `mapFile` points sample pads at the pack's
+ * copies; a pad whose sample is missing plays its synth voice. */
+export function addPackKits(packId: string, packName: string, raw: unknown[], mapFile: (path: string) => string | null): number {
+  const list = user().filter((k) => k.pack !== packId);
+  const added: DrumKitPreset[] = [];
+  raw.forEach((item, i) => {
+    const r = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    if (typeof r.name !== "string" || !r.name.trim()) return;
+    const kit = normalizeDrumKit(r.kit);
+    kit.pads = kit.pads.map((pad) => {
+      if (!pad.sample) return pad;
+      const id = mapFile(pad.sample.id);
+      if (id) return { ...pad, sample: { ...pad.sample, id } };
+      const rest = { ...pad };
+      delete rest.sample;
+      return { ...rest, source: "synth" as const };
+    });
+    let name = r.name.trim().slice(0, 60);
+    if ([...FACTORY_KITS, ...list, ...added].some((k) => k.name.toLowerCase() === name.toLowerCase())) name = `${name} (${packName})`.slice(0, 60);
+    added.push({ id: `pack:${packId}:${i}`, name, factory: false, kit: { ...kit, kit: name }, pack: packId });
+  });
+  changed([...list, ...added]);
+  return added.length;
+}
+
+export function removePackKits(packId: string): void {
+  changed(user().filter((k) => k.pack !== packId));
+}
+
+/** Your own kits (not factory, not from packs). */
+export function ownDrumKits(): DrumKitPreset[] {
+  return user().filter((k) => !k.pack);
 }
 
 export function deleteDrumKit(id: string): void {

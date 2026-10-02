@@ -23,6 +23,8 @@ export interface SynthPreset {
   category: PresetCategory;
   factory: boolean;
   params: SynthParams;
+  /** The sound pack it came with (removed with the pack). */
+  pack?: string;
 }
 
 let routeCounter = 0;
@@ -334,6 +336,7 @@ function readUser(): SynthPreset[] {
         category: (PRESET_CATEGORIES as readonly string[]).includes(r.category) ? r.category : "Lead",
         factory: false,
         params: normalizeSynthParams(r.params),
+        ...(typeof r.pack === "string" && r.pack ? { pack: r.pack as string } : {}),
       }));
   } catch {
     return [];
@@ -342,7 +345,7 @@ function readUser(): SynthPreset[] {
 
 function writeUser(list: SynthPreset[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.map(({ id, name, category, params }) => ({ id, name, category, params }))));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.map(({ id, name, category, params, pack }) => ({ id, name, category, params, ...(pack ? { pack } : {}) }))));
   } catch {
     // Storage full or blocked: the preset lives until the page closes.
   }
@@ -393,6 +396,41 @@ export function saveSynthPreset(name: string, category: PresetCategory, params: 
   };
   changed(existing ? list.map((p) => (p.id === existing.id ? preset : p)) : [...list, preset]);
   return preset;
+}
+
+/** A pack's synth presets, added under that pack (names that are taken get
+ * the pack's name after them). `mapFile` points imported wavetables at the
+ * pack's copies. Returns how many were added. */
+export function addPackSynthPresets(packId: string, packName: string, raw: unknown[], mapFile: (path: string) => string | null): number {
+  const list = userSynthPresets().filter((p) => p.pack !== packId);
+  const added: SynthPreset[] = [];
+  raw.forEach((item, i) => {
+    const r = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    if (typeof r.name !== "string" || !r.name.trim()) return;
+    const params = normalizeSynthParams(r.params);
+    for (const osc of [params.osc1, params.osc2]) {
+      if (!osc.userTable) continue;
+      const id = mapFile(osc.userTable.id);
+      if (id) osc.userTable = { ...osc.userTable, id };
+      else delete osc.userTable;
+    }
+    let name = r.name.trim().slice(0, 60);
+    if ([...list, ...added].some((p) => p.name.toLowerCase() === name.toLowerCase())) name = `${name} (${packName})`.slice(0, 60);
+    added.push({
+      id: `pack:${packId}:${i}`,
+      name,
+      category: (PRESET_CATEGORIES as readonly string[]).includes(r.category as string) ? (r.category as PresetCategory) : "Lead",
+      factory: false,
+      params: { ...params, preset: name },
+      pack: packId,
+    });
+  });
+  changed([...list, ...added]);
+  return added.length;
+}
+
+export function removePackSynthPresets(packId: string): void {
+  changed(userSynthPresets().filter((p) => p.pack !== packId));
 }
 
 export function deleteSynthPreset(id: string): void {

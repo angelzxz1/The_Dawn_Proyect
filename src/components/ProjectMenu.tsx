@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Download, FilePlus2, FolderOpen, History, Save, Upload } from "lucide-react";
+import { ChevronDown, Download, FilePlus2, FolderOpen, History, Package, Save, Upload } from "lucide-react";
 import type { RecentProject } from "@/lib/projectFiles";
 
 /** The project's name (with a dot while there are unsaved changes) and
@@ -22,6 +22,7 @@ export function ProjectMenu({
   onSaveAs,
   onImport,
   onExport,
+  onPacks,
   saveAsRequest,
 }: {
   name: string;
@@ -41,6 +42,8 @@ export function ProjectMenu({
   onSaveAs: (name: string) => void;
   onImport: (file: File) => void;
   onExport: () => void;
+  /** Opens the sound packs window. */
+  onPacks?: () => void;
   /** Bumped to open the Save As dialog from outside (a shortcut). */
   saveAsRequest: number;
 }) {
@@ -141,6 +144,12 @@ export function ProjectMenu({
           <div className="my-1 border-t border-border" />
           {item("Export Project File…", <Download size={13} />, onExport)}
           {item("Import Project File…", <Upload size={13} />, () => fileInput?.click())}
+          {onPacks && (
+            <>
+              <div className="my-1 border-t border-border" />
+              {item("Sound Packs…", <Package size={13} />, onPacks)}
+            </>
+          )}
           <p className="px-2 pb-1 pt-1.5 text-[10.5px] leading-snug text-muted">
             {folders
               ? "Projects are saved to a folder on your computer: the song, its samples and its undo history."

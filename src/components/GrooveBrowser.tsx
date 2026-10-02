@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronRight, Play, Plus, Square } from "lucide-react";
-import { GROOVE_DRAG_MIME, GROOVE_GENRES, GROOVES, SECTION_LABELS, type Groove } from "@/lib/grooves";
+import { allGrooveGenres, allGrooves, GROOVE_DRAG_MIME, GROOVE_GENRES, SECTION_LABELS, subscribeGrooves, type Groove } from "@/lib/grooves";
 
 interface GrooveBrowserProps {
   /** Plays the groove once (resolves when it has finished or was replaced). */
@@ -20,11 +20,12 @@ interface GrooveBrowserProps {
 export function GrooveBrowser({ onPreview, onStopPreview, onAdd, canAdd }: GrooveBrowserProps) {
   const [open, setOpen] = useState<Set<string>>(new Set(["rock"]));
   const [playing, setPlaying] = useState<string | null>(null);
+  const genres = useSyncExternalStore(subscribeGrooves, allGrooveGenres, () => GROOVE_GENRES);
 
   // A preview stops on its own; this is only for the button's state.
   useEffect(() => {
     if (!playing) return;
-    const g = GROOVES.find((x) => x.id === playing);
+    const g = allGrooves().find((x) => x.id === playing);
     const ms = g ? (g.bars * ((g.genre.meter[0] * 4) / g.genre.meter[1]) * 60000) / g.genre.bpm + 600 : 0;
     const t = window.setTimeout(() => setPlaying(null), ms);
     return () => window.clearTimeout(t);
@@ -53,7 +54,7 @@ export function GrooveBrowser({ onPreview, onStopPreview, onAdd, canAdd }: Groov
       <p className="px-1 pb-1.5 text-[10.5px] leading-snug text-muted">
         Click to hear · drag onto a MIDI track · they follow the project tempo
       </p>
-      {GROOVE_GENRES.map((genre) => {
+      {genres.map((genre) => {
         const isOpen = open.has(genre.id);
         return (
           <div key={genre.id}>
@@ -65,6 +66,7 @@ export function GrooveBrowser({ onPreview, onStopPreview, onAdd, canAdd }: Groov
             >
               <ChevronRight size={11} className={`shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
               <span className="flex-1 truncate">{genre.name}</span>
+              {genre.pack && <span className="rounded bg-accent/15 px-1 text-[9px] font-normal text-accent">pack</span>}
               <span className="font-mono text-[9.5px] font-normal text-muted">
                 {genre.meter[0] === 4 && genre.meter[1] === 4 ? "" : `${genre.meter[0]}/${genre.meter[1]} · `}
                 {genre.bpm}
@@ -72,7 +74,7 @@ export function GrooveBrowser({ onPreview, onStopPreview, onAdd, canAdd }: Groov
             </button>
             {isOpen && (
               <div className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1">
-                {GROOVES.filter((g) => g.genre.id === genre.id).map((g) => (
+                {allGrooves().filter((g) => g.genre.id === genre.id).map((g) => (
                   <div
                     key={g.id}
                     draggable

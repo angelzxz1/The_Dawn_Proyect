@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ExternalLink, Feather, Loader2 } from "lucide-react";
 import type { EffectFileRef } from "@/lib/effects";
 import { bundledTones, FACTORY_CAB_TONES, fetchToneFile, type ToneEntry } from "@/lib/tones";
+import { packTones } from "@/lib/packStore";
 
 /** "Browse tones" for the IR Loader and NAM Amp: Dawn's own cabinets and
  * any bundled captures/IRs, each with a description and its creator's
@@ -43,7 +44,7 @@ export function TonePicker({
     return () => window.removeEventListener("pointerdown", down);
   }, [open]);
 
-  const tones = [...(kind === "ir" ? FACTORY_CAB_TONES : []), ...(bundled ?? [])];
+  const tones = [...(kind === "ir" ? FACTORY_CAB_TONES : []), ...(bundled ?? []), ...(open ? packTones(kind) : [])];
 
   const pick = async (t: ToneEntry) => {
     setError(null);

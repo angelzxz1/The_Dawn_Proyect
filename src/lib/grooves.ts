@@ -47,7 +47,9 @@ export interface GrooveGenre {
   grid: number;
   /** Delays every second 16th by this fraction of a step (0 = straight). */
   swing?: number;
-  sections: Record<GrooveSection, Partial<Record<GrooveRole, string>>>;
+  sections: Partial<Record<GrooveSection, Partial<Record<GrooveRole, string>>>>;
+  /** The sound pack it came with. */
+  pack?: string;
 }
 
 export interface Groove {
@@ -446,23 +448,119 @@ function barsOf(genre: GrooveGenre, lanes: Partial<Record<GrooveRole, string>>):
   return Math.max(1, Math.round(longest / stepsPerBar(genre)));
 }
 
-export const GROOVES: Groove[] = GENRES.flatMap((genre) =>
-  GROOVE_SECTIONS.map((section) => {
-    const lanes = genre.sections[section];
-    const bars = barsOf(genre, lanes);
-    return {
-      id: `${genre.id}-${section}`,
-      genre,
-      section,
-      name: `${genre.name} ${SECTION_LABELS[section]}`,
-      bars,
-      lanes,
+function groovesOf(genres: GrooveGenre[]): Groove[] {
+  return genres.flatMap((genre) =>
+    GROOVE_SECTIONS.filter((section) => genre.sections[section]).map((section) => {
+      const lanes = genre.sections[section]!;
+      return {
+        id: `${genre.id}-${section}`,
+        genre,
+        section,
+        name: `${genre.name} ${SECTION_LABELS[section]}`,
+        bars: barsOf(genre, lanes),
+        lanes,
+      };
+    })
+  );
+}
+
+/** The built-in grooves. */
+export const GROOVES: Groove[] = groovesOf(GENRES);
+
+// --- grooves from sound packs ---
+
+let packGenres: GrooveGenre[] = [];
+let allGenresCache: GrooveGenre[] | null = null;
+let allGroovesCache: Groove[] | null = null;
+const listeners = new Set<() => void>();
+
+function changedPacks(next: GrooveGenre[]) {
+  packGenres = next;
+  allGenresCache = null;
+  allGroovesCache = null;
+  listeners.forEach((l) => l());
+}
+
+/** Built-in genres, then ones from packs (a stable array until a pack changes). */
+export function allGrooveGenres(): GrooveGenre[] {
+  allGenresCache ??= [...GENRES, ...packGenres];
+  return allGenresCache;
+}
+
+export function allGrooves(): Groove[] {
+  allGroovesCache ??= [...GROOVES, ...groovesOf(packGenres)];
+  return allGroovesCache;
+}
+
+export function subscribeGrooves(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function setPackGrooves(packId: string, genres: GrooveGenre[]): void {
+  changedPacks([...packGenres.filter((g) => g.pack !== packId), ...genres]);
+}
+
+export function removePackGrooves(packId: string): void {
+  if (packGenres.some((g) => g.pack === packId)) changedPacks(packGenres.filter((g) => g.pack !== packId));
+}
+
+const ROLE_NAMES = Object.keys(GROOVE_ROLES) as GrooveRole[];
+
+/** A pack's grooves, written like the built-in ones (see GENRES above),
+ * checked strictly: anything malformed is left out. */
+export function parsePackGrooves(raw: unknown, packId: string): GrooveGenre[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item, i): GrooveGenre[] => {
+    const r = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const name = typeof r.name === "string" ? r.name.trim().slice(0, 40) : "";
+    const meter = Array.isArray(r.meter) && r.meter.length === 2 ? (r.meter as unknown[]) : [4, 4];
+    const [beats, unit] = meter.map(Number);
+    const grid = Number(r.grid ?? 4);
+    const bpm = Number(r.bpm ?? 120);
+    const swing = r.swing === undefined ? 0 : Number(r.swing);
+    if (!name || !(beats >= 1 && beats <= 16 && Number.isInteger(beats)) || ![2, 4, 8, 16].includes(unit)) return [];
+    if (![2, 3, 4, 6, 8].includes(grid) || !(bpm >= 40 && bpm <= 240) || !(swing >= 0 && swing <= 0.5)) return [];
+    const genre: GrooveGenre = {
+      id: `pack-${packId}-${i}`,
+      name,
+      bpm: Math.round(bpm),
+      kit: typeof r.kit === "string" && FACTORY_KITS.some((k) => k.name === r.kit) ? r.kit : "Dawn 808",
+      meter: [beats, unit],
+      grid,
+      ...(swing ? { swing } : {}),
+      sections: {},
+      pack: packId,
     };
-  })
-);
+    const per = stepsPerBar(genre);
+    const sections = r.sections && typeof r.sections === "object" ? (r.sections as Record<string, unknown>) : {};
+    for (const section of GROOVE_SECTIONS) {
+      const lanesRaw = sections[section];
+      if (!lanesRaw || typeof lanesRaw !== "object") continue;
+      const lanes: Partial<Record<GrooveRole, string>> = {};
+      let length = -1;
+      let ok = true;
+      for (const [role, lane] of Object.entries(lanesRaw as Record<string, unknown>)) {
+        if (!ROLE_NAMES.includes(role as GrooveRole) || typeof lane !== "string" || lane.length > 4096 || !/^[.\-xXog|\s]*$/.test(lane)) {
+          ok = false;
+          break;
+        }
+        const n = steps(lane).length;
+        if (n === 0 || n % per !== 0 || n / per > 16 || (length >= 0 && n !== length)) {
+          ok = false;
+          break;
+        }
+        length = n;
+        lanes[role as GrooveRole] = lane;
+      }
+      if (ok && length > 0) genre.sections[section] = lanes;
+    }
+    return Object.keys(genre.sections).length ? [genre] : [];
+  });
+}
 
 export function grooveById(id: string): Groove | undefined {
-  return GROOVES.find((g) => g.id === id);
+  return allGrooves().find((g) => g.id === id);
 }
 
 /** Quarter notes the groove lasts. */

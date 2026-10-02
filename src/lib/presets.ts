@@ -19,6 +19,8 @@ export interface EffectPreset {
   factory: boolean;
   /** Delay times are in beats (quarter notes), not seconds. */
   tempoRelative?: boolean;
+  /** The sound pack it came with (removed with the pack). */
+  pack?: string;
 }
 
 /** Which preset an effect was last loaded from or saved to. */
@@ -304,7 +306,8 @@ function normalize(raw: unknown): EffectPreset | null {
       if (v !== null) params[key] = v;
     }
   });
-  return { id: r.id, type, name, params, factory: false, ...(tempoRelative ? { tempoRelative } : {}) };
+  const pack = typeof r.pack === "string" && r.pack ? r.pack : undefined;
+  return { id: r.id, type, name, params, factory: false, ...(tempoRelative ? { tempoRelative } : {}), ...(pack ? { pack } : {}) };
 }
 
 function read(): EffectPreset[] {
@@ -329,7 +332,9 @@ function write(list: EffectPreset[]): void {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(list.map((p) => ({ id: p.id, type: p.type, name: p.name, params: p.params, ...(p.tempoRelative ? { tempoRelative: true } : {}) })))
+      JSON.stringify(
+        list.map((p) => ({ id: p.id, type: p.type, name: p.name, params: p.params, ...(p.tempoRelative ? { tempoRelative: true } : {}), ...(p.pack ? { pack: p.pack } : {}) }))
+      )
     );
   } catch {
     // Storage full or blocked: kept for this session only.
@@ -403,6 +408,27 @@ export function renameUserPreset(id: string, name: string): boolean {
 
 export function deleteUserPreset(id: string): void {
   write(read().filter((p) => p.id !== id));
+}
+
+/** A pack's presets (raw, as saved in the pack), added under that pack.
+ * A name that's taken gets the pack's name after it. Returns how many were added. */
+export function addPackPresets(packId: string, packName: string, raw: unknown[]): number {
+  const list = read().filter((p) => p.pack !== packId);
+  const added: EffectPreset[] = [];
+  raw.forEach((item, i) => {
+    const r = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const p = normalize({ ...r, id: `pack:${packId}:${i}`, pack: packId });
+    if (!p) return;
+    const taken = (n: string) => [...list, ...added].some((q) => q.type === p.type && q.name.toLowerCase() === n.toLowerCase());
+    if (taken(p.name)) p.name = `${p.name} (${packName})`.slice(0, MAX_NAME);
+    added.push(p);
+  });
+  write([...list, ...added]);
+  return added.length;
+}
+
+export function removePackPresets(packId: string): void {
+  write(read().filter((p) => p.pack !== packId));
 }
 
 /** For tests: forget the cached list (re-read storage next time). */

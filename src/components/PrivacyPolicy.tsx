@@ -25,7 +25,7 @@ export function PrivacyPolicy({ settingsHint = "in the app, under About → Priv
       <Section title="The short version">
         <p>
           Dawn has no accounts. Your music, recordings and projects stay on your computer and are never uploaded. To
-          learn what to improve, Dawn counts how it's used (for example &ldquo;someone exported an MP3&rdquo;),
+          learn what to improve, Dawn counts how it&rsquo;s used (for example &ldquo;someone exported an MP3&rdquo;),
           without any audio, project content or personal information, and you can turn that off.
         </p>
       </Section>

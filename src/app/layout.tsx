@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   // NEXT_PUBLIC_SITE_URL when deploying (see docs/deploy.md).
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   title: "The Dawn Project — Online DAW",
+  applicationName: "The Dawn Project",
+  appleWebApp: { capable: true, title: "Dawn", statusBarStyle: "black-translucent" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
   description:
     "A browser-based digital audio workstation for recording and creating MIDI.",
   openGraph: {
@@ -32,6 +35,10 @@ export const metadata: Metadata = {
       "A browser-based digital audio workstation for recording and creating MIDI.",
     images: ["/banner.png"],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#131316",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

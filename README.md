@@ -425,6 +425,14 @@ Then open [http://localhost:3000](http://localhost:3000).
 `npm start` serves that folder locally. Any static host can put it online;
 [docs/deploy.md](docs/deploy.md) walks through Cloudflare Pages.
 
+### Installing Dawn as an app
+
+On the live site, Chrome and Edge offer **Install** (in the address bar or
+the browser menu). The installed app gets its own window and icon, opens
+without a connection, and keeps the sounds you've used (the piano samples,
+amp engine, packs) for offline sessions. When a new version is deployed, a
+**New version available: Reload** prompt appears; nothing reloads on its own.
+
 ### Browser support
 
 The app works best in **Chrome** or **Edge** on a desktop computer.
@@ -494,6 +502,13 @@ Everything is in the **File** menu:
 - **Save As…** (Ctrl+Shift+S) saves a copy under a new name.
 - **Export / Import Project File…** packs the whole project into one
   `.dawnproject` file, for backups or for moving it to another computer.
+- **Sound Packs…** installs `.dawnpack` files (or drop one anywhere on the
+  app): presets, drum kits, grooves, cabinets and amp captures. They're
+  kept in this browser and appear in the browser, kit list, Grooves tab and
+  tone pickers; removing a pack takes away exactly what it added. **Save my
+  presets as a pack** writes your own effect presets, Daybreak presets and
+  kits (with their samples) to one file, for backups or sharing. Packs only
+  hold data: anything else, or anything too large, is refused.
 
 A project folder looks like this:
 

@@ -129,6 +129,7 @@ import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
 import { StartScreen } from "./StartScreen";
 import { PacksWindow } from "./PacksWindow";
+import { AppUpdater } from "./AppUpdater";
 import { installPack, removePack, restorePacks } from "@/lib/packStore";
 import { PACK_EXTENSION } from "@/lib/dawnPack";
 import { openFeedback, PostExportNote } from "./SupportViews";
@@ -3963,6 +3964,8 @@ export function Daw() {
           onClose={() => setPacks(null)}
         />
       )}
+
+      <AppUpdater />
 
       {supportAsk && <PostExportNote onClose={() => setSupportAsk(false)} />}
 

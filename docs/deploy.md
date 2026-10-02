@@ -90,6 +90,15 @@ at most once per visit and never in the way of the download.
 add an entry and bump `version` in `package.json` to match (a test checks
 they agree); people who used an older version see the notes once.
 
+## Installable app (PWA)
+
+`src/app/manifest.ts` makes Dawn installable, with icons in `public/icons/`.
+`npm run build` first runs `scripts/build-sw.mjs`, which writes
+`public/sw.js` from `scripts/sw.template.js` with a new build id, so every
+deploy ships a new service worker and open copies of Dawn show the reload
+prompt. The worker only runs in production builds (not `npm run dev`), and
+`_headers` makes browsers always re-check `/sw.js`.
+
 ## Large files
 
 Cloudflare Pages refuses files over 25 MiB. Put anything bigger (long

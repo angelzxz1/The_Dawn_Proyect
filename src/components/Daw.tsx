@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { TrackHeader } from "./TrackHeader";
 import { TrackLane } from "./TrackLane";
+import { TimelineScrollbar } from "./TimelineScrollbar";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import { TimelineRuler } from "./TimelineRuler";
@@ -3712,7 +3713,7 @@ export function Daw() {
           </div>
         </div>
 
-        <div className="flex">
+        <div className="flex flex-1">
           <div className="flex shrink-0 flex-col">
             {visibleChannels.map((channel, idx) => (
               <div key={channel.id} data-tour={idx === 0 ? "track" : undefined}>
@@ -3822,8 +3823,9 @@ export function Daw() {
 
           <div
             ref={lanesScrollRef}
+            id="arrangement-lanes"
             onScroll={handleLanesScroll}
-            className="relative flex-1 overflow-x-auto"
+            className="relative flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {visibleChannels.map((channel) => (
               <div key={channel.id}>
@@ -3919,6 +3921,14 @@ export function Daw() {
             )}
             <Playhead pxPerSecond={pxPerSecond} height={lanesHeight} />
           </div>
+        </div>
+
+        {/* The timeline's horizontal scrollbar, pinned to the bottom of the
+            arrangement like Ableton's, so it stays in reach however many
+            tracks there are (the lanes' own scrollbar is hidden). */}
+        <div className="sticky bottom-0 z-20 flex shrink-0 border-t border-border bg-surface">
+          <div className="shrink-0 border-r border-border" style={{ width: TRACK_HEADER_WIDTH }} />
+          <TimelineScrollbar target={lanesScrollRef} controls="arrangement-lanes" contentWidth={totalSeconds * pxPerSecond} />
         </div>
       </div>
 

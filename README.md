@@ -542,6 +542,9 @@ haven't saved to a folder yet.
 - **Rename** a track by double-clicking its name. Click the color swatch to
   recolor it: pick one of the eight colors, or **Any color** for the color
   wheel. Use the arrows to move it up or down.
+- **Scroll the timeline** with the bar pinned under the tracks: drag it,
+  click where you want to go, or use the mouse wheel over it. Shift+wheel
+  over the lanes scrolls sideways too.
 - **Fold** a track with the arrow left of its name: it becomes a short row
   with its name, mute and solo, and its clips show as bars. Alt-click the
   arrow, or click **Fold** above the track list, to fold or unfold every

@@ -9,8 +9,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   Clipboard,
   Copy,
   CopyPlus,
@@ -26,6 +24,7 @@ import {
   Repeat,
   Scissors,
   Sliders,
+  KeyboardMusic,
   Trash2,
   Undo2,
   X,
@@ -40,6 +39,7 @@ import { TimelineRuler } from "./TimelineRuler";
 import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
+import { NoteInputWindow } from "./NoteInputWindow";
 import { DrumPads } from "./DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "./LoopBar";
 import { DrumRackWindow } from "./DrumRackWindow";
@@ -444,7 +444,23 @@ export function Daw() {
   const [automationChannelId, setAutomationChannelId] = useState<string | null>(null);
   /** Whether the note-input panel (piano keyboard / drum pads) at the
    * bottom of the screen is collapsed - a view-only toggle. */
-  const [instrumentPanelCollapsed, setInstrumentPanelCollapsed] = useState(false);
+  /** The floating keyboard / drum pads window (remembered between visits). */
+  const [noteInputOpen, setNoteInputOpen] = useState(() => {
+    try {
+      return localStorage.getItem("dawn.noteInputOpen") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const busRowRef = useRef<HTMLDivElement>(null);
+  const toggleNoteInput = useCallback((open: boolean) => {
+    setNoteInputOpen(open);
+    try {
+      localStorage.setItem("dawn.noteInputOpen", open ? "1" : "0");
+    } catch {
+      // Not remembered in a private window.
+    }
+  }, []);
   /** Which of that channel's targets (volume/pan/an effect param) the
    * expanded lane is currently showing/editing. */
   const [automationTarget, setAutomationTarget] = useState<AutomationTarget>({ kind: "volume" });
@@ -3456,7 +3472,21 @@ export function Daw() {
             {saveStatus === "saving" ? "autosaving…" : saveStatus === "saved" ? "autosaved" : saveStatus === "error" ? "autosave failed" : ""}
           </span>
         </div>
-        <ScaleSelector value={scaleSetting} onChange={setScaleSetting} />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => toggleNoteInput(!noteInputOpen)}
+            aria-pressed={noteInputOpen}
+            title="Show or hide the on-screen keyboard and drum pads (your computer keyboard plays the armed track either way)"
+            className={`flex h-6 items-center gap-1 rounded border px-1.5 text-xs ${
+              noteInputOpen ? "border-accent bg-accent/20 text-accent" : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            <KeyboardMusic size={12} />
+            Keys
+          </button>
+          <ScaleSelector value={scaleSetting} onChange={setScaleSetting} />
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border">
@@ -3705,164 +3735,158 @@ export function Daw() {
         }}
       />
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
-          Send/return buses
-        </span>
-        {buses.map((bus) => (
-          <div
-            key={bus.id}
-            className="flex items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-1"
-          >
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: trackColorForIndex(bus.colorIndex).accent }}
-            />
+      {/* Master and the send/return buses share one row, so the tracks keep
+          the room. The buses scroll sideways when there are many. */}
+      <div className="flex shrink-0 items-center gap-3 rounded-lg border border-border bg-surface px-3 py-1.5">
+        <div className="flex shrink-0 items-center gap-2" title="Master output: every track routes through here before the speakers.">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: MASTER_COLOR.accent }} />
+          {editingMasterName ? (
             <input
-              value={bus.name}
-              onChange={(e) => handleRenameBus(bus.id, e.target.value)}
-              className="w-20 bg-transparent text-xs outline-none"
-              title="Bus name"
+              autoFocus
+              value={masterNameDraft}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setMasterNameDraft(e.target.value)}
+              onBlur={() => {
+                const trimmed = masterNameDraft.trim();
+                if (trimmed && trimmed !== masterName) setMasterName(trimmed);
+                setEditingMasterName(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                else if (e.key === "Escape") setEditingMasterName(false);
+              }}
+              className="w-20 rounded border border-accent bg-surface px-1 text-xs font-medium outline-none"
             />
-            <button
-              type="button"
-              title="Open bus effects"
-              onClick={() => openBusFx(bus.id)}
-              className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-accent"
+          ) : (
+            <span
+              title="Double-click to rename"
+              onDoubleClick={() => {
+                setMasterNameDraft(masterName);
+                setEditingMasterName(true);
+              }}
+              className="w-20 shrink-0 truncate text-xs font-medium"
             >
-              FX{(busEffects[bus.id]?.length ?? 0) > 0 ? ` (${busEffects[bus.id]!.length})` : ""}
-            </button>
-            <button
-              type="button"
-              title="Remove bus"
-              onClick={() => handleRemoveBus(bus.id)}
-              className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-record"
-            >
-              ✕
-            </button>
+              {masterName}
+            </span>
+          )}
+          <div className="h-8">
+            <Meter channelId="master" />
           </div>
-        ))}
+          <ValueBar
+            label="Pan"
+            value={masterPan}
+            min={-1}
+            max={1}
+            defaultValue={0}
+            onChange={setMasterPan}
+            onDragStart={pushHistory}
+            formatValue={(v) => (Math.abs(v) < 0.02 ? "C" : v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`)}
+            bipolar
+          />
+          <ValueBar
+            label="Vol"
+            value={masterVolume}
+            min={-60}
+            max={6}
+            defaultValue={0}
+            onChange={setMasterVolume}
+            onDragStart={pushHistory}
+            formatValue={(v) => (v <= -60 ? "-∞" : `${v.toFixed(1)}dB`)}
+          />
+          <ValueBar
+            label="Ceiling"
+            value={masterLimiterThreshold}
+            min={-24}
+            max={0}
+            defaultValue={-1}
+            onChange={setMasterLimiterThreshold}
+            onDragStart={pushHistory}
+            formatValue={(v) => `${v.toFixed(1)}dB`}
+          />
+          <span className="text-[10px] text-muted/70">limiter</span>
+          <button
+            type="button"
+            title={`FX${masterEffects.length > 0 ? ` (${masterEffects.length})` : ""} — master bus effects`}
+            onClick={openMasterFx}
+            className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
+              masterEffects.length > 0 ? "text-accent" : "text-muted"
+            }`}
+          >
+            <Sliders size={11} />
+            FX
+            {masterEffects.length > 0 && (
+              <span className="flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
+                {masterEffects.length}
+              </span>
+            )}
+          </button>
+        </div>
+        <div className="h-8 w-px shrink-0 bg-border" />
+        <span
+          className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted"
+          title="Send/return buses: set each track's send level to a bus in its FX rack."
+        >
+          Buses
+        </span>
         <button
           type="button"
-          onClick={handleAddBus}
-          className="rounded border border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent"
+          onClick={() => {
+            handleAddBus();
+            // Bring the new bus into view at the end of the row.
+            setTimeout(() => busRowRef.current?.scrollTo({ left: busRowRef.current.scrollWidth, behavior: "smooth" }), 50);
+          }}
+          title="Add a send/return bus"
+          className="shrink-0 rounded border border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent"
         >
           + Bus
         </button>
-        <span className="text-[10px] text-muted/70">
-          Set each track&apos;s send level to a bus from its own FX window.
-        </span>
-      </div>
-
-      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: MASTER_COLOR.accent }} />
-        {editingMasterName ? (
-          <input
-            autoFocus
-            value={masterNameDraft}
-            onFocus={(e) => e.target.select()}
-            onChange={(e) => setMasterNameDraft(e.target.value)}
-            onBlur={() => {
-              const trimmed = masterNameDraft.trim();
-              if (trimmed && trimmed !== masterName) setMasterName(trimmed);
-              setEditingMasterName(false);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              else if (e.key === "Escape") setEditingMasterName(false);
-            }}
-            className="w-20 rounded border border-accent bg-surface px-1 text-xs font-medium outline-none"
-          />
-        ) : (
-          <span
-            title="Double-click to rename"
-            onDoubleClick={() => {
-              setMasterNameDraft(masterName);
-              setEditingMasterName(true);
-            }}
-            className="w-20 shrink-0 truncate text-xs font-medium"
-          >
-            {masterName}
-          </span>
-        )}
-        <div className="h-8">
-          <Meter channelId="master" />
+        <div ref={busRowRef} className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-0.5">
+          {buses.map((bus) => (
+            <div
+              key={bus.id}
+              className="flex shrink-0 items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-1"
+            >
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: trackColorForIndex(bus.colorIndex).accent }}
+              />
+              <input
+                value={bus.name}
+                onChange={(e) => handleRenameBus(bus.id, e.target.value)}
+                className="w-20 bg-transparent text-xs outline-none"
+                title="Bus name"
+              />
+              <button
+                type="button"
+                title="Open bus effects"
+                onClick={() => openBusFx(bus.id)}
+                className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-accent"
+              >
+                FX{(busEffects[bus.id]?.length ?? 0) > 0 ? ` (${busEffects[bus.id]!.length})` : ""}
+              </button>
+              <button
+                type="button"
+                title="Remove bus"
+                onClick={() => handleRemoveBus(bus.id)}
+                className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-record"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {buses.length === 0 && <span className="text-[10px] text-muted/70">No buses yet: add one for a shared reverb or delay.</span>}
         </div>
-        <ValueBar
-          label="Pan"
-          value={masterPan}
-          min={-1}
-          max={1}
-          defaultValue={0}
-          onChange={setMasterPan}
-          onDragStart={pushHistory}
-          formatValue={(v) => (Math.abs(v) < 0.02 ? "C" : v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`)}
-          bipolar
-        />
-        <ValueBar
-          label="Vol"
-          value={masterVolume}
-          min={-60}
-          max={6}
-          defaultValue={0}
-          onChange={setMasterVolume}
-          onDragStart={pushHistory}
-          formatValue={(v) => (v <= -60 ? "-∞" : `${v.toFixed(1)}dB`)}
-        />
-        <ValueBar
-          label="Ceiling"
-          value={masterLimiterThreshold}
-          min={-24}
-          max={0}
-          defaultValue={-1}
-          onChange={setMasterLimiterThreshold}
-          onDragStart={pushHistory}
-          formatValue={(v) => `${v.toFixed(1)}dB`}
-        />
-        <span className="text-[10px] text-muted/70">limiter</span>
-        <button
-          type="button"
-          title={`FX${masterEffects.length > 0 ? ` (${masterEffects.length})` : ""} — master bus effects`}
-          onClick={openMasterFx}
-          className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
-            masterEffects.length > 0 ? "text-accent" : "text-muted"
-          }`}
-        >
-          <Sliders size={11} />
-          FX
-          {masterEffects.length > 0 && (
-            <span className="flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
-              {masterEffects.length}
-            </span>
-          )}
-        </button>
-        <span className="text-[10px] text-muted/70">
-          Master output — every track routes through here before the speakers.
-        </span>
       </div>
 
-      {armedChannel?.type !== "audio" && (
-      <div className="shrink-0 overflow-hidden rounded-lg border border-border bg-surface">
-        <button
-          type="button"
-          onClick={() => setInstrumentPanelCollapsed((v) => !v)}
-          title={instrumentPanelCollapsed ? "Expand the note-input panel" : "Collapse the note-input panel"}
-          className="flex w-full items-center gap-2 bg-surface-raised px-3 py-1.5 text-left"
-        >
-          {instrumentPanelCollapsed ? (
-            <ChevronUp size={12} className="shrink-0 text-muted" />
-          ) : (
-            <ChevronDown size={12} className="shrink-0 text-muted" />
-          )}
-          <span className="text-xs font-medium">
-            {armedChannel ? `${armedChannel.name} input` : "Note input"}
-          </span>
-        </button>
-        {!instrumentPanelCollapsed && (
-        <div className="p-3">
-        {!armedChannel ? (
+      <NoteInputWindow
+        open={noteInputOpen}
+        title={armedChannel && armedChannel.type !== "audio" ? `${armedChannel.name} — keys` : "Keys"}
+        onClose={() => toggleNoteInput(false)}
+      >
+        {!armedChannel || armedChannel.type === "audio" ? (
           <p className="py-3 text-center text-xs text-muted">
-            No track armed — click a track&apos;s Record button to play or record it.
+            {armedChannel ? `${armedChannel.name} is an audio track: it records your microphone or interface.` : "No track armed"} — arm a MIDI
+            track (its red button) to play it here.
           </p>
         ) : armedChannel.instrument === "drums" ? (
           <DrumPads
@@ -3902,10 +3926,7 @@ export function Daw() {
             </div>
           </div>
         )}
-        </div>
-        )}
-      </div>
-      )}
+      </NoteInputWindow>
 
       {editingChannel && editingClipInstance && editingClipInstance.kind === "midi" && (
         <PianoRollEditor

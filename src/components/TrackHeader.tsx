@@ -315,7 +315,7 @@ export function TrackHeader({
         className="flex items-center gap-2"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex flex-col gap-1">
+        <div className="flex gap-1.5">
           <ValueBar
             label="Pan"
             value={channel.pan}
@@ -338,7 +338,7 @@ export function TrackHeader({
             formatValue={formatDb}
           />
         </div>
-        <div className="h-10">
+        <div className="h-[26px]">
           <Meter channelId={isMaster ? "master" : channel.id} />
         </div>
       </div>

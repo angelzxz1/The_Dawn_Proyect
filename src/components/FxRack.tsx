@@ -555,11 +555,13 @@ export function FxRack({
         )}
 
         {!isBus && buses.length > 0 && onSendChange && (
-          <div className="flex w-40 shrink-0 flex-col rounded border border-border bg-surface-raised p-2">
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+          <div className="flex max-h-[214px] w-[172px] shrink-0 flex-col self-start rounded border border-border bg-surface-raised p-2">
+            <div className="mb-1.5 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wide text-muted">
               Sends
+              {buses.length > 6 && <span className="font-normal normal-case tracking-normal text-muted/70">{buses.length} buses · scroll</span>}
             </div>
-            <div className="flex flex-1 flex-wrap content-start gap-2">
+            {/* Many buses scroll inside the card instead of growing past the rack. */}
+            <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-x-1.5 gap-y-2 overflow-y-auto overflow-x-hidden pr-0.5">
               {buses.map((bus) => (
                 <ValueBar
                   key={bus.id}

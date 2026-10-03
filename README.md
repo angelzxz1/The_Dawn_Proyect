@@ -548,6 +548,10 @@ haven't saved to a folder yet.
 
 ### Playing
 
+- **Keys** (in the toolbar, next to Scale) opens the on-screen piano, or the
+  drum pads for a drum track, in a window that floats over the studio: drag
+  it by its title bar wherever it's handy. It remembers where you left it,
+  and the computer keyboard plays the armed track whether it's open or not.
 - **Computer keyboard**, laid out like Ableton's: the `Z` row plays the lower
   octave (`Z S X D C V G B H N J M`, black keys on the row above), and the
   `Q` row plays the next one (`Q 2 W 3 E R 5 T 6 Y 7 U I`). The octave
@@ -719,9 +723,11 @@ offered.
 
 ### Buses and sends
 
-- **+ Bus** in the **Send/return buses** strip adds a return bus. Each bus
-  has its own name, effects (from **FX**), volume and pan.
-- Every track's FX rack ends with a **Sends** card, with one level per bus.
+- **+ Bus**, at the start of the **Buses** list beside the master strip,
+  adds a return bus (the list scrolls sideways when there are many). Each
+  bus has its own name, effects (from **FX**), volume and pan.
+- Every track's FX rack ends with a **Sends** card, with one level per bus;
+  with many buses it scrolls.
   For example, put a Reverb on a bus and send several tracks to it.
 - The **master bus** has its own FX chain, and the master strip has volume,
   pan and a **Ceiling** limiter that keeps the mix from clipping.

@@ -87,4 +87,26 @@ describe("delay compensation through routed tracks", () => {
     expect(plan.send.get("bass")).toBeCloseTo(0, 9);
     expect(plan.total).toBeCloseTo(0.006, 9);
   });
+
+  it("a live track's group skips compensation too", () => {
+    const plan = planCompensation({
+      enabled: true,
+      channels: [
+        { id: "group", latency: 0, live: false },
+        { id: "guitar", latency: 0, live: true, dest: "group" },
+        { id: "keys", latency: 0.003, live: false, dest: "group" },
+        { id: "drums", latency: 0.01, live: false },
+      ],
+      buses: [],
+      master: 0,
+    });
+    expect([...plan.live].sort()).toEqual(["group", "guitar"]);
+    // Nothing holds the guitar back on its way out.
+    expect(plan.channel.get("guitar")).toBe(0);
+    expect(plan.channel.get("group")).toBe(0);
+    expect(plan.own.get("group")).toBe(0);
+    // The rest still line up among themselves.
+    expect(plan.channel.get("drums")).toBeCloseTo(0, 9);
+    expect(plan.compensated).toBeCloseTo(0.01, 9);
+  });
 });

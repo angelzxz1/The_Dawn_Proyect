@@ -55,6 +55,7 @@ export function AudioStatus() {
   const [measure, setMeasure] = useState<{ state: "idle" | "running" | "failed" | "done"; message?: string }>({ state: "idle" });
   const [offsetDraft, setOffsetDraft] = useState(String(prefs.recordingOffsetMs));
   const rootRef = useRef<HTMLDivElement>(null);
+  const [deviceRates, setDeviceRates] = useState<{ output: number | null; input: number | null } | null>(null);
 
   // The engine follows the settings.
   useEffect(() => {
@@ -76,6 +77,17 @@ export function AudioStatus() {
     return () => clearInterval(t);
   }, []);
   useEffect(() => audioEngine.onLatencyChange(() => setLatencyTick((n) => n + 1)), []);
+
+  // The devices' rates, checked each time the panel opens (the device may
+  // have changed).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void audioEngine.getDeviceRates().then((rates) => !cancelled && setDeviceRates(rates));
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,6 +166,19 @@ export function AudioStatus() {
               <Timer size={12} /> Latency
             </h3>
             <Row label="Sample rate" value={`${(info.sampleRate / 1000).toFixed(1)} kHz`} />
+            {deviceRates?.output && (
+              <Row label="Output device rate" value={`${(deviceRates.output / 1000).toFixed(1)} kHz`} title="The rate your speakers or interface run at, as set in the system's sound settings." />
+            )}
+            {deviceRates?.input && (
+              <Row label="Input device rate" value={`${(deviceRates.input / 1000).toFixed(1)} kHz`} title="The rate your microphone or interface input runs at." />
+            )}
+            {[deviceRates?.output, deviceRates?.input].some((r) => r && r !== info.sampleRate) && (
+              <p className="rounded border border-[#E6AD5E]/40 bg-[#E6AD5E]/10 px-2 py-1.5 text-[11px] leading-snug text-[#E6AD5E]">
+                Your audio device runs at a different rate than Dawn ({(info.sampleRate / 1000).toFixed(1)} kHz), so the browser
+                converts the audio on the way in and out, which adds delay. Set the device to {(info.sampleRate / 1000).toFixed(1)} kHz
+                (on Windows: Sound settings → the device → Properties → Advanced, for both the output and the input), then reload.
+              </p>
+            )}
             <Row label="Output (engine → speakers)" value={ms(info.output)} title="The browser's audio buffer plus the device's." />
             <Row label="Input (mic → engine)" value={info.input ? ms(info.input) : "unknown"} title="As the browser reports it - it may not know all of it." />
             <Row

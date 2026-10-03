@@ -1399,7 +1399,7 @@ class AudioEngine {
   private delayCompensation = true;
   private reducedLatencyMonitoring = true;
   private armedChannelId: string | null = null;
-  private compensation: CompensationPlan = { channel: new Map(), own: new Map(), send: new Map(), bus: new Map(), direct: 0, total: 0, compensated: 0 };
+  private compensation: CompensationPlan = { channel: new Map(), own: new Map(), send: new Map(), bus: new Map(), direct: 0, total: 0, compensated: 0, live: new Set() };
   /** Where each track's audio goes (routing.ts): another track, or null for
    * the master. */
   private routes = new Map<string, string | null>();
@@ -1439,7 +1439,7 @@ class AudioEngine {
       setDelay(n.ownDelay, plan.own.get(id) ?? 0);
       setDelay(n.sendTap, plan.send.get(id) ?? 0);
       const dest = this.destOf(id);
-      const route = dest ? `to:${dest}` : this.isLive(id, n) ? "master" : "direct";
+      const route = dest ? `to:${dest}` : plan.live.has(id) ? "master" : "direct";
       if (route !== n.route) {
         try {
           if (n.route === "direct") n.channel.disconnect(this.directDelay!);
@@ -1514,6 +1514,23 @@ class AudioEngine {
       effects: this.compensation.total,
       compensated: this.compensation.compensated,
     };
+  }
+
+  /** The audio devices' own sample rates, when known: the output's (what a
+   * plain AudioContext gets) and the input's (the mic stream's). When they
+   * differ from the engine's rate the browser converts, which can add
+   * latency. */
+  async getDeviceRates(): Promise<{ output: number | null; input: number | null }> {
+    let output: number | null = null;
+    try {
+      const probe = new AudioContext();
+      output = probe.sampleRate;
+      void probe.close();
+    } catch {
+      // No way to ask.
+    }
+    const input = this.micStream?.getAudioTracks()[0]?.getSettings().sampleRate ?? null;
+    return { output, input };
   }
 
   setMasterVolume(db: number): void {

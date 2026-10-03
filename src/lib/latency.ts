@@ -20,6 +20,9 @@
 // its chain carries on from there. Sends leave a track's strip earlier than
 // the mix reaches the master when it feeds another track, so they wait the
 // difference (`send`) to stay in time with the dry path.
+//
+// A live track makes its whole path live: the group or audio track it plays
+// through skips compensation too, or the live audio would wait in there.
 
 import type * as Tone from "tone";
 
@@ -62,6 +65,24 @@ export interface CompensationPlan {
   total: number;
   /** The largest latency being compensated for (s), for display. */
   compensated: number;
+  /** Tracks treated as live: the live ones and every track they play
+   * through on the way to the master. They go straight to the master. */
+  live: Set<string>;
+}
+
+/** The live tracks plus every track their audio passes through. */
+function livePath(channels: CompensationInput["channels"]): Set<string> {
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const live = new Set<string>();
+  channels.forEach((c) => {
+    if (!c.live) return;
+    let at: string | null | undefined = c.id;
+    while (at && byId.has(at) && !live.has(at)) {
+      live.add(at);
+      at = byId.get(at)!.dest;
+    }
+  });
+  return live;
 }
 
 export function planCompensation(input: CompensationInput): CompensationPlan {
@@ -69,6 +90,7 @@ export function planCompensation(input: CompensationInput): CompensationPlan {
   const own = new Map<string, number>();
   const send = new Map<string, number>();
   const bus = new Map<string, number>();
+  const live = livePath(input.channels);
   if (!input.enabled) {
     input.channels.forEach((c) => {
       channel.set(c.id, 0);
@@ -76,9 +98,10 @@ export function planCompensation(input: CompensationInput): CompensationPlan {
       send.set(c.id, 0);
     });
     input.buses.forEach((b) => bus.set(b.id, 0));
-    return { channel, own, send, bus, direct: 0, total: input.master, compensated: 0 };
+    return { channel, own, send, bus, direct: 0, total: input.master, compensated: 0, live };
   }
-  const byId = new Map(input.channels.map((c) => [c.id, c]));
+  const byId = new Map(input.channels.map((c) => [c.id, { ...c, live: live.has(c.id) }]));
+  const channels = [...byId.values()];
   const destOf = (c: { dest?: string | null }) => (c.dest && byId.has(c.dest) ? c.dest : null);
   // When the audio feeding a track's effects is all in (its latest
   // non-live feeder), and when it leaves them. Routes form a tree
@@ -89,16 +112,16 @@ export function planCompensation(input: CompensationInput): CompensationPlan {
     if (seen.has(id)) return 0;
     seen.add(id);
     let latest = 0;
-    input.channels.forEach((k) => {
+    channels.forEach((k) => {
       if (!k.live && destOf(k) === id) latest = Math.max(latest, timeIn(k.id, seen) + k.latency);
     });
     inMemo.set(id, latest);
     return latest;
   };
   const timeOut = (id: string) => timeIn(id) + byId.get(id)!.latency;
-  const maxTrack = Math.max(0, ...input.channels.filter((c) => !c.live && !destOf(c)).map((c) => timeOut(c.id)));
+  const maxTrack = Math.max(0, ...channels.filter((c) => !c.live && !destOf(c)).map((c) => timeOut(c.id)));
   const direct = Math.max(0, ...input.buses.map((b) => b.latency));
-  input.channels.forEach((c) => {
+  channels.forEach((c) => {
     const dest = destOf(c);
     if (c.live) {
       channel.set(c.id, 0);
@@ -112,7 +135,7 @@ export function planCompensation(input: CompensationInput): CompensationPlan {
     send.set(c.id, Math.max(0, maxTrack - leaves));
   });
   input.buses.forEach((b) => bus.set(b.id, direct - b.latency));
-  return { channel, own, send, bus, direct, total: maxTrack + direct + input.master, compensated: maxTrack + direct };
+  return { channel, own, send, bus, direct, total: maxTrack + direct + input.master, compensated: maxTrack + direct, live };
 }
 
 /** Where a burst of clicks came back in a recording: each click (the

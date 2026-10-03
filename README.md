@@ -806,7 +806,10 @@ playback.
 Click the engine-load display in the header to see:
 
 - the audio engine's CPU load, and its peak over the last few seconds;
-- the sample rate;
+- the sample rate, and your output and input devices' own rates. When a
+  device runs at a different rate than Dawn (48 kHz), the browser converts
+  the audio, which adds delay; the panel then says how to set the device to
+  48 kHz;
 - the output and input latency;
 - how much effect delay is being compensated.
 
@@ -814,7 +817,8 @@ From there you can:
 
 - turn **delay compensation** on or off;
 - turn on **reduced latency when monitoring**, so the monitored or armed
-  track skips the wait added for other tracks' effects;
+  track (and the group or track it plays through) skips the wait added for
+  other tracks' effects;
 - set the **recording offset**.
 
 ## Keyboard shortcuts

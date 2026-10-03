@@ -60,6 +60,10 @@ const KEY_COL_WIDTH = 40;
 const RULER_H = 20;
 const GRID_VIEWPORT_H = 340;
 const VELOCITY_H = 65;
+/** Pixels from the bottom of the velocity lane to full velocity (127). */
+const VELOCITY_SPAN = VELOCITY_H - 6;
+/** Where the dotted reference line sits: velocity 100 of 127. */
+const VELOCITY_REF = 100 / 127;
 const DEFAULT_PX_PER_SECOND = 130;
 const MIN_PX_PER_SECOND = 40;
 const MAX_PX_PER_SECOND = 500;
@@ -78,6 +82,11 @@ function noteNameToMidi(name: string): number {
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const [, pitch, octave] = match;
   return NOTE_NAMES.indexOf(pitch) + (parseInt(octave, 10) + 1) * 12;
+}
+
+/** A velocity (0..1) kept on MIDI's 1..127 steps. */
+function clampVelocity(v: number): number {
+  return Math.min(127, Math.max(1, Math.round(v * 127))) / 127;
 }
 
 function rowTop(midi: number): number {
@@ -131,6 +140,10 @@ export function PianoRollEditor({
     null
   );
   const [quantizeBeats, setQuantizeBeats] = useState(0.25); // 1/16 note by default
+  /** Where Ctrl/Cmd+V pastes (clip-local seconds), like Ableton's insert
+   * marker: set by clicking the ruler, or empty space in select mode. With
+   * none, pastes land at the playhead. */
+  const [insertAt, setInsertAt] = useState<number | null>(null);
 
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const keysViewportRef = useRef<HTMLDivElement>(null);
@@ -241,7 +254,7 @@ export function PianoRollEditor({
         const copied = getCopiedNotes();
         if (!copied || copied.length === 0) return;
         e.preventDefault();
-        const anchor = snapTime(Math.max(0, audioEngine.getTransportSeconds() - offset));
+        const anchor = insertAt ?? snapTime(Math.max(0, audioEngine.getTransportSeconds() - offset));
         const earliest = Math.min(...copied.map((n) => n.time));
         const shift = anchor - earliest;
         const pasted: EditableNote[] = copied.map((n) => ({
@@ -251,12 +264,21 @@ export function PianoRollEditor({
         }));
         commit([...notes, ...pasted]);
         setSelectedIds(new Set(pasted.map((p) => p.id)));
+        // The marker moves past what was pasted (rounded up to the beat), so
+        // pasting again carries on from there.
+        if (insertAt !== null) {
+          const span = Math.max(...copied.map((n) => n.time + n.duration)) - earliest;
+          const beats = Math.max(1, Math.ceil(span / secondsPerBeat - 1e-6));
+          setInsertAt(Math.min(length, anchor + beats * secondsPerBeat));
+        }
+      } else if (e.key === "Escape" && insertAt !== null) {
+        setInsertAt(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, notes, isPlaying, onPlay, onPause, secondsPer16th, length, offset, quantizeBeats, secondsPerBeat]);
+  }, [selectedIds, notes, isPlaying, onPlay, onPause, secondsPer16th, length, offset, quantizeBeats, secondsPerBeat, insertAt]);
 
   // Playhead line, driven by rAF so it doesn't cause React re-renders.
   useEffect(() => {
@@ -396,6 +418,7 @@ export function PianoRollEditor({
         setSelectedIds(e.shiftKey ? new Set([...selectedIds, ...hitIds]) : new Set(hitIds));
       } else if (!e.shiftKey) {
         setSelectedIds(new Set());
+        setInsertAt(snapTime(xToTime(ev.clientX)));
       }
       setMarquee(null);
     };
@@ -498,6 +521,12 @@ export function PianoRollEditor({
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
+    // Shift-click adds to (or removes from) the selection, wherever on the
+    // note it lands.
+    if (e.shiftKey) {
+      handleNotePointerDown(e, n);
+      return;
+    }
     const activeSelection = selectedIds.has(n.id) && selectedIds.size > 1 ? selectedIds : new Set([n.id]);
     setSelectedIds(activeSelection);
     const baseNotes = notes;
@@ -554,26 +583,37 @@ export function PianoRollEditor({
     window.addEventListener("mouseup", onUp);
   };
 
-  // --- Velocity lane: drag a note's bar vertically to change its velocity ---
+  // --- Velocity lane: drag a note's bar vertically to change its velocity.
+  // Dragging one of several selected notes moves all of their velocities by
+  // the same amount, like Ableton. ---
   const handleVelocityPointerDown = (
     e: React.PointerEvent<HTMLDivElement>,
     n: EditableNote
   ) => {
     e.stopPropagation();
     if (e.button !== 0) return;
-    setSelectedIds(new Set([n.id]));
+    const group = selectedIds.has(n.id) && selectedIds.size > 1 ? selectedIds : new Set([n.id]);
+    if (group.size === 1) setSelectedIds(group);
     const baseNotes = notes;
-    let finalVelocity = n.velocity;
+    const startVelocity = new Map(baseNotes.filter((note) => group.has(note.id)).map((note) => [note.id, note.velocity]));
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
 
-    const updateFromY = (clientY: number) => {
+    const fromY = (clientY: number) => {
       const rect = velocityViewportRef.current!.getBoundingClientRect();
-      const ratio = 1 - (clientY - rect.top) / VELOCITY_H;
-      finalVelocity = Math.min(1, Math.max(0.05, ratio));
-      setNotes((prev) =>
-        prev.map((note) => (note.id === n.id ? { ...note, velocity: finalVelocity } : note))
-      );
+      return clampVelocity((rect.bottom - clientY) / VELOCITY_SPAN);
+    };
+    // A single note follows the pointer; a group keeps its shape, shifted
+    // by how far the grabbed note moved.
+    let delta = 0;
+    const apply = (list: EditableNote[]) =>
+      list.map((note) => {
+        const v0 = startVelocity.get(note.id);
+        return v0 === undefined ? note : { ...note, velocity: clampVelocity(v0 + delta) };
+      });
+    const updateFromY = (clientY: number) => {
+      delta = fromY(clientY) - n.velocity;
+      setNotes(apply(baseNotes));
     };
     updateFromY(e.clientY);
 
@@ -583,14 +623,28 @@ export function PianoRollEditor({
       target.releasePointerCapture(e.pointerId);
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
-      commit(
-        baseNotes.map((note) =>
-          note.id === n.id ? { ...note, velocity: finalVelocity } : note
-        )
-      );
+      commit(apply(baseNotes));
     };
     target.addEventListener("pointermove", onMove);
     target.addEventListener("pointerup", onUp);
+  };
+
+  /** Sets every selected note to one velocity (1..127), from the toolbar field. */
+  const setSelectedVelocity = (midiVelocity: number) => {
+    const v = clampVelocity(midiVelocity / 127);
+    commit(notes.map((note) => (selectedIds.has(note.id) ? { ...note, velocity: v } : note)));
+  };
+
+  // The toolbar's velocity readout: the selection's value, or a range.
+  const selectedVelocities = notes.filter((note) => selectedIds.has(note.id)).map((note) => Math.round(note.velocity * 127));
+  const velocityLow = selectedVelocities.length ? Math.min(...selectedVelocities) : 0;
+  const velocityHigh = selectedVelocities.length ? Math.max(...selectedVelocities) : 0;
+
+  /** Clicking the ruler places the insert marker (where pastes land). */
+  const handleRulerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setInsertAt(snapTime((e.clientX - rect.left) / pxPerSecond));
   };
 
   const pitchRows = useMemo(() => {
@@ -706,6 +760,15 @@ export function PianoRollEditor({
                 Quantize
               </button>
             </div>
+            {selectedVelocities.length > 0 && (
+              <VelocityField
+                key={`${velocityLow}-${velocityHigh}-${selectedVelocities.length}`}
+                low={velocityLow}
+                high={velocityHigh}
+                count={selectedVelocities.length}
+                onSet={setSelectedVelocity}
+              />
+            )}
             <ScaleSelector value={scaleSetting} onChange={onScaleChange} />
             <button
               type="button"
@@ -722,7 +785,7 @@ export function PianoRollEditor({
           {mode === "draw"
             ? "drag on empty space to draw a note · shift-click or drag a selection to move it · drag its right edge to resize · right-click a note to delete it"
             : "drag on empty space to box-select notes · shift-click to add/remove a note · drag a selection to move it · Delete to remove"}
-          {" · press B to toggle mode · Q to quantize · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste notes at the playhead"}
+          {" · press B to toggle mode · Q to quantize · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste: click the ruler (or empty space in select mode) to choose where pastes land, otherwise they go to the playhead · drag a velocity bar of a selection to change them all"}
         </div>
 
         <div
@@ -742,7 +805,15 @@ export function PianoRollEditor({
               style={{ height: RULER_H }}
               className="flex-1 overflow-hidden border-b border-border"
             >
-              <div className="relative" style={{ width: contentWidth, height: RULER_H }}>
+              <div
+                className="relative cursor-pointer"
+                style={{ width: contentWidth, height: RULER_H }}
+                onPointerDown={handleRulerPointerDown}
+                title="Click to place the insert marker: Ctrl/Cmd+V pastes there"
+              >
+                {insertAt !== null && (
+                  <div className="pointer-events-none absolute bottom-0 z-10 -ml-[4px] h-0 w-0 border-x-[4px] border-t-[6px] border-x-transparent border-t-foreground" style={{ left: insertAt * pxPerSecond }} />
+                )}
                 {gridLines
                   .filter((l) => l.label !== null)
                   .map((l) => (
@@ -885,10 +956,14 @@ export function PianoRollEditor({
                         opacity: 0.55 + n.velocity * 0.45,
                       }}
                     >
-                      <div
-                        onPointerDown={(e) => handleResizePointerDown(e, n)}
-                        className="ml-auto h-full w-1.5 cursor-ew-resize bg-black/20"
-                      />
+                      {/* Short notes (a drum hit) have no room for a handle: they
+                          stay grabbable for moving. */}
+                      {width >= 14 && (
+                        <div
+                          onPointerDown={(e) => handleResizePointerDown(e, n)}
+                          className="ml-auto h-full w-1.5 cursor-ew-resize bg-black/20"
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -901,6 +976,12 @@ export function PianoRollEditor({
                       width: marquee.w,
                       height: marquee.h,
                     }}
+                  />
+                )}
+                {insertAt !== null && (
+                  <div
+                    className="pointer-events-none absolute top-0 z-10 border-l border-dashed border-foreground/80"
+                    style={{ left: insertAt * pxPerSecond, height: contentHeight }}
                   />
                 )}
                 <div
@@ -918,9 +999,12 @@ export function PianoRollEditor({
           <div className="flex">
             <div
               style={{ width: KEY_COL_WIDTH, height: VELOCITY_H }}
-              className="flex shrink-0 items-center justify-center border-r border-t border-border text-[9px] text-muted"
+              className="relative shrink-0 border-r border-t border-border text-[9px] text-muted"
             >
-              vel
+              <span className="absolute left-1 top-1">vel</span>
+              <span className="absolute right-1 font-mono text-[8px]" style={{ bottom: VELOCITY_REF * VELOCITY_SPAN - 5 }}>
+                100
+              </span>
             </div>
             <div
               ref={velocityViewportRef}
@@ -928,9 +1012,17 @@ export function PianoRollEditor({
               className="flex-1 overflow-hidden border-t border-border"
             >
               <div className="relative" style={{ width: contentWidth, height: VELOCITY_H }}>
+                <div
+                  className="pointer-events-none absolute left-0 w-full border-t border-dashed border-foreground/35"
+                  style={{ bottom: VELOCITY_REF * VELOCITY_SPAN }}
+                  title="Velocity 100"
+                />
+                {insertAt !== null && (
+                  <div className="pointer-events-none absolute top-0 h-full border-l border-dashed border-foreground/50" style={{ left: insertAt * pxPerSecond }} />
+                )}
                 {notes.map((n) => {
                   const selected = selectedIds.has(n.id);
-                  const h = Math.max(3, n.velocity * (VELOCITY_H - 6));
+                  const h = Math.max(3, n.velocity * VELOCITY_SPAN);
                   return (
                     <div
                       key={n.id}
@@ -954,5 +1046,45 @@ export function PianoRollEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+/** The selected notes' velocity: one number, or a range when they differ.
+ * Typing a value sets every selected note to it. */
+function VelocityField({ low, high, count, onSet }: { low: number; high: number; count: number; onSet: (v: number) => void }) {
+  const [draft, setDraft] = useState(low === high ? String(low) : "");
+  const cancelled = useRef(false);
+  const submit = () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      setDraft(low === high ? String(low) : "");
+      return;
+    }
+    const v = parseInt(draft, 10);
+    if (!Number.isFinite(v) || (low === high && v === low)) return;
+    onSet(Math.min(127, Math.max(1, v)));
+  };
+  return (
+    <label className="flex items-center gap-1 text-[11px] text-muted" title={`Velocity of the ${count} selected note${count === 1 ? "" : "s"} (1-127). Type a value to set them all.`}>
+      Velocity
+      <input
+        value={draft}
+        inputMode="numeric"
+        placeholder={low === high ? undefined : `${low}-${high}`}
+        onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            submit();
+            (e.target as HTMLInputElement).blur();
+          } else if (e.key === "Escape") {
+            cancelled.current = true;
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        onBlur={submit}
+        className="w-14 rounded border border-border bg-surface px-1.5 py-1 text-center font-mono text-[11px] text-foreground outline-none placeholder:text-muted/70 focus:border-accent"
+      />
+    </label>
   );
 }

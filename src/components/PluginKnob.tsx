@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { FINE_FACTOR } from "@/lib/knobInput";
+import { useKnobWheel } from "./useKnobWheel";
 
 export type KnobMode = "bipolar" | "log" | "linear";
 
@@ -104,11 +106,22 @@ export function PluginKnob({
 }: PluginKnobProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const dragState = useRef<{ startY: number; startFraction: number; moved: boolean } | null>(null);
+  const dragState = useRef<{ startY: number; lastY: number; fraction: number; moved: boolean } | null>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
 
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   const fraction = valueToFraction(value, min, max, mode);
   const angle = START_ANGLE + fraction * SWEEP;
+
+  useKnobWheel(
+    knobRef,
+    fraction,
+    (next, fresh) => {
+      if (fresh) onDragStart?.();
+      onChange(clamp(fractionToValue(next, min, max, mode)));
+    },
+    !disabled && !editing
+  );
 
   const startEditing = () => {
     if (disabled) return;
@@ -128,7 +141,7 @@ export function PluginKnob({
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (editing || disabled || e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragState.current = { startY: e.clientY, startFraction: fraction, moved: false };
+    dragState.current = { startY: e.clientY, lastY: e.clientY, fraction, moved: false };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -140,8 +153,12 @@ export function PluginKnob({
       drag.moved = true;
     }
     if (!drag.moved) return;
-    const nextFraction = drag.startFraction + delta / DRAG_RANGE_PX;
-    onChange(clamp(fractionToValue(nextFraction, min, max, mode)));
+    // Movement is added up step by step, so pressing or releasing Shift
+    // mid-drag (fine control) never makes the knob jump.
+    const step = (drag.lastY - e.clientY) / DRAG_RANGE_PX;
+    drag.lastY = e.clientY;
+    drag.fraction = Math.min(1, Math.max(0, drag.fraction + step * (e.shiftKey ? FINE_FACTOR : 1)));
+    onChange(clamp(fractionToValue(drag.fraction, min, max, mode)));
   };
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -173,6 +190,7 @@ export function PluginKnob({
   // still bubbles up to this same persistent element's onDoubleClick.
   const knobEl = (
     <div
+      ref={knobRef}
       role="slider"
       aria-label={`${label}, ${formatValue(value)}`}
       aria-valuemin={min}
@@ -180,7 +198,7 @@ export function PluginKnob({
       aria-valuenow={value}
       aria-disabled={disabled}
       tabIndex={disabled ? -1 : 0}
-      title={disabled ? undefined : "Drag to change · click or right-click to type · double-click to reset"}
+      title={disabled ? undefined : "Drag or scroll to change (hold Shift for fine) · click or right-click to type · double-click to reset"}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
@@ -201,7 +219,7 @@ export function PluginKnob({
       }}
       onKeyDown={(e) => {
         if (disabled) return;
-        const step = (max - min) / 100;
+        const step = ((max - min) / 100) * (e.shiftKey ? FINE_FACTOR : 1);
         if (e.key === "ArrowUp" || e.key === "ArrowRight") {
           onDragStart?.();
           onChange(clamp(value + step));

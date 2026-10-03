@@ -660,10 +660,17 @@ Double-click a MIDI clip to open it.
 - Press **B** to switch between the two modes.
 - **Arrow keys** nudge the selected notes by a semitone or a 1/16 note.
 - **Q** quantizes the notes to the chosen resolution (1/4 to 1/32).
+- **Shift-click** notes to add them to (or take them out of) the selection.
 - **Delete** removes the selected notes, and **Ctrl+C / Ctrl+V** copy and
-  paste them.
+  paste them. Pastes land at the **insert marker**: click the ruler (or empty
+  space in Select mode) to place it, as in Ableton. Each paste moves the
+  marker past what it pasted, so pasting again carries on; Esc removes the
+  marker, and without one pastes go to the playhead.
 - The **velocity lane** at the bottom sets how hard each note is played: drag
-  a note's bar up or down.
+  a note's bar up or down. Dragging one of several selected notes moves all
+  of them by the same amount, and the **Velocity** box in the toolbar shows
+  the selection's velocity (or its range) and sets them all to a typed
+  value. The dotted line marks velocity 100.
 - **Zoom** with the + and − buttons, and press **Space** to play or stop.
 
 ### Effects
@@ -783,12 +790,17 @@ From there you can:
 | Ctrl/Cmd+O | Open a project |
 | `Z`…`M`, `Q`…`I` and the number row | Play notes |
 | `A`…`;`, `Q`…`Y` | Play drum pads |
+| **On any knob or bar:** | |
+| Drag, or scroll with the pointer over it | Change it |
+| Shift while dragging or scrolling | Change it finely (a tenth as fast) |
+| Click / double-click | Type a value / reset |
 | **In the piano roll:** | |
 | B | Switch between Draw and Select |
 | Q | Quantize |
 | Arrow keys | Nudge the selected notes |
 | Delete / Backspace | Delete the selected notes |
-| Ctrl/Cmd+C, Ctrl/Cmd+V | Copy / paste notes |
+| Ctrl/Cmd+C, Ctrl/Cmd+V | Copy / paste notes (at the insert marker, else the playhead) |
+| Esc | Remove the insert marker |
 | Space | Play / stop |
 
 ## How it works

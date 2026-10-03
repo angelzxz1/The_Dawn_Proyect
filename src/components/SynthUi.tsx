@@ -2,6 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { FINE_FACTOR } from "@/lib/knobInput";
+import { useKnobWheel } from "./useKnobWheel";
 import {
   BIPOLAR_SOURCES,
   DEST_INDEX,
@@ -170,6 +172,7 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
   const [over, setOver] = useState(false);
   const drag = useRef<{ y: number; f: number; moved: boolean } | null>(null);
   const liveDot = useRef<SVGCircleElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
   const mods = dest ? ui.params.mods.filter((m) => m.dest === dest) : [];
 
   useEffect(() => {
@@ -196,6 +199,16 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
       if (m) m.amount = Math.max(-1, Math.min(1, amount));
     });
 
+  useKnobWheel(
+    knobRef,
+    fraction,
+    (next, fresh) => {
+      if (fresh) ui.begin();
+      onChange(Math.min(max, Math.max(min, fromF(next))));
+    },
+    !disabled && !editing
+  );
+
   const angle = START + fraction * SWEEP;
   const needle0 = pt(angle, 6);
   const needle1 = pt(angle, 14);
@@ -218,13 +231,14 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
         </span>
       )}
       <div
+        ref={knobRef}
         role="slider"
         aria-label={`${label}, ${format(value)}`}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={value}
         tabIndex={disabled ? -1 : 0}
-        title={title ?? (dest ? "Drag · Shift for fine · click to type · double-click to reset · drop a modulation source here · right-click for modulations" : "Drag · click to type · double-click to reset")}
+        title={title ?? (dest ? "Drag or scroll (Shift for fine) · click to type · double-click to reset · drop a modulation source here · right-click for modulations" : "Drag or scroll (Shift for fine) · click to type · double-click to reset")}
         className={`relative rounded-full ${disabled ? "opacity-40" : "cursor-ns-resize"}`}
         style={{ width: size, height: size, touchAction: "none", boxShadow: over ? `0 0 0 2px ${SOURCE_COLORS[ui.dragging ?? "env1"]}` : undefined }}
         onPointerDown={(e) => {
@@ -241,12 +255,10 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
             ui.begin();
           }
           if (!d.moved) return;
-          const f = d.f + (dy / DRAG_PX) * (e.shiftKey ? 0.15 : 1);
-          if (e.shiftKey) {
-            d.f = f;
-            d.y = e.clientY;
-          }
-          onChange(Math.min(max, Math.max(min, fromF(Math.max(0, Math.min(1, f))))));
+          // Added up step by step, so Shift (fine) can come and go mid-drag.
+          d.f = Math.max(0, Math.min(1, d.f + (dy / DRAG_PX) * (e.shiftKey ? FINE_FACTOR : 1)));
+          d.y = e.clientY;
+          onChange(Math.min(max, Math.max(min, fromF(d.f))));
         }}
         onPointerUp={(e) => {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
@@ -278,7 +290,7 @@ export function SynthKnob({ label, value, min, max, defaultValue, onChange, form
           if (!d) return;
           e.preventDefault();
           ui.begin();
-          onChange(Math.min(max, Math.max(min, fromF(Math.max(0, Math.min(1, fraction + d * 0.01))))));
+          onChange(Math.min(max, Math.max(min, fromF(Math.max(0, Math.min(1, fraction + d * 0.01 * (e.shiftKey ? FINE_FACTOR : 1)))))));
         }}
         onDragOver={(e) => {
           if (!dest || !e.dataTransfer.types.includes(MOD_MIME)) return;

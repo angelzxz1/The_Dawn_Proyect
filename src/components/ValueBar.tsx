@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { FINE_FACTOR } from "@/lib/knobInput";
+import { useKnobWheel } from "./useKnobWheel";
 
 interface ValueBarProps {
   label: string;
@@ -36,16 +38,27 @@ export function ValueBar({
 }: ValueBarProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const dragState = useRef<{ startY: number; startValue: number; moved: boolean } | null>(
+  const dragState = useRef<{ startY: number; lastY: number; value: number; moved: boolean } | null>(
     null
   );
+  const barRef = useRef<HTMLDivElement>(null);
 
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
+
+  useKnobWheel(
+    barRef,
+    (clamp(value) - min) / (max - min),
+    (position, fresh) => {
+      if (fresh) onDragStart?.();
+      onChange(clamp(min + position * (max - min)));
+    },
+    !editing
+  );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (editing) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragState.current = { startY: e.clientY, startValue: value, moved: false };
+    dragState.current = { startY: e.clientY, lastY: e.clientY, value, moved: false };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -57,8 +70,11 @@ export function ValueBar({
       drag.moved = true;
     }
     if (!drag.moved) return;
-    const range = max - min;
-    onChange(clamp(drag.startValue + (delta / DRAG_RANGE_PX) * range));
+    // Step by step, so Shift (fine) can come and go mid-drag.
+    const step = ((drag.lastY - e.clientY) / DRAG_RANGE_PX) * (max - min);
+    drag.lastY = e.clientY;
+    drag.value = clamp(drag.value + step * (e.shiftKey ? FINE_FACTOR : 1));
+    onChange(drag.value);
   };
 
   const startEditing = () => {
@@ -108,6 +124,8 @@ export function ValueBar({
         aria-valuemax={max}
         aria-valuenow={value}
         tabIndex={0}
+        ref={barRef}
+        title="Drag or scroll to change (hold Shift for fine) · click to type · double-click to reset"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
@@ -117,7 +135,7 @@ export function ValueBar({
           onChange(defaultValue);
         }}
         onKeyDown={(e) => {
-          const step = (max - min) / 100;
+          const step = ((max - min) / 100) * (e.shiftKey ? FINE_FACTOR : 1);
           if (e.key === "ArrowUp" || e.key === "ArrowRight") {
             onDragStart?.();
             onChange(clamp(value + step));

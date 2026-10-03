@@ -54,11 +54,15 @@ interface ClipBlockProps {
    * so a caller can push one undo checkpoint per drag instead of one per
    * pixel. */
   onDragStart?: () => void;
+  /** The lane's height; a short (folded) lane shows just the clip's bar. */
+  rowHeight?: number;
 }
 
 const MIN_MIDI = 36;
 const MAX_MIDI = 96;
 const LANE_PADDING = 10;
+/** Lanes shorter than this draw clips as a bar, without notes or waveform. */
+export const COMPACT_BELOW = 60;
 const DOUBLE_CLICK_MS = 350;
 const DRAG_THRESHOLD_PX = 3;
 const MIN_RESIZE_SECONDS = 0.15;
@@ -104,8 +108,11 @@ export function ClipBlock({
   onResize,
   onContextMenu,
   onDragStart,
+  rowHeight = TRACK_ROW_HEIGHT,
 }: ClipBlockProps) {
-  const laneHeight = TRACK_ROW_HEIGHT - LANE_PADDING * 2 - 18;
+  const compact = rowHeight < COMPACT_BELOW;
+  const pad = compact ? 3 : LANE_PADDING;
+  const laneHeight = rowHeight - pad * 2 - 18;
   const lastClickAt = useRef(0);
 
   const grid = snapSeconds && snapSeconds > 0 ? snapSeconds : null;
@@ -261,19 +268,20 @@ export function ClipBlock({
         onContextMenu(e);
       }}
       title="Drag to move · drag right edge to resize · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options"
-      className={`group absolute top-2.5 flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
+      className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
         selected ? "ring-2 ring-accent" : ""
       }`}
       style={{
         left: offset * pxPerSecond,
+        top: pad,
         width: widthPx,
-        height: TRACK_ROW_HEIGHT - LANE_PADDING * 2,
+        height: rowHeight - pad * 2,
         borderColor: color.accent,
         background: color.accentSoft,
       }}
     >
       <div
-        className="flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px]"
+        className={`flex items-center justify-between gap-1 px-1.5 py-0.5 text-[10px] ${compact ? "h-full" : ""}`}
         style={{ background: color.accent, color: "#0a0a0a" }}
       >
         <span className="flex min-w-0 items-center gap-1 truncate">
@@ -306,6 +314,7 @@ export function ClipBlock({
           <span className="shrink-0 opacity-0 group-hover:opacity-100">dbl-click to edit</span>
         )}
       </div>
+      {!compact && (
       <div className="relative flex-1">
         {clipType === "audio" ? (
           <WaveformCanvas
@@ -363,6 +372,7 @@ export function ClipBlock({
           </svg>
         )}
       </div>
+      )}
       <div
         onPointerDown={handleResizePointerDown}
         title="Drag to resize the clip length"

@@ -5,6 +5,7 @@
 
 import { zipSync } from "fflate";
 import { audibleChannels, renderProject, type BounceParams, type RenderedAudio } from "./bounce";
+import { routeMap, upstreamOf } from "./routing";
 import { encodeWav } from "./wav";
 import { encodeMp3 } from "./mp3";
 import { normalizePeak, safeFileName, stemFileNames, type ExportSettings } from "./exportFormats";
@@ -34,10 +35,16 @@ async function encode(audio: RenderedAudio, s: ExportSettings, title: string, on
   return encodeWav(audio.channels, audio.sampleRate, s.wavBits);
 }
 
-/** The tracks that get a stem: the ones heard in the mix that have something on them. */
+/** The tracks that get a stem: the ones heard in the mix that go to the
+ * master (a group's stem includes its members) and have something on them,
+ * or routed into them. */
 export function stemTracks(params: BounceParams): { id: string; name: string }[] {
-  return audibleChannels(params.channels)
-    .filter((c) => (params.clipsByChannel[c.id] ?? []).length > 0)
+  const routes = routeMap(params.channels);
+  const heard = new Set(audibleChannels(params.channels).map((c) => c.id));
+  const hasClips = (id: string) => heard.has(id) && (params.clipsByChannel[id] ?? []).length > 0;
+  return params.channels
+    .filter((c) => heard.has(c.id) && !routes.get(c.id))
+    .filter((c) => hasClips(c.id) || [...upstreamOf(c.id, routes)].some(hasClips))
     .map((c) => ({ id: c.id, name: c.name }));
 }
 

@@ -52,6 +52,10 @@ Live and Reaper.
 - **Sidechain.** Compressors, gates and multiband dynamics can listen to
   another track (for example, the kick ducking the bass).
 - **Send/return buses** and a **master bus**, each with their own effects.
+- **Group tracks** (like Ableton's groups or Reaper's folders), and
+  **track-to-track routing**: send a track's audio through another track.
+- **Folding.** Fold any track, or all of them, to a short row so more fit on
+  screen.
 - **Automation** of volume, pan and any effect knob.
 - **Delay compensation.** Effects that add latency (lookahead, oversampling,
   amp models) are compensated so every track stays in time, both when you
@@ -536,7 +540,12 @@ haven't saved to a folder yet.
   - An **audio** track holds audio clips and records from an input.
   - A track's type can't be changed later. Both kinds can use every effect.
 - **Rename** a track by double-clicking its name. Click the color swatch to
-  recolor it, and use the arrows to move it up or down.
+  recolor it: pick one of the eight colors, or **Any color** for the color
+  wheel. Use the arrows to move it up or down.
+- **Fold** a track with the arrow left of its name: it becomes a short row
+  with its name, mute and solo, and its clips show as bars. Alt-click the
+  arrow, or click **Fold** above the track list, to fold or unfold every
+  track.
 - **Mute** and **Solo** work as in any mixer. Each track also has **volume**,
   **pan** and a level meter.
 - **Choose the instrument** for a MIDI track in its FX rack: None, Piano,
@@ -732,6 +741,35 @@ offered.
 - The **master bus** has its own FX chain, and the master strip has volume,
   pan and a **Ceiling** limiter that keeps the mix from clipping.
 
+### Groups and routing
+
+- **Group tracks:** Ctrl/Cmd-click the headers of the tracks you want
+  (the selected track counts too), then press **Ctrl/Cmd+G**. You can also
+  right-click a header and choose **Group**. **+ Group** under the track
+  list adds an empty group.
+- A group's tracks sit under it, marked by a bar in the group's color. Their
+  audio plays through the group, so the group's effects, volume, pan, mute
+  and solo act on all of them. Soloing a group plays its tracks; soloing a
+  track in a group keeps the group open.
+- Folding a group hides its tracks. Its lane shows their clips as a summary.
+- Right-click a header to **move a track into a group**, **take it out**, or
+  **ungroup** (the tracks stay, and go wherever the group went). Removing a
+  group also keeps its tracks.
+- **Audio to**, at the top right of a track's FX rack, chooses where its
+  audio goes: the master, its group, another group, or an audio track. When
+  it goes into an audio track, that track's effects process it too (for
+  example, several tracks through one amp or one bus compressor). The
+  header shows **→ name** when a track goes somewhere other than the usual
+  place.
+- Routes that would loop aren't offered. Sends to buses leave a track
+  before its output, so a track's reverb send still plays when the track it
+  goes to is muted.
+- Delay compensation, sidechains and export (mix and stems) follow the
+  routing. A stem is made for each track that reaches the master, with
+  everything that plays through it.
+- An audio track that receives other tracks processes them, but doesn't
+  record them.
+
 ### Automation
 
 - Open a track's **automation lane** from its header, and choose what to
@@ -787,6 +825,8 @@ From there you can:
 | Ctrl/Cmd+V | Paste the copied clip at the playhead |
 | Ctrl/Cmd+D | Duplicate the selected clips |
 | Ctrl/Cmd+L | Loop the selected clips, or switch the loop on/off |
+| Ctrl/Cmd-click a track header | Pick tracks to group (Esc forgets them) |
+| Ctrl/Cmd+G | Group the picked tracks, or the selected one |
 | Up / Down (loop brace selected) | Move the loop by its own length |
 | Left / Right (loop brace selected) | Move the loop by one grid step |
 | Ctrl/Cmd+Left / Right (loop brace selected) | Shorten / lengthen the loop |

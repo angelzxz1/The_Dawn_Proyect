@@ -53,6 +53,11 @@ interface TrackLaneProps {
   onDropGroove?: (grooveId: string, atSeconds: number) => void;
   /** What to do here, shown while the lane is empty. */
   hint?: string;
+  /** The lane's height (shorter when the track is folded). */
+  rowHeight?: number;
+  /** A group's lane: its members' clips drawn faintly, one stripe per
+   * member, instead of clips of its own. */
+  overview?: { id: string; clips: ClipInstance[]; color: TrackColor }[];
 }
 
 export function TrackLane({
@@ -82,6 +87,8 @@ export function TrackLane({
   onDropAudioFile,
   onDropGroove,
   hint,
+  rowHeight = TRACK_ROW_HEIGHT,
+  overview,
 }: TrackLaneProps) {
   const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
   const [fileDragOver, setFileDragOver] = useState(false);
@@ -144,7 +151,7 @@ export function TrackLane({
       className={`relative cursor-pointer border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
       } ${fileDragOver || grooveDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
-      style={{ height: TRACK_ROW_HEIGHT, width: totalSeconds * pxPerSecond }}
+      style={{ height: rowHeight, width: totalSeconds * pxPerSecond }}
     >
       {armed && (
         <div className="pointer-events-none absolute inset-0 z-0 border border-record/40" />
@@ -175,10 +182,11 @@ export function TrackLane({
           }}
         />
       ))}
-      {hint && clips.length === 0 && !recording && !fileDragOver && !grooveDragOver && (
+      {overview && <GroupOverview members={overview} rowHeight={rowHeight} pxPerSecond={pxPerSecond} />}
+      {hint && clips.length === 0 && !overview?.some((m) => m.clips.length > 0) && !recording && !fileDragOver && !grooveDragOver && (
         <div className="pointer-events-none absolute inset-y-0 left-3 z-0 flex items-center text-[11.5px] text-muted/80">{hint}</div>
       )}
-      {recording && <RecordingClip channelId={channelId} pxPerSecond={pxPerSecond} />}
+      {recording && <RecordingClip channelId={channelId} pxPerSecond={pxPerSecond} rowHeight={rowHeight} />}
       {clips.map((clip) => (
         <ClipBlock
           key={clip.id}
@@ -208,8 +216,44 @@ export function TrackLane({
           onResize={(length) => onResizeClip(clip.id, length)}
           onContextMenu={(e) => onClipContextMenu(clip.id, e)}
           onDragStart={onClipDragStart}
+          rowHeight={rowHeight}
         />
       ))}
+    </div>
+  );
+}
+
+/** A group lane's summary: each member's clips as a faint bar in its own
+ * stripe, like Ableton's group track. */
+function GroupOverview({
+  members,
+  rowHeight,
+  pxPerSecond,
+}: {
+  members: { id: string; clips: ClipInstance[]; color: TrackColor }[];
+  rowHeight: number;
+  pxPerSecond: number;
+}) {
+  const pad = rowHeight < 60 ? 4 : 10;
+  const stripe = members.length ? (rowHeight - pad * 2) / members.length : 0;
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      {members.map((m, i) =>
+        m.clips.map((clip) => (
+          <div
+            key={`${m.id}:${clip.id}`}
+            className="absolute rounded-sm"
+            style={{
+              left: clip.offset * pxPerSecond,
+              width: Math.max(2, clip.length * pxPerSecond),
+              top: pad + i * stripe + (stripe > 4 ? 1 : 0),
+              height: Math.max(1, stripe - (stripe > 4 ? 2 : 0)),
+              background: m.color.accent,
+              opacity: 0.45,
+            }}
+          />
+        ))
+      )}
     </div>
   );
 }

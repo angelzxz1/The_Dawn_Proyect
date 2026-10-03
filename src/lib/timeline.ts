@@ -4,6 +4,13 @@ export const TRACK_HEADER_WIDTH = 202;
 // Tall enough for the header's four rows - name, pan/vol + meter, the
 // instrument/FX row, and the import/export/clear/remove row.
 export const TRACK_ROW_HEIGHT = 118;
+/** A folded track: one short row (name, mute, solo), clips as thin bars. */
+export const FOLDED_ROW_HEIGHT = 30;
+
+/** A track's row height in the arrangement. */
+export function rowHeightOf(track: { folded?: boolean }): number {
+  return track.folded ? FOLDED_ROW_HEIGHT : TRACK_ROW_HEIGHT;
+}
 export const RULER_HEIGHT = 25;
 export const DEFAULT_PX_PER_SECOND = 70;
 export const MIN_PX_PER_SECOND = 20;

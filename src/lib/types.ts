@@ -16,8 +16,10 @@ export type InstrumentType = "piano" | "drums" | "synth";
 /** A channel's fixed kind, chosen when it's created (Ableton-style): a MIDI
  * track plays notes through an instrument and can host audio effects too; an
  * audio track holds a recorded/imported clip and can only host audio
- * effects. This never changes for the lifetime of the channel. */
-export type ChannelType = "midi" | "audio";
+ * effects. A group track holds no clips: its members' audio runs through
+ * its effects and fader (see routing.ts). This never changes for the
+ * lifetime of the channel. */
+export type ChannelType = "midi" | "audio" | "group";
 
 export interface ChannelConfig {
   id: string;
@@ -25,6 +27,8 @@ export interface ChannelConfig {
   volume: number; // dB
   pan: number; // -1..1
   colorIndex: number;
+  /** A color picked freely ("#rrggbb"), overriding the palette slot. */
+  color?: string;
   type: ChannelType;
   /** The loaded instrument, or null for an empty (silent) MIDI track - a
    * track doesn't have to have anything loaded into it. Unused for audio
@@ -49,6 +53,16 @@ export interface ChannelConfig {
    * the channel's own dry signal always keeps going straight to master
    * regardless of any sends. */
   sends?: Record<string, number>;
+  /** The group this track belongs to (a group track's id). Its audio goes
+   * into the group unless `output` says otherwise. */
+  groupId?: string;
+  /** Where the track's audio goes: another track's id (a group or an
+   * audio track, whose effects then process it), "master", or unset for
+   * the default (its group, else the master). See routing.ts. */
+  output?: string;
+  /** Folded: a short row in the arrangement (for a group: its members are
+   * hidden too). */
+  folded?: boolean;
   /** Automation lanes recorded for this channel's volume/pan/effect knobs.
    * Each lane's points are edited on the arrangement timeline's automation
    * strip and replayed by the engine during playback. */
@@ -66,6 +80,8 @@ export interface BusConfig {
   id: string;
   name: string;
   colorIndex: number;
+  /** A color picked freely ("#rrggbb"), overriding the palette slot. */
+  color?: string;
 }
 
 /** One point on an automation lane's curve - `value` is in the target

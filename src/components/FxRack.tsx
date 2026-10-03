@@ -79,6 +79,11 @@ interface FxRackProps {
   onPresetChange?: (effectId: string, change: PresetChange) => void;
   /** Tracks and buses, for naming a dynamics effect's sidechain source. */
   sidechainSources?: SidechainSource[];
+  /** A track's "Audio to" choices ("" is the default: its group, or the
+   * master) and the current one. Omitted for buses and the master. */
+  outputOptions?: { value: string; label: string }[];
+  outputValue?: string;
+  onOutputChange?: (value: string) => void;
 }
 
 /** Effect types with a custom rack card + full window, instead of the
@@ -186,6 +191,9 @@ export function FxRack({
   onClearEffectFile,
   sidechainSources,
   onPresetChange,
+  outputOptions,
+  outputValue = "",
+  onOutputChange,
 }: FxRackProps) {
   const [dragOverGap, setDragOverGap] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -206,21 +214,42 @@ export function FxRack({
         collapsed ? "" : "h-[256px]"
       }`}
     >
-      <button
-        type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        title={collapsed ? "Expand the FX rack" : "Collapse the FX rack"}
-        className="flex w-full items-center gap-2 border-b border-border bg-surface-raised px-3 py-1.5 text-left"
-      >
-        {collapsed ? <ChevronUp size={12} className="shrink-0 text-muted" /> : <ChevronDown size={12} className="shrink-0 text-muted" />}
-        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color.accent }} />
-        <span className="text-xs font-medium">FX — {channelName}</span>
-        {!collapsed && (
-          <span className="text-[10px] text-muted">
-            drag a device from the sidebar into the rack, or drag a card to reorder it
-          </span>
+      <div className="flex items-center border-b border-border bg-surface-raised">
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          title={collapsed ? "Expand the FX rack" : "Collapse the FX rack"}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
+        >
+          {collapsed ? <ChevronUp size={12} className="shrink-0 text-muted" /> : <ChevronDown size={12} className="shrink-0 text-muted" />}
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color.accent }} />
+          <span className="shrink-0 text-xs font-medium">FX — {channelName}</span>
+          {!collapsed && (
+            <span className="truncate text-[10px] text-muted">
+              drag a device from the sidebar into the rack, or drag a card to reorder it
+            </span>
+          )}
+        </button>
+        {outputOptions && onOutputChange && (
+          <label
+            className="mr-2 flex shrink-0 items-center gap-1.5 text-[10px] text-muted"
+            title="Where this track's audio goes: the master, its group, or another track (whose effects then process it too)"
+          >
+            Audio to
+            <select
+              value={outputOptions.some((o) => o.value === outputValue) ? outputValue : ""}
+              onChange={(e) => onOutputChange(e.target.value)}
+              className="max-w-[160px] rounded border border-border bg-surface px-1 py-0.5 text-[11px] text-foreground"
+            >
+              {outputOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
-      </button>
+      </div>
 
       {!collapsed && (
       <div className="flex flex-1 items-stretch gap-0 overflow-x-auto p-2">

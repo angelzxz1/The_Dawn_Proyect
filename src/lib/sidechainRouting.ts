@@ -30,6 +30,13 @@ export interface RoutingSnapshot {
     /** Delay (s) from its strip to the master (the shared direct delay, or
      * 0 for a live track). */
     toMaster: number;
+    /** The track it feeds, if not the master (routing.ts). */
+    dest?: string | null;
+    /** How late (s) audio reaches the start of its effects (its own
+     * sources wait for the tracks routed into it). */
+    start?: number;
+    /** Delay (s) on its sends. */
+    send?: number;
   }[];
   buses: { id: string; chain: number; pdc: number }[];
 }
@@ -50,7 +57,7 @@ function feeds(snapshot: RoutingSnapshot): Map<string, Set<string>> {
   };
   snapshot.channels.forEach((c) => {
     c.sends.forEach((bus) => add(bus, c.id));
-    add("master", c.id);
+    add(c.dest ?? "master", c.id);
   });
   snapshot.buses.forEach((b) => add("master", b.id));
   return graph;
@@ -105,7 +112,7 @@ export function canKeyFrom(snapshot: RoutingSnapshot, others: SidechainRequest[]
 function busInput(snapshot: RoutingSnapshot, busId: string): number {
   let latest = 0;
   snapshot.channels.forEach((c) => {
-    if (c.sends.includes(busId)) latest = Math.max(latest, c.chain + c.pdc);
+    if (c.sends.includes(busId)) latest = Math.max(latest, (c.start ?? 0) + c.chain + c.pdc + (c.send ?? 0));
   });
   return latest;
 }
@@ -114,18 +121,21 @@ function busInput(snapshot: RoutingSnapshot, busId: string): number {
 export function hostInputLatency(snapshot: RoutingSnapshot, hostId: string): number {
   if (hostId === "master") {
     let latest = 0;
-    snapshot.channels.forEach((c) => (latest = Math.max(latest, c.chain + c.pdc + c.toMaster)));
+    snapshot.channels.forEach((c) => {
+      if (!c.dest) latest = Math.max(latest, (c.start ?? 0) + c.chain + c.pdc + c.toMaster);
+    });
     snapshot.buses.forEach((b) => (latest = Math.max(latest, busInput(snapshot, b.id) + b.chain + b.pdc)));
     return latest;
   }
-  return snapshot.buses.some((b) => b.id === hostId) ? busInput(snapshot, hostId) : 0;
+  if (snapshot.buses.some((b) => b.id === hostId)) return busInput(snapshot, hostId);
+  return snapshot.channels.find((c) => c.id === hostId)?.start ?? 0;
 }
 
 /** How late (s) a source's audio is at a tap point. */
 export function tapLatency(snapshot: RoutingSnapshot, sourceId: string, tap: SidechainTap): number {
   const channel = snapshot.channels.find((c) => c.id === sourceId);
   const bus = snapshot.buses.find((b) => b.id === sourceId);
-  const start = bus ? busInput(snapshot, sourceId) : 0;
+  const start = bus ? busInput(snapshot, sourceId) : (channel?.start ?? 0);
   const node = channel ?? bus;
   if (!node || tap === "preFx") return start;
   return start + node.chain + (tap === "postFader" ? node.pdc : 0);

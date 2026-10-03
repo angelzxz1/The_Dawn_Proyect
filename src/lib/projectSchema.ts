@@ -17,6 +17,8 @@ import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./tim
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
 import { normalizeSynthParams } from "./synthParams";
 import { normalizeDrumKit } from "./drumParams";
+import { HEX_COLOR } from "./colors";
+import { MASTER_OUTPUT, normalizeGroups } from "./routing";
 import type {
   AutomationLane,
   AutomationPoint,
@@ -227,7 +229,7 @@ function normalizeChannel(
   const r = obj(raw);
   const id = nonEmptyId(r.id);
   if (!id) return null;
-  const type = oneOf(r.type, ["midi", "audio"] as const, "midi");
+  const type = oneOf(r.type, ["midi", "audio", "group"] as const, "midi");
   const instrument =
     type === "midi" ? oneOf<InstrumentType | null>(r.instrument, ["piano", "drums", "synth", null], null) : null;
   const sends = Object.fromEntries(
@@ -243,13 +245,18 @@ function normalizeChannel(
     volume: num(r.volume, 0, -60, 6),
     pan: num(r.pan, 0, -1, 1),
     colorIndex: int(r.colorIndex, index, 0),
+    ...(typeof r.color === "string" && HEX_COLOR.test(r.color) ? { color: r.color.toLowerCase() } : {}),
     type,
     instrument,
     ...(instrument === "synth" ? { synthParams: normalizeSynthParams(r.synthParams) } : {}),
     ...(instrument === "drums" ? { drumParams: normalizeDrumKit(r.drumParams) } : {}),
     muted: bool(r.muted, false),
     solo: bool(r.solo, false),
-    armed: bool(r.armed, false),
+    // A group has nothing to record.
+    armed: type !== "group" && bool(r.armed, false),
+    ...(typeof r.groupId === "string" && r.groupId ? { groupId: r.groupId } : {}),
+    ...(typeof r.output === "string" && r.output ? { output: r.output } : {}),
+    ...(r.folded === true ? { folded: true } : {}),
     sends,
     automationLanes,
   };
@@ -315,7 +322,14 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     arr(r.buses).map((b, i) => {
       const br = obj(b);
       const id = nonEmptyId(br.id);
-      return id ? { id, name: str(br.name, `Bus ${i + 1}`), colorIndex: int(br.colorIndex, i, 0) } : null;
+      return id
+        ? {
+            id,
+            name: str(br.name, `Bus ${i + 1}`),
+            colorIndex: int(br.colorIndex, i, 0),
+            ...(typeof br.color === "string" && HEX_COLOR.test(br.color) ? { color: br.color.toLowerCase() } : {}),
+          }
+        : null;
     })
   );
   const busIds = new Set(busList.map((b) => b.id));
@@ -340,7 +354,9 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
   const rawChannels = arr(r.channels);
   const rawChannelEffects = obj(r.channelEffects);
   const channelEffects: Record<string, EffectInstance[]> = {};
-  const channels = uniqueById(
+  // Groups: members right after their group, one level deep; outputs that
+  // point at a missing track fall back to the default (routing.ts).
+  const loaded = uniqueById(
     rawChannels.map((c, i) => {
       const id = nonEmptyId(obj(c).id);
       if (!id || Object.hasOwn(channelEffects, id)) return null;
@@ -348,12 +364,21 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
       return normalizeChannel(c, i, busIds, channelEffects[id], legacyFilterIds);
     })
   );
+  const loadedIds = new Set(loaded.map((c) => c.id));
+  const channels = normalizeGroups(
+    loaded.map((c) => {
+      if (!c.output || c.output === MASTER_OUTPUT || loadedIds.has(c.output)) return c;
+      const { output: _o, ...rest } = c;
+      void _o;
+      return rest;
+    })
+  );
 
   const clipsByChannel: Record<string, SerializedClip[]> = {};
   const rawClips = obj(r.clipsByChannel);
   channels.forEach((c) => {
     clipsByChannel[c.id] = uniqueById(
-      arr(rawClips[c.id]).map((clip) => normalizeClip(clip, c.type)),
+      c.type === "group" ? [] : arr(rawClips[c.id]).map((clip) => normalizeClip(clip, c.type as "midi" | "audio")),
       clipIds
     );
   });

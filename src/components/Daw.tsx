@@ -15,6 +15,10 @@ import {
   Download,
   FileAudio,
   FilePlus2,
+  FolderInput,
+  FolderOutput,
+  FolderPlus,
+  ChevronsDownUp,
   Heart,
   Info,
   Loader2,
@@ -81,7 +85,8 @@ import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nud
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
-import { trackColorForIndex, MASTER_COLOR } from "@/lib/colors";
+import { MASTER_COLOR, trackColorOf, type TrackColorPick } from "@/lib/colors";
+import { canMoveTrack, groupTracks, hiddenByFoldedGroups, MASTER_OUTPUT, moveTrack, outputTargets, routeMap, setTrackGroup, ungroup } from "@/lib/routing";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
@@ -169,7 +174,7 @@ import {
   SNAP_RESOLUTIONS,
   SNAP_RESOLUTION_LABELS,
   TRACK_HEADER_WIDTH,
-  TRACK_ROW_HEIGHT,
+  rowHeightOf,
   quarterNotesPerBar,
   roundUpToBar,
   secondsPerBar,
@@ -345,6 +350,7 @@ function automationTargetKey(target: AutomationTarget): string {
 
 /** What an empty track lane suggests doing. */
 function laneHint(channel: ChannelConfig, armed: boolean): string {
+  if (channel.type === "group") return "A group: its tracks play through it. Ctrl/Cmd-click track headers and press Ctrl+G to group more";
   if (channel.type === "audio") {
     return armed
       ? "Press R to record here, or drop an audio file"
@@ -1038,6 +1044,15 @@ export function Daw() {
     });
   }, [channels]);
 
+  // Tell the engine where each track's audio goes (groups, outputs), when
+  // that changes.
+  const routingKey = channels.map((c) => `${c.id}:${c.type}:${c.groupId ?? ""}:${c.output ?? ""}`).join("|");
+  useEffect(() => {
+    audioEngine.setRouting(channels.map((c) => ({ id: c.id, type: c.type, groupId: c.groupId, output: c.output })));
+    // Only the routing fields matter (routingKey covers them).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routingKey]);
+
   // Keep the audio engine's buses in sync with React state too.
   useEffect(() => {
     const currentIds = new Set(buses.map((b) => b.id));
@@ -1363,7 +1378,7 @@ export function Daw() {
       pushHistory();
       setChannels((prev) => {
         const countOfType = prev.filter((c) => c.type === type).length;
-        const name = type === "midi" ? `MIDI ${countOfType + 1}` : `Audio ${countOfType + 1}`;
+        const name = type === "midi" ? `MIDI ${countOfType + 1}` : type === "audio" ? `Audio ${countOfType + 1}` : `Group ${countOfType + 1}`;
         return [...prev, createChannel(name, type)];
       });
     },
@@ -1373,7 +1388,8 @@ export function Daw() {
   const handleRemoveChannel = useCallback(
     (id: string) => {
       pushHistory();
-      setChannels((prev) => prev.filter((c) => c.id !== id));
+      // Removing a group keeps its members (they leave the group).
+      setChannels((prev) => (prev.find((c) => c.id === id)?.type === "group" ? ungroup(prev, id) : prev.filter((c) => c.id !== id)));
       setClipsByChannel((prev) => {
         // No blob/URL cleanup here - the snapshot pushHistory() just
         // captured still references these clips, so undoing the channel
@@ -1460,12 +1476,13 @@ export function Daw() {
   const handleArmToggle = useCallback(
     (id: string) => {
       if (transportState === "recording") return;
+      if (channels.find((c) => c.id === id)?.type === "group") return;
       pushHistory();
       setChannels((prev) => prev.map((c) => ({ ...c, armed: c.id === id ? !c.armed : false })));
       setSelectedChannelId(id);
       setSelectedClipIds(new Set());
     },
-    [transportState, pushHistory]
+    [transportState, pushHistory, channels]
   );
 
   const handleInstrumentChange = useCallback(
@@ -1694,25 +1711,125 @@ export function Daw() {
   const handleReorderChannel = useCallback(
     (id: string, direction: -1 | 1) => {
       pushHistory();
-      setChannels((prev) => {
-        const idx = prev.findIndex((c) => c.id === id);
-        const target = idx + direction;
-        if (idx === -1 || target < 0 || target >= prev.length) return prev;
-        const next = [...prev];
-        [next[idx], next[target]] = [next[target], next[idx]];
-        return next;
-      });
+      // A group moves with its members; a member moves within its group.
+      setChannels((prev) => moveTrack(prev, id, direction));
     },
     [pushHistory]
   );
 
+  /** A palette slot, or (`color`) any color from the color wheel. */
   const handleRecolorChannel = useCallback(
-    (id: string, colorIndex: number) => {
+    (id: string, pick: TrackColorPick) => {
       pushHistory();
-      setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, colorIndex } : c)));
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          if ("color" in pick) return { ...c, color: pick.color };
+          const { color: _drop, ...rest } = c;
+          void _drop;
+          return { ...rest, colorIndex: pick.colorIndex };
+        })
+      );
     },
     [pushHistory]
   );
+
+  const openFx = useCallback((channelId: string) => {
+    setFxChannelId(channelId);
+    setFxBusId(null);
+    setFxMasterOpen(false);
+  }, []);
+
+  // --- Groups, routing and folding (routing.ts) ---
+
+  /** Tracks picked with Ctrl/Cmd-click on their headers, for grouping. */
+  const [trackPicks, setTrackPicks] = useState<Set<string>>(new Set());
+
+  /** Groups the picked tracks (or the selected one) into a new group. */
+  const handleGroupTracks = useCallback(
+    (ids: string[]) => {
+      const members = ids.filter((id) => channels.some((c) => c.id === id && c.type !== "group"));
+      if (members.length === 0) return;
+      pushHistory();
+      const count = channels.filter((c) => c.type === "group").length;
+      const group = { ...createChannel(`Group ${count + 1}`, "group"), colorIndex: channels.find((c) => c.id === members[0])?.colorIndex ?? 0 };
+      setChannels((prev) => groupTracks(prev, members, group));
+      setTrackPicks(new Set());
+      setSelectedChannelId(group.id);
+      openFx(group.id);
+      track("tracks_grouped");
+    },
+    [channels, pushHistory, openFx]
+  );
+
+  const handleSetTrackGroup = useCallback(
+    (id: string, groupId: string | null) => {
+      pushHistory();
+      setChannels((prev) => setTrackGroup(prev, id, groupId));
+    },
+    [pushHistory]
+  );
+
+  /** Where a track's audio goes ("Audio to"): a track's id, "master", or
+   * null for the default (its group, else the master). */
+  const handleSetOutput = useCallback(
+    (id: string, output: string | null) => {
+      pushHistory();
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          if (output) return { ...c, output };
+          const { output: _o, ...rest } = c;
+          void _o;
+          return rest;
+        })
+      );
+    },
+    [pushHistory]
+  );
+
+  const handleToggleFold = useCallback((id: string) => {
+    setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, folded: !c.folded } : c)));
+  }, []);
+
+  /** Folds every track to a short row, or unfolds them all. */
+  const allFolded = channels.length > 0 && channels.every((c) => c.folded);
+  const handleFoldAll = useCallback((fold?: boolean) => {
+    setChannels((prev) => {
+      const next = fold ?? !prev.every((c) => c.folded);
+      return prev.map((c) => ({ ...c, folded: next }));
+    });
+  }, []);
+
+  /** Ctrl/Cmd-click on a header: picks or unpicks a track for grouping. */
+  const handlePickTrack = useCallback((id: string) => {
+    setTrackPicks((prev) => {
+      const next = new Set(prev);
+      // The selected track counts as picked when picking starts.
+      if (next.size === 0 && selectedChannelId && selectedChannelId !== id) next.add(selectedChannelId);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, [selectedChannelId]);
+
+  // Ctrl/Cmd+G groups the picked tracks, or the selected one; Escape
+  // forgets the picks.
+  useEffect(() => {
+    if (editingClip) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        handleGroupTracks(trackPicks.size > 0 ? [...trackPicks] : selectedChannelId ? [selectedChannelId] : []);
+      } else if (e.key === "Escape" && trackPicks.size > 0) {
+        setTrackPicks(new Set());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingClip, trackPicks, selectedChannelId, handleGroupTracks]);
 
   /** Copies one clip instance's content into the shared clipboard. */
   const copyClipInstance = useCallback((clip: ClipInstance) => {
@@ -1888,12 +2005,6 @@ export function Daw() {
     },
     [bpm, beatsPerBar, addMidiClip]
   );
-
-  const openFx = useCallback((channelId: string) => {
-    setFxChannelId(channelId);
-    setFxBusId(null);
-    setFxMasterOpen(false);
-  }, []);
 
   const handleToggleAutomation = useCallback((channelId: string) => {
     setAutomationChannelId((prev) => (prev === channelId ? null : channelId));
@@ -2582,6 +2693,8 @@ export function Daw() {
     const { channelId, atSeconds } = contextMenu;
     const copied = getCopiedClip();
     const pasteDisabled = !copied || copied.kind !== channelTypeOf(channelId);
+    // A group's lane holds no clips.
+    if (channelTypeOf(channelId) === "group") return [];
     const items: (ContextMenuItem | "separator")[] =
       channelTypeOf(channelId) === "midi"
         ? [
@@ -2611,8 +2724,12 @@ export function Daw() {
   const headerMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
     if (!contextMenu || contextMenu.kind !== "header") return [];
     const id = contextMenu.channelId;
-    const items: (ContextMenuItem | "separator")[] =
-      channelTypeOf(id) === "midi"
+    const channel = channels.find((c) => c.id === id);
+    if (!channel) return [];
+    const isGroup = channel.type === "group";
+    const clipItems: ContextMenuItem[] = isGroup
+      ? []
+      : channel.type === "midi"
         ? [
             {
               label: "Add empty MIDI clip",
@@ -2627,17 +2744,41 @@ export function Daw() {
               onSelect: () => triggerAudioImport(id, endOfContent(id)),
             },
           ];
-    if (channels.length > 1) {
-      items.push("separator", {
-        label: "Remove track",
-        icon: <X size={13} />,
-        danger: true,
-        onSelect: () => handleRemoveChannel(id),
-      });
-    }
+    // Grouping: the Ctrl/Cmd-clicked tracks (with this one), or this one.
+    const picked = trackPicks.has(id) ? [...trackPicks] : [id];
+    const groups = channels.filter((c) => c.type === "group" && c.id !== channel.groupId);
+    const groupItems: ContextMenuItem[] = isGroup
+      ? [{ label: "Ungroup (keep the tracks)", icon: <FolderOutput size={13} />, onSelect: () => handleRemoveChannel(id) }]
+      : [
+          {
+            label: picked.length > 1 ? `Group ${picked.length} tracks (Ctrl+G)` : "Group this track (Ctrl+G)",
+            icon: <FolderPlus size={13} />,
+            onSelect: () => handleGroupTracks(picked),
+          },
+          ...groups.map((g) => ({ label: `Move into “${g.name}”`, icon: <FolderInput size={13} />, onSelect: () => handleSetTrackGroup(id, g.id) })),
+          ...(channel.groupId ? [{ label: "Take out of the group", icon: <FolderOutput size={13} />, onSelect: () => handleSetTrackGroup(id, null) }] : []),
+        ];
+    const foldItem: ContextMenuItem = {
+      label: channel.folded ? (isGroup ? "Unfold the group" : "Unfold track") : isGroup ? "Fold the group (hide its tracks)" : "Fold track",
+      icon: <ChevronsDownUp size={13} />,
+      onSelect: () => handleToggleFold(id),
+    };
+    const removeItems: (ContextMenuItem | "separator")[] =
+      channels.length > 1 && !isGroup
+        ? [
+            "separator",
+            {
+              label: "Remove track",
+              icon: <X size={13} />,
+              danger: true,
+              onSelect: () => handleRemoveChannel(id),
+            },
+          ]
+        : [];
+    const items: (ContextMenuItem | "separator")[] = [...clipItems, ...(clipItems.length ? ["separator" as const] : []), ...groupItems, foldItem, ...removeItems];
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, channels.length, channelTypeOf, endOfContent]);
+  }, [contextMenu, channels, trackPicks, channelTypeOf, endOfContent]);
 
   const handlePreviewNote = useCallback(
     (channelId: string, note: string) => {
@@ -3216,8 +3357,32 @@ export function Daw() {
     ...channels.map((c) => ({ id: c.id, name: c.name, kind: "track" as const })),
     ...buses.map((b) => ({ id: b.id, name: b.name, kind: "bus" as const })),
   ];
+  // Folded groups hide their tracks; folded tracks are a short row.
+  const hiddenTracks = hiddenByFoldedGroups(channels);
+  const visibleChannels = channels.filter((c) => !hiddenTracks.has(c.id));
+  const trackRoutes = routeMap(channels);
+  /** Where a track's audio goes when that isn't the default, for its header. */
+  const outputNameOf = (c: ChannelConfig): string | null => {
+    if (!c.output) return null;
+    const dest = trackRoutes.get(c.id) ?? null;
+    if (!dest) return c.groupId ? "Master" : null;
+    return dest === c.groupId ? null : channels.find((k) => k.id === dest)?.name ?? null;
+  };
+  /** A track's "Audio to" choices: the default (its group, else the
+   * master), the master past its group, and the groups and audio tracks
+   * that don't already feed it. */
+  const outputOptionsFor = (c: ChannelConfig) => {
+    const group = c.groupId ? channels.find((g) => g.id === c.groupId) : undefined;
+    const options = [{ value: "", label: group ? `${group.name} (its group)` : "Master" }];
+    if (group) options.push({ value: MASTER_OUTPUT, label: "Master" });
+    outputTargets(c.id, channels)
+      .filter((t) => t.id !== c.groupId)
+      .forEach((t) => options.push({ value: t.id, label: `${t.type === "group" ? "Group" : "Track"}: ${t.name}` }));
+    return options;
+  };
   const lanesHeight =
-    channels.length * TRACK_ROW_HEIGHT + (automationChannelId ? AUTOMATION_LANE_HEIGHT : 0);
+    visibleChannels.reduce((sum, c) => sum + rowHeightOf(c), 0) +
+    (automationChannelId && visibleChannels.some((c) => c.id === automationChannelId) ? AUTOMATION_LANE_HEIGHT : 0);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -3497,8 +3662,18 @@ export function Daw() {
         <div className="sticky top-0 z-20 flex shrink-0 bg-surface">
           <div
             style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT + LOOP_BAR_HEIGHT }}
-            className="flex shrink-0 items-end justify-end border-b border-r border-border bg-surface px-2 pb-[1px]"
+            className="flex shrink-0 items-end justify-end gap-2 border-b border-r border-border bg-surface px-2 pb-[1px]"
           >
+            <button
+              type="button"
+              onClick={() => handleFoldAll()}
+              aria-pressed={allFolded}
+              disabled={channels.length === 0}
+              title={allFolded ? "Unfold all tracks" : "Fold all tracks to one short row each (Alt-click a track's arrow does the same)"}
+              className={`flex items-center gap-1 rounded px-1 text-[9px] font-semibold uppercase tracking-wider ${allFolded ? "text-accent" : "text-muted hover:text-foreground"}`}
+            >
+              <ChevronsDownUp size={9} /> {allFolded ? "Unfold" : "Fold"}
+            </button>
             <button
               type="button"
               onClick={toggleLoop}
@@ -3539,19 +3714,29 @@ export function Daw() {
 
         <div className="flex">
           <div className="flex shrink-0 flex-col">
-            {channels.map((channel, idx) => (
+            {visibleChannels.map((channel, idx) => (
               <div key={channel.id} data-tour={idx === 0 ? "track" : undefined}>
                 <TrackHeader
                   channel={channel}
-                  color={trackColorForIndex(channel.colorIndex)}
+                  color={trackColorOf(channel)}
+                  rowHeight={rowHeightOf(channel)}
+                  onToggleFold={(all) => (all ? handleFoldAll(!channel.folded) : handleToggleFold(channel.id))}
+                  groupColor={(() => {
+                    const group = channel.groupId ? channels.find((g) => g.id === channel.groupId) : undefined;
+                    return group ? trackColorOf(group) : undefined;
+                  })()}
+                  memberCount={channel.type === "group" ? channels.filter((m) => m.groupId === channel.id).length : 0}
+                  picked={trackPicks.has(channel.id)}
+                  onPick={() => handlePickTrack(channel.id)}
+                  outputName={outputNameOf(channel)}
                   selected={channel.id === selectedChannelId}
                   recording={transportState === "recording" && channel.id === recordingChannelId}
                   hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
                   hasClipContent={clipsOf(channel.id).length > 0}
                   effectsCount={(channelEffects[channel.id] ?? []).length}
                   canRemove={channels.length > 1}
-                  canMoveUp={idx > 0}
-                  canMoveDown={idx < channels.length - 1}
+                  canMoveUp={canMoveTrack(channels, channel.id, -1)}
+                  canMoveDown={canMoveTrack(channels, channel.id, 1)}
                   showAutomation={automationChannelId === channel.id}
                   onToggleAutomation={() => handleToggleAutomation(channel.id)}
                   inputDevices={inputDevices}
@@ -3561,10 +3746,11 @@ export function Daw() {
                   onSelect={() => {
                     setSelectedChannelId(channel.id);
                     setSelectedClipIds(new Set());
+                    setTrackPicks(new Set());
                     openFx(channel.id);
                   }}
                   onRename={(name) => handleRenameChannel(channel.id, name)}
-                  onRecolor={(colorIndex) => handleRecolorChannel(channel.id, colorIndex)}
+                  onRecolor={(pick) => handleRecolorChannel(channel.id, pick)}
                   onMoveUp={() => handleReorderChannel(channel.id, -1)}
                   onMoveDown={() => handleReorderChannel(channel.id, 1)}
                   onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
@@ -3623,6 +3809,14 @@ export function Daw() {
               >
                 + Audio
               </button>
+              <button
+                type="button"
+                onClick={() => handleAddChannel("group")}
+                title="Add an empty group track. To group tracks you have, Ctrl/Cmd-click their headers and press Ctrl+G"
+                className="flex h-9 flex-1 items-center justify-center border-r border-border text-xs text-muted hover:bg-surface-raised hover:text-accent"
+              >
+                + Group
+              </button>
             </div>
           </div>
 
@@ -3631,11 +3825,19 @@ export function Daw() {
             onScroll={handleLanesScroll}
             className="relative flex-1 overflow-x-auto"
           >
-            {channels.map((channel) => (
+            {visibleChannels.map((channel) => (
               <div key={channel.id}>
                 <TrackLane
                   clips={clipsOf(channel.id)}
-                  color={trackColorForIndex(channel.colorIndex)}
+                  color={trackColorOf(channel)}
+                  rowHeight={rowHeightOf(channel)}
+                  overview={
+                    channel.type === "group"
+                      ? channels
+                          .filter((m) => m.groupId === channel.id)
+                          .map((m) => ({ id: m.id, clips: clipsOf(m.id), color: trackColorOf(m) }))
+                      : undefined
+                  }
                   bpm={bpm}
                   beatsPerBar={beatsPerBar}
                   totalSeconds={totalSeconds}
@@ -3701,7 +3903,7 @@ export function Daw() {
                       bpm={bpm}
                       beatsPerBar={beatsPerBar}
                       height={AUTOMATION_LANE_HEIGHT}
-                      color={trackColorForIndex(channel.colorIndex)}
+                      color={trackColorOf(channel)}
                       onChange={(points) => handleAutomationPointsChange(channel.id, automationTarget, points)}
                       onDragStart={pushHistory}
                     />
@@ -3848,7 +4050,7 @@ export function Daw() {
             >
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
-                style={{ background: trackColorForIndex(bus.colorIndex).accent }}
+                style={{ background: trackColorOf(bus).accent }}
               />
               <input
                 value={bus.name}
@@ -3932,7 +4134,7 @@ export function Daw() {
         <PianoRollEditor
           key={editingClipInstance.id}
           channelName={editingChannel.name}
-          color={trackColorForIndex(editingChannel.colorIndex)}
+          color={trackColorOf(editingChannel)}
           instrument={editingChannel.instrument ?? "piano"}
           drumKit={editingChannel.drumParams}
           notes={editingClipInstance.notes}
@@ -3973,7 +4175,7 @@ export function Daw() {
           sidechainSources={sidechainSources}
           onPresetChange={(effectId, change) => handleEffectPresetChange(fxHostId, effectId, change)}
           channelType={fxChannel?.type}
-          color={fxChannel ? trackColorForIndex(fxChannel.colorIndex) : fxBus ? trackColorForIndex(fxBus.colorIndex) : MASTER_COLOR}
+          color={fxChannel ? trackColorOf(fxChannel) : fxBus ? trackColorOf(fxBus) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
           synthParams={fxChannel?.synthParams}
           drumParams={fxChannel?.drumParams}
@@ -3995,6 +4197,9 @@ export function Daw() {
           onOpenEffectWindow={setExpandedEffectId}
           onLoadEffectFile={(effectId, file) => handleLoadEffectFile(fxHostId, effectId, file)}
           onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
+          outputOptions={fxChannel ? outputOptionsFor(fxChannel) : undefined}
+          outputValue={fxChannel?.output ?? ""}
+          onOutputChange={fxChannel ? (value) => handleSetOutput(fxChannel.id, value || null) : undefined}
         />
       )}
 
@@ -4078,7 +4283,7 @@ export function Daw() {
         <SynthWindow
           channelId={fxChannel.id}
           channelName={fxChannel.name}
-          color={trackColorForIndex(fxChannel.colorIndex)}
+          color={trackColorOf(fxChannel)}
           params={fxChannel.synthParams}
           onChange={handleSynthParamsChange}
           onClose={() => setSynthWindowOpen(false)}

@@ -18,6 +18,7 @@ import type { SidechainTap } from "./sidechainModel";
 import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
+import { downstreamOf, routeMap, soloAudible, upstreamOf } from "./routing";
 
 const MIN_NOTE_DURATION = 0.05;
 /** Default extra render time so reverb/delay tails aren't cut off. */
@@ -44,8 +45,9 @@ export interface BounceParams {
 const MAX_COMPENSATION = 2;
 
 export interface RenderOptions {
-  /** Render only this track (with its sends into buses), for a stem. Tracks
-   * keying its sidechains are still rendered, silently. */
+  /** Render only this track (with its sends into buses), for a stem -
+   * with the tracks routed into it (a group's members). Tracks keying its
+   * sidechains are still rendered, silently. */
   only?: string;
   /** Run the master bus's effects and limiter (default true). Stems leave
    * them out so they add up to the mix as it enters the master effects. */
@@ -129,10 +131,11 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
   return c.kind === "midi";
 }
 
-/** The tracks heard in the mix: the soloed ones if any are, else every unmuted one. */
+/** The tracks heard in the mix: unmuted, and (if anything is soloed) on a
+ * soloed track's path - its group, the tracks feeding it (routing.ts). */
 export function audibleChannels(channels: ChannelConfig[]): ChannelConfig[] {
-  const soloed = channels.filter((c) => c.solo);
-  return soloed.length > 0 ? soloed : channels.filter((c) => !c.muted);
+  const open = soloAudible(channels);
+  return channels.filter((c) => !c.muted && open.has(c.id));
 }
 
 /** Renders the project offline and resolves with a 16-bit WAV file Blob. */
@@ -156,7 +159,10 @@ export async function renderProject(params: BounceParams, options: RenderOptions
   // Only the channels that would actually be heard in the real mix: if any
   // channel is soloed, everything else is silent; otherwise muted channels
   // are simply left out of the render. A stem is its one track.
-  const audible = new Set(options.only ? params.channels.filter((c) => c.id === options.only) : audibleChannels(params.channels));
+  const routes = routeMap(params.channels);
+  const heard = audibleChannels(params.channels);
+  const stem = options.only ? new Set([options.only, ...upstreamOf(options.only, routes)]) : null;
+  const audible = new Set(stem ? heard.filter((c) => stem.has(c.id) || c.id === options.only) : heard);
   // A track keying a sidechain is rendered even when it isn't heard (a
   // muted "ghost" kick ducking the bass), with its strip muted as it is in
   // playback.
@@ -165,7 +171,15 @@ export async function renderProject(params: BounceParams, options: RenderOptions
       .flat()
       .map((fx) => (fx.sidechain?.on ? fx.sidechain.source : null))
   );
-  const rendered = params.channels.filter((c) => audible.has(c) || keySources.has(c.id));
+  // A heard track's audio needs the tracks it passes through (a muted
+  // group is still built, its strip silent).
+  const needed = new Set<string>();
+  params.channels.forEach((c) => {
+    if (!audible.has(c) && !keySources.has(c.id)) return;
+    needed.add(c.id);
+    downstreamOf(c.id, routes).forEach((id) => needed.add(id));
+  });
+  const rendered = params.channels.filter((c) => needed.has(c.id));
 
   // Uploaded effect files (IRs) are decoded up front, at the rate the
   // offline render runs at (Tone.Offline's default: the live context's).
@@ -205,7 +219,10 @@ export async function renderProject(params: BounceParams, options: RenderOptions
 
     // Delay compensation, as the live engine does it (see latency.ts).
     const direct = new Tone.Delay(0, MAX_COMPENSATION).connect(master);
-    const compensation: { channels: { id: string; latency: number; pdc: Tone.Delay }[]; buses: typeof compensation.channels } = {
+    const compensation: {
+      channels: { id: string; latency: number; pdc: Tone.Delay; own: Tone.Delay; send: Tone.Delay; strip: Tone.Channel; routeIn: Tone.Gain }[];
+      buses: { id: string; latency: number; pdc: Tone.Delay }[];
+    } = {
       channels: [],
       buses: [],
     };
@@ -242,14 +259,17 @@ export async function renderProject(params: BounceParams, options: RenderOptions
     }[] = [];
 
     rendered.forEach((channel) => {
-      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2, mute: !audible.has(channel) }).connect(direct);
+      // Its output is connected once every track exists (below).
+      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2, mute: !audible.has(channel) });
       const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(strip);
+      const sendTap = new Tone.Delay(0, MAX_COMPENSATION);
+      strip.connect(sendTap);
       const sends: string[] = [];
       Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
         const bus = buses.get(busId);
         if (!bus) return;
         const send = new Tone.Gain(Tone.dbToGain(db));
-        strip.connect(send);
+        sendTap.connect(send);
         send.connect(bus.input);
         sends.push(busId);
       });
@@ -260,9 +280,12 @@ export async function renderProject(params: BounceParams, options: RenderOptions
         postFx,
         files
       );
-      // Sources go into the pre-FX tap, which feeds the chain.
+      // Sources go into the pre-FX tap, which feeds the chain: its own
+      // (delayed to wait for routed-in audio) and other tracks' audio.
       const firstNode = new Tone.Gain().connect(entry);
-      compensation.channels.push({ id: channel.id, latency: trackLatency, pdc });
+      const ownDelay = new Tone.Delay(0, MAX_COMPENSATION).connect(firstNode);
+      const routeIn = new Tone.Gain().connect(firstNode);
+      compensation.channels.push({ id: channel.id, latency: trackLatency, pdc, own: ownDelay, send: sendTap, strip, routeIn });
       taps.set(channel.id, { preFx: firstNode, postFx, postFader: strip });
       hosts.push({ id: channel.id, built });
 
@@ -274,7 +297,7 @@ export async function renderProject(params: BounceParams, options: RenderOptions
 
       if (channel.type === "midi") {
         const instrument = createInstrument(channel.instrument, () => {}, channel.synthParams, channel.drumParams);
-        instrument.connect(firstNode);
+        instrument.connect(ownDelay);
         const flattened = clips
           .filter(isMidiClip)
           .flatMap((clip) => notesWithinClip(clip).map((n) => ({ ...n, time: clip.offset + n.time })))
@@ -315,7 +338,7 @@ export async function renderProject(params: BounceParams, options: RenderOptions
           if (clip.kind !== "audio") return;
           if (cutAt !== undefined && clip.offset >= cutAt) return;
           const playLength = cutAt === undefined ? clip.length : Math.min(clip.length, cutAt - clip.offset);
-          const gain = new Tone.Volume(clip.gainDb).connect(firstNode);
+          const gain = new Tone.Volume(clip.gainDb).connect(ownDelay);
           const player = new Tone.Player({ fadeIn: clip.fadeIn, fadeOut: clip.fadeOut });
           player.connect(gain);
           if (clip.loopLength && clip.loopLength > 0) {
@@ -336,13 +359,28 @@ export async function renderProject(params: BounceParams, options: RenderOptions
       }
     });
 
+    // Each strip into the track it feeds, or the master.
+    const builtIds = new Map(compensation.channels.map((c) => [c.id, c]));
+    const destOf = (id: string) => {
+      const dest = routes.get(id) ?? null;
+      return dest && builtIds.has(dest) ? dest : null;
+    };
+    compensation.channels.forEach((c) => {
+      const dest = destOf(c.id);
+      c.strip.connect(dest ? builtIds.get(dest)!.routeIn : direct);
+    });
+
     const plan = planCompensation({
       enabled: params.delayCompensation ?? true,
-      channels: compensation.channels.map((c) => ({ id: c.id, latency: c.latency, live: false })),
+      channels: compensation.channels.map((c) => ({ id: c.id, latency: c.latency, live: false, dest: destOf(c.id) })),
       buses: compensation.buses,
       master: masterLatency + (masterLimiter ? nodeLatency(masterLimiter) : 0),
     });
-    compensation.channels.forEach((c) => (c.pdc.delayTime.value = plan.channel.get(c.id) ?? 0));
+    compensation.channels.forEach((c) => {
+      c.pdc.delayTime.value = plan.channel.get(c.id) ?? 0;
+      c.own.delayTime.value = plan.own.get(c.id) ?? 0;
+      c.send.delayTime.value = plan.send.get(c.id) ?? 0;
+    });
     compensation.buses.forEach((b) => (b.pdc.delayTime.value = plan.bus.get(b.id) ?? 0));
     direct.delayTime.value = plan.direct;
     latency = plan.total;
@@ -356,6 +394,9 @@ export async function renderProject(params: BounceParams, options: RenderOptions
         chain: c.latency,
         pdc: plan.channel.get(c.id) ?? 0,
         toMaster: plan.direct,
+        dest: destOf(c.id),
+        start: plan.own.get(c.id) ?? 0,
+        send: plan.send.get(c.id) ?? 0,
       })),
       buses: compensation.buses.map((b) => ({ id: b.id, chain: b.latency, pdc: plan.bus.get(b.id) ?? 0 })),
     };

@@ -60,3 +60,31 @@ describe("round-trip measurement", () => {
     expect(detectRoundTrip(new Float32Array(150000), sr, clicks, click)).toBeNull();
   });
 });
+
+describe("delay compensation through routed tracks", () => {
+  it("lines up a group's members at its input, and the group with the rest at the master", () => {
+    const plan = planCompensation({
+      enabled: true,
+      channels: [
+        { id: "group", latency: 0.002, live: false },
+        { id: "kick", latency: 0.004, live: false, dest: "group" },
+        { id: "snare", latency: 0, live: false, dest: "group" },
+        { id: "bass", latency: 0.001, live: false },
+      ],
+      buses: [],
+      master: 0,
+    });
+    // Members arrive at the group together, 4 ms in.
+    expect(0.004 + plan.channel.get("kick")!).toBeCloseTo(0.004, 9);
+    expect(0 + plan.channel.get("snare")!).toBeCloseTo(0.004, 9);
+    // The group leaves its chain at 6 ms, the latest at the master.
+    expect(plan.channel.get("group")).toBeCloseTo(0, 9);
+    expect(0.001 + plan.channel.get("bass")!).toBeCloseTo(0.006, 9);
+    // The group has no sources of its own to delay; members' sends wait for
+    // the group's 2 ms.
+    expect(plan.own.get("group")).toBeCloseTo(0.004, 9);
+    expect(plan.send.get("kick")).toBeCloseTo(0.002, 9);
+    expect(plan.send.get("bass")).toBeCloseTo(0, 9);
+    expect(plan.total).toBeCloseTo(0.006, 9);
+  });
+});

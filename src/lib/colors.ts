@@ -20,6 +20,24 @@ export function trackColorForIndex(index: number): TrackColor {
   return PALETTE[index % PALETTE.length];
 }
 
+/** A "#rrggbb" color the user picked themselves. */
+export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** A track color from any "#rrggbb". */
+export function trackColorFromHex(hex: string): TrackColor {
+  const n = parseInt(hex.slice(1), 16);
+  return { accent: hex.toLowerCase(), accentSoft: `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0.16)` };
+}
+
+/** What the color picker chose: a palette slot, or any "#rrggbb". */
+export type TrackColorPick = { colorIndex: number } | { color: string };
+
+/** A track's or bus's color: the one picked from the color wheel if any,
+ * else its palette slot. */
+export function trackColorOf(item: { colorIndex: number; color?: string }): TrackColor {
+  return item.color && HEX_COLOR.test(item.color) ? trackColorFromHex(item.color) : trackColorForIndex(item.colorIndex);
+}
+
 /** The full palette, in order - for a color-swatch picker letting a track
  * be explicitly recolored rather than just cycling by creation order. */
 export const TRACK_COLOR_PALETTE: TrackColor[] = PALETTE;

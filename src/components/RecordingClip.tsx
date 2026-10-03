@@ -6,7 +6,7 @@ import { audioEngine } from "@/lib/audioEngine";
 import { TRACK_ROW_HEIGHT } from "@/lib/timeline";
 import type { NoteEvent } from "@/lib/types";
 import type { Waveform } from "@/lib/waveform";
-import { noteNameToMidi } from "./ClipBlock";
+import { COMPACT_BELOW, noteNameToMidi } from "./ClipBlock";
 import { WaveformCanvas } from "./WaveformCanvas";
 
 const LANE_PADDING = 10;
@@ -26,7 +26,7 @@ type Preview =
  * from the start that grows with the playhead, showing the audio's
  * waveform (or the notes played) so far. It's replaced by the real clip
  * once recording stops. */
-export function RecordingClip({ channelId, pxPerSecond }: { channelId: string; pxPerSecond: number }) {
+export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HEIGHT }: { channelId: string; pxPerSecond: number; rowHeight?: number }) {
   const [state, setState] = useState<{ seconds: number; preview: Preview | null }>({ seconds: 0, preview: null });
 
   useEffect(() => {
@@ -55,21 +55,25 @@ export function RecordingClip({ channelId, pxPerSecond }: { channelId: string; p
     return () => cancelAnimationFrame(frame);
   }, [channelId]);
 
-  const height = TRACK_ROW_HEIGHT - LANE_PADDING * 2;
+  // A folded (short) lane shows just the red bar.
+  const compact = rowHeight < COMPACT_BELOW;
+  const pad = compact ? 3 : LANE_PADDING;
+  const height = rowHeight - pad * 2;
   const bodyHeight = height - HEADER;
   const widthPx = Math.max(2, state.seconds * pxPerSecond);
   const preview = state.preview;
 
   return (
     <div
-      className="pointer-events-none absolute left-0 top-2.5 z-[1] flex flex-col overflow-hidden rounded-md border"
-      style={{ width: widthPx, height, borderColor: RECORD_RED, background: "rgba(255,90,90,0.14)" }}
+      className="pointer-events-none absolute left-0 z-[1] flex flex-col overflow-hidden rounded-md border"
+      style={{ top: pad, width: widthPx, height, borderColor: RECORD_RED, background: "rgba(255,90,90,0.14)" }}
       aria-label="Recording"
     >
       <div className="flex shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap px-1.5 text-[10px] font-semibold" style={{ height: HEADER, background: RECORD_RED, color: "#1a0a0a" }}>
         <Circle size={7} fill="currentColor" className="shrink-0 animate-pulse" />
         Recording…
       </div>
+      {!compact && (
       <div className="relative flex-1">
         {preview?.kind === "audio" && (
           <WaveformCanvas
@@ -90,6 +94,7 @@ export function RecordingClip({ channelId, pxPerSecond }: { channelId: string; p
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

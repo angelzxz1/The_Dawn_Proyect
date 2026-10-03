@@ -12,6 +12,14 @@
 // monitoring" - at the cost of being early against the rest by that much.
 // The whole mix then comes out `total` late (plus the master chain's own
 // latency), which the metronome, recording and export account for.
+//
+// A track can also feed another track (a group, or an audio track chosen as
+// its output; see routing.ts). Then the tracks feeding a track are lined up
+// at its input instead: each one's delay makes it arrive with the latest of
+// them, the receiving track's own sources wait the same time (`own`), and
+// its chain carries on from there. Sends leave a track's strip earlier than
+// the mix reaches the master when it feeds another track, so they wait the
+// difference (`send`) to stay in time with the dry path.
 
 import type * as Tone from "tone";
 
@@ -28,8 +36,9 @@ export function chainLatency(effects: { node: Tone.ToneAudioNode; bypass?: boole
 
 export interface CompensationInput {
   enabled: boolean;
-  /** `live`: skip compensation (reduced latency while monitoring). */
-  channels: { id: string; latency: number; live: boolean }[];
+  /** `live`: skip compensation (reduced latency while monitoring).
+   * `dest`: the track this one feeds (unset or null: the master). */
+  channels: { id: string; latency: number; live: boolean; dest?: string | null }[];
   buses: { id: string; latency: number }[];
   /** The master chain's own latency (its effects and limiter). */
   master: number;
@@ -38,6 +47,12 @@ export interface CompensationInput {
 export interface CompensationPlan {
   /** Delay (s) between each track's effects and its strip. */
   channel: Map<string, number>;
+  /** Delay (s) on each track's own sources (instrument, clips, input), so
+   * they wait for the tracks feeding it: when its effects start, in time. */
+  own: Map<string, number>;
+  /** Delay (s) on each track's sends, so they reach the buses in time with
+   * its dry path through the tracks it feeds. */
+  send: Map<string, number>;
   /** Delay (s) between each bus's effects and its strip. */
   bus: Map<string, number>;
   /** Delay (s) on the tracks' direct path to the master. */
@@ -51,17 +66,53 @@ export interface CompensationPlan {
 
 export function planCompensation(input: CompensationInput): CompensationPlan {
   const channel = new Map<string, number>();
+  const own = new Map<string, number>();
+  const send = new Map<string, number>();
   const bus = new Map<string, number>();
   if (!input.enabled) {
-    input.channels.forEach((c) => channel.set(c.id, 0));
+    input.channels.forEach((c) => {
+      channel.set(c.id, 0);
+      own.set(c.id, 0);
+      send.set(c.id, 0);
+    });
     input.buses.forEach((b) => bus.set(b.id, 0));
-    return { channel, bus, direct: 0, total: input.master, compensated: 0 };
+    return { channel, own, send, bus, direct: 0, total: input.master, compensated: 0 };
   }
-  const maxTrack = Math.max(0, ...input.channels.filter((c) => !c.live).map((c) => c.latency));
+  const byId = new Map(input.channels.map((c) => [c.id, c]));
+  const destOf = (c: { dest?: string | null }) => (c.dest && byId.has(c.dest) ? c.dest : null);
+  // When the audio feeding a track's effects is all in (its latest
+  // non-live feeder), and when it leaves them. Routes form a tree
+  // (routing.ts breaks loops); `seen` guards against a bad input anyway.
+  const inMemo = new Map<string, number>();
+  const timeIn = (id: string, seen: Set<string> = new Set()): number => {
+    if (inMemo.has(id)) return inMemo.get(id)!;
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    let latest = 0;
+    input.channels.forEach((k) => {
+      if (!k.live && destOf(k) === id) latest = Math.max(latest, timeIn(k.id, seen) + k.latency);
+    });
+    inMemo.set(id, latest);
+    return latest;
+  };
+  const timeOut = (id: string) => timeIn(id) + byId.get(id)!.latency;
+  const maxTrack = Math.max(0, ...input.channels.filter((c) => !c.live && !destOf(c)).map((c) => timeOut(c.id)));
   const direct = Math.max(0, ...input.buses.map((b) => b.latency));
-  input.channels.forEach((c) => channel.set(c.id, c.live ? 0 : maxTrack - c.latency));
+  input.channels.forEach((c) => {
+    const dest = destOf(c);
+    if (c.live) {
+      channel.set(c.id, 0);
+      own.set(c.id, 0);
+      send.set(c.id, 0);
+      return;
+    }
+    const leaves = dest ? timeIn(dest) : maxTrack;
+    channel.set(c.id, Math.max(0, leaves - timeOut(c.id)));
+    own.set(c.id, timeIn(c.id));
+    send.set(c.id, Math.max(0, maxTrack - leaves));
+  });
   input.buses.forEach((b) => bus.set(b.id, direct - b.latency));
-  return { channel, bus, direct, total: maxTrack + direct + input.master, compensated: maxTrack + direct };
+  return { channel, own, send, bus, direct, total: maxTrack + direct + input.master, compensated: maxTrack + direct };
 }
 
 /** Where a burst of clicks came back in a recording: each click (the

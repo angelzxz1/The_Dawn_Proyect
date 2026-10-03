@@ -8,6 +8,7 @@
 
 export type TelemetryEvent =
   | "app_opened"
+  | "tracks_grouped"
   | "template_chosen"
   | "sound_made"
   | "recording_started"

@@ -77,6 +77,7 @@ import { UtilityChain, type UtilityMeters } from "./utility";
 import { TunerChain } from "./tuner";
 import type { SidechainRouting } from "./sidechainModel";
 import { canKeyFrom, keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
+import { routeMap, soloAudible, type RouteNode } from "./routing";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import { SaturatorChain } from "./saturator";
@@ -183,9 +184,18 @@ interface ChannelNodes extends EffectsHost {
   /** Delay compensation: between the effects chain and the strip (see
    * latency.ts). */
   pdc: Tone.Delay;
+  /** Audio from other tracks routed into this one (a group's members, or
+   * tracks choosing it as their output): straight into its effects. */
+  routeIn: Tone.Gain;
+  /** The track's own sources go through this, so they wait for the audio
+   * routed in (delay compensation). */
+  ownDelay: Tone.Delay;
+  /** Sends leave the strip through this (delay compensation). */
+  sendTap: Tone.Delay;
   /** Where the strip's dry output goes: through the shared direct-path
-   * delay, or straight to the master (a live track skipping compensation). */
-  route: "direct" | "master" | null;
+   * delay, straight to the master (a live track skipping compensation),
+   * or into another track ("to:" + its id). */
+  route: string | null;
 }
 
 /** A send/return bus - like a track channel's effects rack, but fed by
@@ -1389,7 +1399,11 @@ class AudioEngine {
   private delayCompensation = true;
   private reducedLatencyMonitoring = true;
   private armedChannelId: string | null = null;
-  private compensation: CompensationPlan = { channel: new Map(), bus: new Map(), direct: 0, total: 0, compensated: 0 };
+  private compensation: CompensationPlan = { channel: new Map(), own: new Map(), send: new Map(), bus: new Map(), direct: 0, total: 0, compensated: 0 };
+  /** Where each track's audio goes (routing.ts): another track, or null for
+   * the master. */
+  private routes = new Map<string, string | null>();
+  private routeNodes: RouteNode[] = [];
   private latencyListeners = new Set<() => void>();
 
   private ensureClickOut(): Tone.Delay {
@@ -1413,7 +1427,7 @@ class AudioEngine {
     const master = this.ensureMaster();
     const plan = planCompensation({
       enabled: this.delayCompensation,
-      channels: [...this.channels].map(([id, n]) => ({ id, latency: chainLatency(n.effects), live: this.isLive(id, n) })),
+      channels: [...this.channels].map(([id, n]) => ({ id, latency: chainLatency(n.effects), live: this.isLive(id, n), dest: this.destOf(id) })),
       buses: [...this.buses].map(([id, b]) => ({ id, latency: chainLatency(b.effects) })),
       master: chainLatency(this.masterEffects) + nodeLatency(master.limiter),
     });
@@ -1422,11 +1436,22 @@ class AudioEngine {
     };
     this.channels.forEach((n, id) => {
       setDelay(n.pdc, plan.channel.get(id) ?? 0);
-      const route = this.isLive(id, n) ? "master" : "direct";
+      setDelay(n.ownDelay, plan.own.get(id) ?? 0);
+      setDelay(n.sendTap, plan.send.get(id) ?? 0);
+      const dest = this.destOf(id);
+      const route = dest ? `to:${dest}` : this.isLive(id, n) ? "master" : "direct";
       if (route !== n.route) {
-        if (n.route === "direct") n.channel.disconnect(this.directDelay!);
-        else if (n.route === "master") n.channel.disconnect(master.channel);
-        n.channel.connect(route === "direct" ? this.directDelay! : master.channel);
+        try {
+          if (n.route === "direct") n.channel.disconnect(this.directDelay!);
+          else if (n.route === "master") n.channel.disconnect(master.channel);
+          else if (n.route?.startsWith("to:")) {
+            const old = this.channels.get(n.route.slice(3));
+            if (old) n.channel.disconnect(old.routeIn);
+          }
+        } catch {
+          // Already disconnected (the old destination was removed).
+        }
+        n.channel.connect(dest ? this.channels.get(dest)!.routeIn : route === "direct" ? this.directDelay! : master.channel);
         n.route = route;
       }
     });
@@ -1537,6 +1562,10 @@ class AudioEngine {
     taps.preFx.connect(head);
     taps.postFx.connect(pdc);
     channel.connect(taps.postFader);
+    const routeIn = new Tone.Gain().connect(taps.preFx);
+    const ownDelay = new Tone.Delay(0, MAX_COMPENSATION).connect(taps.preFx);
+    const sendTap = new Tone.Delay(0, MAX_COMPENSATION);
+    channel.connect(sendTap);
     this.pendingLoads += 1;
     this.setReady(false);
     const onSettled = () => {
@@ -1562,6 +1591,9 @@ class AudioEngine {
       sends: new Map(),
       userMuted: false,
       pdc,
+      routeIn,
+      ownDelay,
+      sendTap,
       taps,
       head,
       route: null,
@@ -1581,6 +1613,9 @@ class AudioEngine {
     nodes.sends.forEach((gain) => gain.dispose());
     nodes.effects.forEach((e) => e.node.dispose());
     nodes.pdc.dispose();
+    nodes.routeIn.dispose();
+    nodes.ownDelay.dispose();
+    nodes.sendTap.dispose();
     Object.values(nodes.taps).forEach((tap) => tap.dispose());
     nodes.head.dispose();
     nodes.channel.dispose();
@@ -1643,11 +1678,14 @@ class AudioEngine {
     // Live input (monitoring) is a source like a clip, so it's heard
     // through the track's effects - an amp, a cab IR - not around them.
     type Connectable = { connect: (n: Tone.InputNode) => unknown };
+    // A group's only source is what its members route in (routeIn).
     const sources: Connectable[] =
       nodes.channelType === "audio"
         ? [...[...nodes.audioClips.values()].map((c) => c.gain), ...(monitor ? [monitor] : [])]
-        : [nodes.instrument];
-    sources.forEach((source) => source.connect(nodes.taps.preFx));
+        : nodes.channelType === "midi"
+          ? [nodes.instrument]
+          : [];
+    sources.forEach((source) => source.connect(nodes.ownDelay));
     nodes.head.disconnect();
     this.wireEffectsChain([nodes.head], nodes.effects, nodes.taps.postFx);
     this.updateCompensation();
@@ -1965,6 +2003,9 @@ class AudioEngine {
         chain: chainLatency(n.effects),
         pdc: plan.channel.get(id) ?? 0,
         toMaster: n.route === "master" ? 0 : plan.direct,
+        dest: this.destOf(id),
+        start: plan.own.get(id) ?? 0,
+        send: plan.send.get(id) ?? 0,
       })),
       buses: [...this.buses].map(([id, b]) => ({ id, chain: chainLatency(b.effects), pdc: plan.bus.get(id) ?? 0 })),
     };
@@ -2148,7 +2189,7 @@ class AudioEngine {
     }
     if (!gain) {
       gain = new Tone.Gain(Tone.dbToGain(db));
-      nodes.channel.connect(gain);
+      nodes.sendTap.connect(gain);
       gain.connect(bus.input);
       nodes.sends.set(busId, gain);
       // Sends can close (or open) a sidechain loop.
@@ -2173,7 +2214,32 @@ class AudioEngine {
    * channel's Tone `mute` (not Tone.Channel's own `solo` - see the comment
    * on `soloedIds`). */
   private applyMuteSolo(id: string, nodes: ChannelNodes): void {
-    nodes.channel.mute = nodes.userMuted || (this.soloedIds.size > 0 && !this.soloedIds.has(id));
+    nodes.channel.mute = nodes.userMuted || !this.soloOpen().has(id);
+  }
+
+  /** The tracks solo leaves open (routing.ts): a soloed track's whole path. */
+  private soloOpen(): Set<string> {
+    const known = new Set(this.routeNodes.map((n) => n.id));
+    const nodes = [
+      ...this.routeNodes.map((n) => ({ ...n, solo: this.soloedIds.has(n.id) })),
+      // Tracks the engine has that routing hasn't been told about yet.
+      ...[...this.channels.keys()].filter((id) => !known.has(id)).map((id) => ({ id, type: this.channels.get(id)!.channelType, solo: this.soloedIds.has(id) })),
+    ];
+    return soloAudible(nodes, this.routes);
+  }
+
+  /** Where a track's audio goes: another track's id, or null for the master. */
+  private destOf(id: string): string | null {
+    const dest = this.routes.get(id) ?? null;
+    return dest && this.channels.has(dest) ? dest : null;
+  }
+
+  /** Tells the engine every track's group and output (see routing.ts). */
+  setRouting(nodes: RouteNode[]): void {
+    this.routeNodes = nodes.map((n) => ({ id: n.id, type: n.type, groupId: n.groupId, output: n.output }));
+    this.routes = routeMap(this.routeNodes);
+    this.updateCompensation();
+    this.channels.forEach((n, channelId) => this.applyMuteSolo(channelId, n));
   }
 
   setMute(id: string, muted: boolean): void {

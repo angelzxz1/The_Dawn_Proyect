@@ -278,3 +278,28 @@ describe("damaged saved data", () => {
     }
   });
 });
+
+describe("groups, routing and colors", () => {
+  it("keeps groups, outputs, folds and picked colors, and drops what points nowhere", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [
+        { ...base, id: "m", name: "Kick", type: "midi", instrument: "drums", groupId: "g", color: "#12AB34" },
+        { ...base, id: "g", name: "Drums", type: "group", folded: true, armed: true },
+        { ...base, id: "v", name: "Vox", type: "audio", output: "nowhere" },
+        { ...base, id: "s", name: "Synth", type: "midi", instrument: "piano", output: "v", color: "red" },
+      ],
+      clipsByChannel: { g: [{ id: "x", kind: "midi", offset: 0, length: 1, notes: [] }] },
+    })!;
+    expect(project.channels.map((c) => c.id)).toEqual(["g", "m", "v", "s"]);
+    const [group, kick, vox, synth] = project.channels;
+    expect(group).toMatchObject({ type: "group", folded: true, armed: false });
+    expect(project.clipsByChannel.g).toEqual([]);
+    expect(kick).toMatchObject({ groupId: "g", color: "#12ab34" });
+    expect(vox.output).toBeUndefined();
+    expect(synth.output).toBe("v");
+    expect(synth.color).toBeUndefined();
+  });
+});

@@ -7,6 +7,12 @@ export const PREFERRED_SAMPLE_RATE = 48000;
 /** Longest delay compensation can add to one path (s). */
 const MAX_COMPENSATION = 2;
 
+/** How far ahead (s) Play and Record start the transport. The page redraws
+ * itself right as they're pressed, and with the short lookAhead (below) the
+ * first notes would otherwise be scheduled during that redraw and come out
+ * late; starting just after it keeps the first beat on time. */
+const START_HEADROOM = 0.12;
+
 // Every live-triggered note (a keyboard/MIDI-controller key, a drum pad)
 // goes out via Tone.now(), which Tone.js defines as `currentTime +
 // context.lookAhead` - a deliberate scheduling safety margin meant for
@@ -50,6 +56,7 @@ import type {
   ChannelType,
   SynthParams,
   AutomationLane,
+  TrackInput,
 } from "./types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano";
 import { NullInstrument, type Instrument } from "./drumKit";
@@ -77,8 +84,8 @@ import { MultibandChain, type MultibandMeters } from "./multiband";
 import { UtilityChain, type UtilityMeters } from "./utility";
 import { TunerChain } from "./tuner";
 import type { SidechainRouting } from "./sidechainModel";
-import { canKeyFrom, keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
-import { routeMap, soloAudible, type RouteNode } from "./routing";
+import { canKeyFrom, keyDelay, resolveSidechains, tapLatency, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
+import { inputMap, routeMap, soloAudible, type RouteNode } from "./routing";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import { SaturatorChain } from "./saturator";
@@ -1237,7 +1244,15 @@ class AudioEngine {
   private pendingLoads = 0;
   private readyListeners = new Set<() => void>();
   private micStream: MediaStream | null = null;
-  private audioRecording: { channelId: string; recorder: InputRecorder; startTime: number; from: number } | null =
+  private audioRecording: {
+    channelId: string;
+    recorder: InputRecorder;
+    startTime: number;
+    from: number;
+    latency: number;
+    /** Recording another track ("Audio From"), not the interface. */
+    fromTrack: boolean;
+  } | null =
     null;
   /** Ids of channels the user currently has soloed - tracked here instead of
    * via Tone.Channel's own `solo`, whose Solo instance is shared globally
@@ -1621,6 +1636,8 @@ class AudioEngine {
       route: null,
     });
     this.rewireChannel(id);
+    // Tracks listening to this one (rebuilt by undo, say) plug back in.
+    this.replugMonitors();
   }
 
   removeChannel(id: string): void {
@@ -2028,6 +2045,7 @@ class AudioEngine {
         dest: this.destOf(id),
         start: plan.own.get(id) ?? 0,
         send: plan.send.get(id) ?? 0,
+        inputFrom: this.trackInputs.get(id)?.track ?? null,
       })),
       buses: [...this.buses].map(([id, b]) => ({ id, chain: chainLatency(b.effects), pdc: plan.bus.get(id) ?? 0 })),
     };
@@ -2258,8 +2276,10 @@ class AudioEngine {
 
   /** Tells the engine every track's group and output (see routing.ts). */
   setRouting(nodes: RouteNode[]): void {
-    this.routeNodes = nodes.map((n) => ({ id: n.id, type: n.type, groupId: n.groupId, output: n.output }));
+    this.routeNodes = nodes.map((n) => ({ id: n.id, type: n.type, groupId: n.groupId, output: n.output, input: n.input }));
     this.routes = routeMap(this.routeNodes);
+    this.trackInputs = inputMap(this.routeNodes, this.routes);
+    this.replugMonitors();
     this.updateCompensation();
     this.channels.forEach((n, channelId) => this.applyMuteSolo(channelId, n));
   }
@@ -2505,7 +2525,7 @@ class AudioEngine {
     await this.ensureStarted();
     const transport = Tone.getTransport();
     const pos = transport.ticks / transport.PPQ;
-    const time = Tone.now();
+    const time = Tone.now() + START_HEADROOM;
     transport.start(time);
     this.metronome.start(time, pos);
   }
@@ -2576,7 +2596,7 @@ class AudioEngine {
     this.metronome.setLoop(null);
     transport.seconds = Math.max(0, fromSeconds);
     const pos = transport.ticks / transport.PPQ;
-    const startTime = Tone.now() + 0.05 + countInBeats * (60 / transport.bpm.value);
+    const startTime = Tone.now() + START_HEADROOM + countInBeats * (60 / transport.bpm.value);
     transport.start(startTime);
     this.metronome.start(startTime, pos, countInBeats);
     return startTime;
@@ -2686,6 +2706,57 @@ class AudioEngine {
    * capture (no echo cancellation, noise suppression or auto gain) that
    * gets recorded. */
   private monitorNodes = new Map<string, Tone.Gain>();
+  /** What each monitor is plugged into: the interface input, or another
+   * track's tap (its "Audio From"). */
+  private monitorFeeds = new Map<string, Tone.OutputNode>();
+  /** Audio tracks taking another track's audio as their input. */
+  private trackInputs = new Map<string, TrackInput>();
+
+  /** A track's input when it comes from another track: that track's tap,
+   * or null while it's missing. Undefined: the audio interface. */
+  private trackInputNode(channelId: string): Tone.ToneAudioNode | null | undefined {
+    const input = this.trackInputs.get(channelId);
+    if (!input) return undefined;
+    return this.channels.get(input.track)?.taps[input.tap] ?? null;
+  }
+
+  /** Plugs a track's monitor into `feed` (unplugging what it had). */
+  private plugMonitor(channelId: string, feed: Tone.OutputNode | null): void {
+    const gain = this.monitorNodes.get(channelId);
+    const old = this.monitorFeeds.get(channelId);
+    if (!gain || old === feed) return;
+    if (old) {
+      try {
+        Tone.disconnect(old, gain);
+      } catch {
+        // Already gone (a removed track's tap, a closed input device).
+      }
+    }
+    this.monitorFeeds.delete(channelId);
+    if (feed) {
+      Tone.connect(feed, gain);
+      this.monitorFeeds.set(channelId, feed);
+    }
+  }
+
+  /** Points every monitor at its track's current input - after the routing
+   * changed, or a source track was rebuilt. */
+  private replugMonitors(): void {
+    this.monitorNodes.forEach((_, id) => {
+      const node = this.trackInputNode(id);
+      if (node !== undefined) this.plugMonitor(id, node);
+      else if (this.micSource) this.plugMonitor(id, this.micSource);
+      else {
+        // Back on the interface input, which isn't open yet.
+        this.plugMonitor(id, null);
+        void this.ensureMicSource()
+          .then((mic) => {
+            if (this.monitorNodes.has(id) && !this.trackInputs.has(id)) this.plugMonitor(id, mic);
+          })
+          .catch(() => {});
+      }
+    });
+  }
 
   /** One long-lived graph input for the mic stream, shared by every
    * capture (see InputRecorder.start). */
@@ -2770,10 +2841,9 @@ class AudioEngine {
     }
     this.micSource?.disconnect();
     this.micSource = null;
-    [...this.monitorNodes.keys()].forEach((channelId) => {
-      void this.setInputMonitoring(channelId, false);
-      void this.setInputMonitoring(channelId, true);
-    });
+    // Monitors on the interface input reopen on the new device.
+    [...this.monitorNodes.keys()].forEach((channelId) => this.monitorFeeds.delete(channelId));
+    this.replugMonitors();
   }
 
   /** Lists the browser's available audio input devices (an interface's
@@ -2795,16 +2865,10 @@ class AudioEngine {
    * couldn't be opened (no permission, no device). */
   async setInputMonitoring(channelId: string, enabled: boolean): Promise<boolean> {
     if (!enabled) {
-      const mic = this.monitorNodes.get(channelId);
-      if (mic) {
-        if (this.micSource) {
-          try {
-            Tone.disconnect(this.micSource, mic);
-          } catch {
-            // Already unplugged (the input device changed).
-          }
-        }
-        mic.dispose();
+      const gain = this.monitorNodes.get(channelId);
+      if (gain) {
+        this.plugMonitor(channelId, null);
+        gain.dispose();
         this.monitorNodes.delete(channelId);
         this.rewireChannel(channelId);
       }
@@ -2813,20 +2877,22 @@ class AudioEngine {
     if (!this.channels.has(channelId)) return false;
     if (this.monitorNodes.has(channelId)) return true;
     await this.ensureStarted();
-    let source: MediaStreamAudioSourceNode;
-    try {
-      source = await this.ensureMicSource();
-    } catch {
-      return false;
+    // Another track's audio needs no permission; the interface does.
+    if (this.trackInputNode(channelId) === undefined) {
+      try {
+        await this.ensureMicSource();
+      } catch {
+        return false;
+      }
     }
     // The channel (or the whole engine) may have gone away while the
     // permission prompt/device open was in flight.
     if (!this.channels.has(channelId) || this.monitorNodes.has(channelId)) {
       return this.monitorNodes.has(channelId);
     }
-    const mic = new Tone.Gain(1);
-    Tone.connect(source, mic);
-    this.monitorNodes.set(channelId, mic);
+    this.monitorNodes.set(channelId, new Tone.Gain(1));
+    const node = this.trackInputNode(channelId);
+    this.plugMonitor(channelId, node !== undefined ? node : this.micSource);
     this.rewireChannel(channelId);
     return true;
   }
@@ -2870,14 +2936,22 @@ class AudioEngine {
   async startAudioRecording(channelId: string, countInBeats = 0, fromSeconds = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
-    const recorder = await InputRecorder.start(Tone.getContext(), await this.ensureMicSource());
+    // From another track ("Audio From"), or the audio interface.
+    const trackNode = this.trackInputNode(channelId);
+    if (trackNode === null) throw new Error("The track this one takes its input from is gone.");
+    const recorder = await InputRecorder.start(Tone.getContext(), trackNode ?? (await this.ensureMicSource()));
     if (!this.channels.has(channelId)) {
       recorder.cancel();
       return;
     }
     const startTime = this.startTransportForRecording(countInBeats, fromSeconds);
-    this.audioRecording = { channelId, recorder, startTime, from: fromSeconds };
-    recorder.startPreview(startTime + this.getRecordingLatency());
+    // A track's audio reaches its tap a known time after the beat (its
+    // delay compensation and effects); the interface's comes back after the
+    // round trip.
+    const input = this.trackInputs.get(channelId);
+    const latency = trackNode && input ? tapLatency(this.routingSnapshot(), input.track, input.tap) : this.getRecordingLatency();
+    this.audioRecording = { channelId, recorder, startTime, from: fromSeconds, latency, fromTrack: !!trackNode };
+    recorder.startPreview(startTime + latency);
   }
 
   /** Stops the capture and returns the take as a WAV Blob - trimmed so its
@@ -2887,8 +2961,10 @@ class AudioEngine {
     const rec = this.audioRecording;
     if (!rec) return null;
     this.audioRecording = null;
-    const samples = await rec.recorder.stop(rec.startTime + this.getRecordingLatency());
-    return samples.length > 0 ? takeToWav(samples, rec.recorder.sampleRate) : null;
+    const samples = await rec.recorder.stop(rec.startTime + rec.latency);
+    // A take from another track can go over full scale (before its fader,
+    // say): kept as float so nothing clips. An interface input can't.
+    return samples.length > 0 ? takeToWav(samples, rec.recorder.sampleRate, rec.fromTrack) : null;
   }
 
   /** Measures the real round trip: plays a few clicks straight to the

@@ -71,7 +71,7 @@ import { MbDynamicsWindow } from "./MbDynamicsWindow";
 import type { SidechainSource } from "./SidechainPanel";
 import { EffectPresetContext, type PresetChange } from "./PresetMenu";
 import { findPreset, paramsFromPreset } from "@/lib/presets";
-import type { SidechainRouting } from "@/lib/sidechainModel";
+import { SIDECHAIN_TAP_LABELS, type SidechainRouting } from "@/lib/sidechainModel";
 import { ParamEqWindow } from "./ParamEqWindow";
 import { MultibandWindow } from "./MultibandWindow";
 import { UtilityWindow } from "./UtilityWindow";
@@ -87,7 +87,7 @@ import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
 import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
 import { MASTER_COLOR, trackColorOf, type TrackColorPick } from "@/lib/colors";
-import { canMoveTrack, groupTracks, hiddenByFoldedGroups, MASTER_OUTPUT, moveTrack, outputTargets, routeMap, setTrackGroup, ungroup } from "@/lib/routing";
+import { canMoveTrack, groupTracks, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, moveTrack, outputTargets, routeMap, setTrackGroup, ungroup } from "@/lib/routing";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
@@ -197,6 +197,7 @@ import type {
   NoteEvent,
   SynthParams,
   TimeSignature,
+  TrackInput,
 } from "@/lib/types";
 
 type TransportState = "stopped" | "playing" | "paused" | "recording";
@@ -577,7 +578,8 @@ export function Daw() {
   // Arming an audio track opens the input, so its meter shows the level
   // before recording. Not on the first render: a restored project
   // shouldn't ask for the microphone before anyone touches anything.
-  const armedAudio = armedChannel?.type === "audio" ? armedChannelId : null;
+  // (Not when its input is another track: no interface involved.)
+  const armedAudio = armedChannel?.type === "audio" && !armedChannel.input ? armedChannelId : null;
   const firstArmRender = useRef(true);
   useEffect(() => {
     if (firstArmRender.current) {
@@ -1047,9 +1049,11 @@ export function Daw() {
 
   // Tell the engine where each track's audio goes (groups, outputs), when
   // that changes.
-  const routingKey = channels.map((c) => `${c.id}:${c.type}:${c.groupId ?? ""}:${c.output ?? ""}`).join("|");
+  const routingKey = channels
+    .map((c) => `${c.id}:${c.type}:${c.groupId ?? ""}:${c.output ?? ""}:${c.input ? `${c.input.track}/${c.input.tap}` : ""}`)
+    .join("|");
   useEffect(() => {
-    audioEngine.setRouting(channels.map((c) => ({ id: c.id, type: c.type, groupId: c.groupId, output: c.output })));
+    audioEngine.setRouting(channels.map((c) => ({ id: c.id, type: c.type, groupId: c.groupId, output: c.output, input: c.input })));
     // Only the routing fields matter (routingKey covers them).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routingKey]);
@@ -1775,6 +1779,24 @@ export function Daw() {
 
   /** Where a track's audio goes ("Audio to"): a track's id, "master", or
    * null for the default (its group, else the master). */
+  /** Where an audio track's input comes from ("Audio From"): another
+   * track at a tap point, or null for the audio interface. */
+  const handleSetInput = useCallback(
+    (id: string, input: TrackInput | null) => {
+      pushHistory();
+      setChannels((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          if (input) return { ...c, input };
+          const { input: _i, ...rest } = c;
+          void _i;
+          return rest;
+        })
+      );
+    },
+    [pushHistory]
+  );
+
   const handleSetOutput = useCallback(
     (id: string, output: string | null) => {
       pushHistory();
@@ -2872,8 +2894,9 @@ export function Daw() {
       masterEffects,
       contentEndSeconds: channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
       delayCompensation: loadAudioPrefs().delayCompensation,
+      monitored: [...monitoredChannelIds],
     }),
-    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects]
+    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds]
   );
 
   // --- Save/load: the whole project autosaves to IndexedDB a moment after
@@ -3374,6 +3397,18 @@ export function Daw() {
   /** A track's "Audio to" choices: the default (its group, else the
    * master), the master past its group, and the groups and audio tracks
    * that don't already feed it. */
+  /** An audio track's "Audio From" choices: the interface, or any track
+   * whose audio doesn't already come from it. */
+  const inputOptionsFor = (c: ChannelConfig) => [
+    { value: "", label: "Audio interface" },
+    ...inputSources(c.id, channels).map((t) => ({ value: t.id, label: `${t.type === "group" ? "Group" : "Track"}: ${t.name}` })),
+  ];
+  /** Where a track's audio comes from when that's another track, for its header. */
+  const inputNameOf = (c: ChannelConfig): string | null => {
+    if (c.type !== "audio" || !c.input) return null;
+    const source = channels.find((k) => k.id === c.input!.track);
+    return source ? `${source.name} · ${SIDECHAIN_TAP_LABELS[c.input.tap]}` : null;
+  };
   const outputOptionsFor = (c: ChannelConfig) => {
     const group = c.groupId ? channels.find((g) => g.id === c.groupId) : undefined;
     const options = [{ value: "", label: group ? `${group.name} (its group)` : "Master" }];
@@ -3732,6 +3767,7 @@ export function Daw() {
                   picked={trackPicks.has(channel.id)}
                   onPick={() => handlePickTrack(channel.id)}
                   outputName={outputNameOf(channel)}
+                  inputName={inputNameOf(channel)}
                   selected={channel.id === selectedChannelId}
                   recording={transportState === "recording" && channel.id === recordingChannelId}
                   hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
@@ -4209,6 +4245,12 @@ export function Daw() {
           onOpenEffectWindow={setExpandedEffectId}
           onLoadEffectFile={(effectId, file) => handleLoadEffectFile(fxHostId, effectId, file)}
           onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
+          inputOptions={fxChannel?.type === "audio" ? inputOptionsFor(fxChannel) : undefined}
+          inputValue={fxChannel?.input?.track ?? ""}
+          inputTap={fxChannel?.input?.tap ?? "postFx"}
+          onInputChange={
+            fxChannel ? (track, tap) => handleSetInput(fxChannel.id, track ? { track, tap } : null) : undefined
+          }
           outputOptions={fxChannel ? outputOptionsFor(fxChannel) : undefined}
           outputValue={fxChannel?.output ?? ""}
           onOutputChange={fxChannel ? (value) => handleSetOutput(fxChannel.id, value || null) : undefined}

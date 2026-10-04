@@ -130,6 +130,9 @@ interface TrackHeaderProps {
   /** Where its audio goes, when that's not the default (another track's
    * name, or "Master" for a member sent past its group). */
   outputName?: string | null;
+  /** Audio tracks: the track its input comes from, when that's not the
+   * audio interface ("Audio From"). */
+  inputName?: string | null;
 }
 
 function formatDb(db: number): string {
@@ -223,6 +226,7 @@ export function TrackHeader({
   picked = false,
   onPick,
   outputName,
+  inputName,
 }: TrackHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -460,6 +464,13 @@ export function TrackHeader({
             >
               {instrumentLabel(channel.instrument)}
             </span>
+          ) : inputName ? (
+            <span
+              title={`Input: ${inputName}. Change it in the track's FX rack (Audio from).`}
+              className="flex h-5 max-w-[76px] items-center truncate rounded border border-accent/40 px-1.5 text-[10px] text-accent"
+            >
+              ← {inputName.split(" · ")[0]}
+            </span>
           ) : (
             <select
               title="Which microphone or audio-interface input this track records from"
@@ -570,7 +581,7 @@ export function TrackHeader({
               <ActivitySquare size={12} />
             </IconButton>
           )}
-          {!isMidi && !isGroup && channel.armed ? <InputMeter /> : <div className="flex-1" />}
+          {!isMidi && !isGroup && !inputName && channel.armed ? <InputMeter /> : <div className="flex-1" />}
           {canRemove && (
             <IconButton title={isGroup ? "Remove the group (its tracks stay)" : "Remove channel"} onClick={() => onRemove?.()} danger>
               <X size={12} />

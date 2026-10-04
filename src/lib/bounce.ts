@@ -18,7 +18,7 @@ import type { SidechainTap } from "./sidechainModel";
 import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
-import { downstreamOf, routeMap, soloAudible, upstreamOf } from "./routing";
+import { downstreamOf, inputMap, routeMap, soloAudible, upstreamOf } from "./routing";
 
 const MIN_NOTE_DURATION = 0.05;
 /** Default extra render time so reverb/delay tails aren't cut off. */
@@ -39,6 +39,10 @@ export interface BounceParams {
   contentEndSeconds: number;
   /** Plugin delay compensation, as in playback (default on). */
   delayCompensation?: boolean;
+  /** Audio tracks being monitored. Those taking another track's audio as
+   * their input ("Audio From") play it through their effects, as heard;
+   * an audio interface's input isn't part of an export. */
+  monitored?: string[];
 }
 
 /** Longest delay compensation can add to one path (s). */
@@ -178,6 +182,14 @@ export async function renderProject(params: BounceParams, options: RenderOptions
     if (!audible.has(c) && !keySources.has(c.id)) return;
     needed.add(c.id);
     downstreamOf(c.id, routes).forEach((id) => needed.add(id));
+  });
+  // A monitored track listening to another track needs that one built
+  // (silent, if it isn't heard itself).
+  const monitored = new Set(params.monitored ?? []);
+  const liveInputs = [...inputMap(params.channels, routes)].filter(([receiver]) => monitored.has(receiver) && needed.has(receiver));
+  liveInputs.forEach(([, input]) => {
+    needed.add(input.track);
+    downstreamOf(input.track, routes).forEach((id) => needed.add(id));
   });
   const rendered = params.channels.filter((c) => needed.has(c.id));
 
@@ -361,6 +373,12 @@ export async function renderProject(params: BounceParams, options: RenderOptions
 
     // Each strip into the track it feeds, or the master.
     const builtIds = new Map(compensation.channels.map((c) => [c.id, c]));
+    // Monitored tracks hear their source track's tap, like a live input.
+    liveInputs.forEach(([receiver, input]) => {
+      const tap = taps.get(input.track)?.[input.tap];
+      const into = builtIds.get(receiver);
+      if (tap && into) tap.connect(into.own);
+    });
     const destOf = (id: string) => {
       const dest = routes.get(id) ?? null;
       return dest && builtIds.has(dest) ? dest : null;

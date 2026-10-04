@@ -10,7 +10,7 @@
 // are dropped.
 
 import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectInstance, type EffectType } from "./effects";
-import { SIDECHAIN_TAPS } from "./sidechainModel";
+import { SIDECHAIN_TAPS, type SidechainTap } from "./sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./timeline";
@@ -27,6 +27,7 @@ import type {
   InstrumentType,
   NoteEvent,
   TimeSignature,
+  TrackInput,
 } from "./types";
 
 /** Bump whenever the saved format changes, and teach `normalizeProject`
@@ -219,6 +220,14 @@ function normalizeLane(
   return { id, target, points };
 }
 
+/** An audio track's input from another track, if well formed. */
+function normalizeTrackInput(raw: unknown): TrackInput | null {
+  const r = obj(raw);
+  const track = nonEmptyId(r.track);
+  if (!track) return null;
+  return { track, tap: (SIDECHAIN_TAPS as readonly string[]).includes(r.tap as string) ? (r.tap as SidechainTap) : "postFx" };
+}
+
 function normalizeChannel(
   raw: unknown,
   index: number,
@@ -256,6 +265,7 @@ function normalizeChannel(
     armed: type !== "group" && bool(r.armed, false),
     ...(typeof r.groupId === "string" && r.groupId ? { groupId: r.groupId } : {}),
     ...(typeof r.output === "string" && r.output ? { output: r.output } : {}),
+    ...(type === "audio" && normalizeTrackInput(r.input) ? { input: normalizeTrackInput(r.input)! } : {}),
     ...(r.folded === true ? { folded: true } : {}),
     sends,
     automationLanes,
@@ -367,6 +377,12 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
   const loadedIds = new Set(loaded.map((c) => c.id));
   const channels = normalizeGroups(
     loaded.map((c) => {
+      // An input from a track that isn't there goes back to the interface.
+      if (c.input && !loadedIds.has(c.input.track)) {
+        const { input: _i, ...rest } = c;
+        void _i;
+        c = rest;
+      }
       if (!c.output || c.output === MASTER_OUTPUT || loadedIds.has(c.output)) return c;
       const { output: _o, ...rest } = c;
       void _o;

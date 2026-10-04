@@ -53,7 +53,9 @@ Live and Reaper.
   another track (for example, the kick ducking the bass).
 - **Send/return buses** and a **master bus**, each with their own effects.
 - **Group tracks** (like Ableton's groups or Reaper's folders), and
-  **track-to-track routing**: send a track's audio through another track.
+  **track-to-track routing**: Audio to and Audio from, like Ableton, with
+  Pre FX, Post FX or Post Fader taps, so a track can process, monitor or
+  record another one.
 - **Folding.** Fold any track, or all of them, to a short row so more fit on
   screen.
 - **Automation** of volume, pan and any effect knob.
@@ -776,8 +778,21 @@ offered.
 - Delay compensation, sidechains and export (mix and stems) follow the
   routing. A stem is made for each track that reaches the master, with
   everything that plays through it.
-- An audio track that receives other tracks processes them, but doesn't
-  record them.
+- **Audio from**, next to Audio to on an audio track, chooses where its
+  input comes from, like Ableton's: the **audio interface** (the input
+  picked in its header), or **another track**, taken **Pre FX** (before
+  that track's effects), **Post FX** (after them) or **Post Fader** (after
+  its volume). The header then shows **← name**. The source keeps playing
+  where it goes; this track gets a copy:
+  - **Monitor** (the headphones button) to hear it through this track's
+    effects - a parallel chain, a different amp on the same guitar. A
+    monitored input plays in exports too.
+  - **Record** to record it: a bounce of the other track, lined up with the
+    beat. Pre FX on a guitar gives you the dry DI while you hear the amp.
+    Takes from another track are saved as 32-bit float, so a hot signal
+    before the fader doesn't clip. They're mono, like microphone takes.
+- Choices that would make a loop (through outputs, inputs or sidechains)
+  aren't offered.
 
 ### Automation
 

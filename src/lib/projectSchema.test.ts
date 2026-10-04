@@ -302,4 +302,24 @@ describe("groups, routing and colors", () => {
     expect(synth.output).toBe("v");
     expect(synth.color).toBeUndefined();
   });
+
+  it("keeps an audio track's input from another track, and drops bad ones", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [
+        { ...base, id: "s", name: "Synth", type: "midi", instrument: "piano" },
+        { ...base, id: "p", name: "Print", type: "audio", input: { track: "s", tap: "preFx" } },
+        { ...base, id: "q", name: "Odd tap", type: "audio", input: { track: "s", tap: "sideways" } },
+        { ...base, id: "x", name: "Gone", type: "audio", input: { track: "nowhere", tap: "postFx" } },
+        { ...base, id: "m", name: "MIDI", type: "midi", instrument: "piano", input: { track: "s", tap: "postFx" } },
+      ],
+    })!;
+    const byId = Object.fromEntries(project.channels.map((c) => [c.id, c]));
+    expect(byId.p.input).toEqual({ track: "s", tap: "preFx" });
+    expect(byId.q.input).toEqual({ track: "s", tap: "postFx" });
+    expect(byId.x.input).toBeUndefined();
+    expect(byId.m.input).toBeUndefined();
+  });
 });

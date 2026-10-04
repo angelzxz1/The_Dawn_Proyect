@@ -60,6 +60,11 @@ export interface ChannelConfig {
    * audio track, whose effects then process it), "master", or unset for
    * the default (its group, else the master). See routing.ts. */
   output?: string;
+  /** Audio tracks: where the track's input comes from ("Audio From") -
+   * another track, tapped before its effects, after them, or after its
+   * fader. Unset: the audio interface's input. What comes in is heard
+   * (when monitoring) and recorded like a microphone. See routing.ts. */
+  input?: TrackInput;
   /** Folded: a short row in the arrangement (for a group: its members are
    * hidden too). */
   folded?: boolean;
@@ -71,6 +76,15 @@ export interface ChannelConfig {
 
 import type { SynthParams } from "./synthParams";
 import type { DrumKitParams } from "./drumParams";
+import type { SidechainTap } from "./sidechainModel";
+
+/** An audio track's input taken from another track. */
+export interface TrackInput {
+  /** The source track's id. */
+  track: string;
+  /** Where on it: before its effects, after them, or after its fader. */
+  tap: SidechainTap;
+}
 export type { SynthParams };
 
 /** A send/return bus: several tracks can route a copy of their signal into

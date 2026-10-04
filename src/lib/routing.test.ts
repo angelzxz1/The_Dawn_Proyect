@@ -4,6 +4,8 @@ import {
   downstreamOf,
   groupTracks,
   hiddenByFoldedGroups,
+  inputMap,
+  inputSources,
   moveTrack,
   normalizeGroups,
   outputTargets,
@@ -108,5 +110,45 @@ describe("groups", () => {
     expect(list[0].groupId).toBeUndefined();
     expect(list[1].groupId).toBeUndefined();
     expect([...hiddenByFoldedGroups(list)]).toEqual(["m"]);
+  });
+});
+
+describe("track inputs (Audio From)", () => {
+  const audio = (id: string, extra: Partial<ChannelConfig> = {}) => track(id, { type: "audio", instrument: null, ...extra });
+
+  it("an audio track takes another track's audio at a tap point", () => {
+    const nodes = [track("synth"), audio("print", { input: { track: "synth", tap: "postFx" } })];
+    expect(inputMap(nodes).get("print")).toEqual({ track: "synth", tap: "postFx" });
+    // The source still goes to the master.
+    expect(routeMap(nodes).get("synth")).toBeNull();
+  });
+
+  it("ignores inputs on MIDI tracks, from itself, or from a missing track", () => {
+    const nodes = [
+      track("m", { input: { track: "a", tap: "preFx" } }),
+      audio("a", { input: { track: "a", tap: "preFx" } }),
+      audio("b", { input: { track: "gone", tap: "preFx" } }),
+    ];
+    expect(inputMap(nodes).size).toBe(0);
+  });
+
+  it("never closes a loop through outputs and inputs", () => {
+    // a sends its output into b, and b would take a's audio back: a loop.
+    const nodes = [audio("a", { output: "b", input: { track: "b", tap: "postFader" } }), audio("b")];
+    expect(inputMap(nodes).has("a")).toBe(false);
+    // Two tracks taking each other's input: the first one wins.
+    const pair = [audio("x", { input: { track: "y", tap: "preFx" } }), audio("y", { input: { track: "x", tap: "preFx" } })];
+    expect([...inputMap(pair).keys()]).toEqual(["x"]);
+  });
+
+  it("only offers sources and destinations that can't loop", () => {
+    const nodes = [audio("a"), audio("b", { input: { track: "a", tap: "postFx" } }), audio("c")];
+    // b listens to a, so a can't take b (or send its output to b and back).
+    expect(inputSources("a", nodes).map((n) => n.id)).toEqual(["c"]);
+    expect(inputSources("b", nodes).map((n) => n.id)).toEqual(["a", "c"]);
+    // b can't send its output into a: a feeds b.
+    expect(outputTargets("b", nodes).map((n) => n.id)).toEqual(["c"]);
+    // a sending into b as well is fine: both paths run the same way.
+    expect(outputTargets("a", nodes).map((n) => n.id)).toEqual(["b", "c"]);
   });
 });

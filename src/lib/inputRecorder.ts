@@ -56,7 +56,7 @@ registerProcessor("${PROCESSOR_NAME}", DawnInputRecorder);
 export class InputRecorder {
   private readonly chunks: { frame: number; data: Float32Array }[] = [];
   private node: AudioWorkletNode | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
+  private source: Tone.InputNode | AudioNode | null = null;
   private done: Promise<void> | null = null;
   private resolveDone: (() => void) | null = null;
   private preview: { builder: WaveformBuilder; originFrame: number } | null = null;
@@ -69,10 +69,10 @@ export class InputRecorder {
   /** `source` should be one long-lived node per input: the browser's
    * buffering between the device and the audio graph settles per source
    * node, so reusing it keeps a measured round trip valid for later takes. */
-  static async start(context: Tone.BaseContext, source: MediaStreamAudioSourceNode): Promise<InputRecorder> {
+  static async start(context: Tone.BaseContext, source: Tone.OutputNode | AudioNode): Promise<InputRecorder> {
     await loadWorklet(context, PROCESSOR_NAME, PROCESSOR_CODE);
     const rec = new InputRecorder(context);
-    rec.source = source;
+    rec.source = source as Tone.InputNode | AudioNode;
     rec.node = context.createAudioWorkletNode(PROCESSOR_NAME, {
       numberOfInputs: 1,
       numberOfOutputs: 0,
@@ -88,8 +88,17 @@ export class InputRecorder {
         rec.preview?.builder.add(e.data.frame - rec.preview.originFrame, e.data.data);
       }
     };
-    rec.source.connect(rec.node);
+    Tone.connect(rec.source as Tone.OutputNode, rec.node);
     return rec;
+  }
+
+  private unplug(): void {
+    if (!this.source || !this.node) return;
+    try {
+      Tone.disconnect(this.source as Tone.OutputNode, this.node);
+    } catch {
+      // Already gone (the source track was removed).
+    }
   }
 
   /** Starts building a live waveform of the take, from context time
@@ -113,7 +122,7 @@ export class InputRecorder {
     if (this.node) {
       this.node.port.postMessage("stop");
       await Promise.race([this.done, new Promise((r) => setTimeout(r, 1000))]);
-      this.source?.disconnect(this.node);
+      this.unplug();
       this.node.port.onmessage = null;
       this.node = null;
     }
@@ -132,13 +141,14 @@ export class InputRecorder {
   cancel(): void {
     if (!this.node) return;
     this.node.port.postMessage("stop");
-    this.source?.disconnect(this.node);
+    this.unplug();
     this.node.port.onmessage = null;
     this.node = null;
   }
 }
 
-/** A take as a 24-bit WAV file. */
-export function takeToWav(samples: Float32Array, sampleRate: number): Blob {
-  return encodeWav([samples], sampleRate, 24);
+/** A take as a WAV file: 24-bit, or 32-bit float for audio that may go
+ * over full scale. */
+export function takeToWav(samples: Float32Array, sampleRate: number, float = false): Blob {
+  return encodeWav([samples], sampleRate, float ? 32 : 24);
 }

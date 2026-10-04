@@ -9,11 +9,18 @@
 //
 // Groups are one level deep: a group can't be inside another group. A
 // group's members sit right after it in the track list.
+//
+// An audio track can also take its input from another track ("Audio
+// From", tapped before or after that track's effects or fader) instead of
+// the audio interface: it hears and records a copy, and the source still
+// goes where it goes. Outputs and inputs together never form a loop: an
+// input that would close one is ignored, and choices that would aren't
+// offered.
 
-import type { ChannelConfig } from "./types";
+import type { ChannelConfig, TrackInput } from "./types";
 
 /** The parts of a track that decide its routing. */
-export type RouteNode = Pick<ChannelConfig, "id" | "type" | "groupId" | "output">;
+export type RouteNode = Pick<ChannelConfig, "id" | "type" | "groupId" | "output" | "input">;
 
 /** `output` value for "straight to the master, even inside a group". */
 export const MASTER_OUTPUT = "master";
@@ -51,6 +58,49 @@ export function routeMap(nodes: RouteNode[]): Map<string, string | null> {
   return wanted;
 }
 
+/** The audio tracks taking another track's audio as their input, with
+ * where they take it - leaving out inputs that point nowhere or would
+ * close a loop (in track order, with the outputs as `routes` says). */
+export function inputMap(nodes: RouteNode[], routes: Map<string, string | null> = routeMap(nodes)): Map<string, TrackInput> {
+  const ids = new Set(nodes.map((n) => n.id));
+  const accepted = new Map<string, TrackInput>();
+  nodes.forEach((n) => {
+    const input = n.input;
+    if (n.type !== "audio" || !input || input.track === n.id || !ids.has(input.track)) return;
+    // The source feeding this track loops if this track already reaches it.
+    if (reaches(n.id, input.track, routes, accepted)) return;
+    accepted.set(n.id, input);
+  });
+  return accepted;
+}
+
+/** Whether audio from `from` reaches `to` (through outputs and inputs). */
+function reaches(from: string, to: string, routes: Map<string, string | null>, inputs: Map<string, TrackInput>): boolean {
+  const seen = new Set<string>();
+  const stack = [from];
+  while (stack.length) {
+    const at = stack.pop()!;
+    if (at === to) return true;
+    if (seen.has(at)) continue;
+    seen.add(at);
+    const dest = routes.get(at);
+    if (dest) stack.push(dest);
+    inputs.forEach((input, receiver) => {
+      if (input.track === at) stack.push(receiver);
+    });
+  }
+  return false;
+}
+
+/** Tracks `id` could take its input from: any other track whose audio
+ * doesn't already come from `id`. */
+export function inputSources<T extends RouteNode>(id: string, nodes: T[]): T[] {
+  const others = nodes.map((n) => (n.id === id ? { ...n, input: undefined } : n));
+  const routes = routeMap(others);
+  const inputs = inputMap(others, routes);
+  return nodes.filter((n) => n.id !== id && !reaches(id, n.id, routes, inputs));
+}
+
 /** Every track whose audio (directly or not) flows into `id`. */
 export function upstreamOf(id: string, routes: Map<string, string | null>): Set<string> {
   const result = new Set<string>();
@@ -79,11 +129,13 @@ export function downstreamOf(id: string, routes: Map<string, string | null>): st
 }
 
 /** Tracks `id` could send its audio to: groups and audio tracks that don't
- * already feed into it. */
+ * already feed into it (through outputs or inputs). */
 export function outputTargets<T extends RouteNode>(id: string, nodes: T[]): T[] {
-  const routes = routeMap(nodes);
-  const upstream = upstreamOf(id, routes);
-  return nodes.filter((n) => n.id !== id && canReceive(n) && !upstream.has(n.id));
+  // Without its own output: it's going to change.
+  const others = nodes.map((n) => (n.id === id ? { ...n, output: MASTER_OUTPUT } : n));
+  const routes = routeMap(others);
+  const inputs = inputMap(others, routes);
+  return nodes.filter((n) => n.id !== id && canReceive(n) && !reaches(n.id, id, routes, inputs));
 }
 
 /** The tracks not silenced by solo: with nothing soloed, all of them;

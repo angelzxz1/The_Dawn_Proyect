@@ -24,6 +24,7 @@ import { MbDynamicsRackCard } from "./MbDynamicsRackCard";
 import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
 import { PresetMenu, type PresetChange } from "./PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
+import { SIDECHAIN_TAPS, SIDECHAIN_TAP_LABELS, type SidechainTap } from "@/lib/sidechainModel";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
 import { SynthRackCard } from "./SynthRackCard";
 import { DrumRackCard } from "./DrumRackCard";
@@ -81,6 +82,12 @@ interface FxRackProps {
   sidechainSources?: SidechainSource[];
   /** A track's "Audio to" choices ("" is the default: its group, or the
    * master) and the current one. Omitted for buses and the master. */
+  /** An audio track's "Audio From" choices ("" is the audio interface),
+   * the current source and where on it the audio is taken. */
+  inputOptions?: { value: string; label: string }[];
+  inputValue?: string;
+  inputTap?: SidechainTap;
+  onInputChange?: (track: string, tap: SidechainTap) => void;
   outputOptions?: { value: string; label: string }[];
   outputValue?: string;
   onOutputChange?: (value: string) => void;
@@ -191,6 +198,10 @@ export function FxRack({
   onClearEffectFile,
   sidechainSources,
   onPresetChange,
+  inputOptions,
+  inputValue = "",
+  inputTap = "postFx",
+  onInputChange,
   outputOptions,
   outputValue = "",
   onOutputChange,
@@ -230,6 +241,39 @@ export function FxRack({
             </span>
           )}
         </button>
+        {inputOptions && onInputChange && (
+          <label
+            className="mr-3 flex shrink-0 items-center gap-1.5 text-[10px] text-muted"
+            title="Where this track's input comes from: the audio interface, or another track - taken before its effects (Pre FX), after them (Post FX) or after its fader. Monitor to hear it through this track's effects; Record to record it."
+          >
+            Audio from
+            <select
+              value={inputOptions.some((o) => o.value === inputValue) ? inputValue : ""}
+              onChange={(e) => onInputChange(e.target.value, inputTap)}
+              className="max-w-[150px] rounded border border-border bg-surface px-1 py-0.5 text-[11px] text-foreground"
+            >
+              {inputOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {inputValue && (
+              <select
+                aria-label="Where on that track"
+                value={inputTap}
+                onChange={(e) => onInputChange(inputValue, e.target.value as SidechainTap)}
+                className="rounded border border-border bg-surface px-1 py-0.5 text-[11px] text-foreground"
+              >
+                {SIDECHAIN_TAPS.map((tap) => (
+                  <option key={tap} value={tap}>
+                    {SIDECHAIN_TAP_LABELS[tap]}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+        )}
         {outputOptions && onOutputChange && (
           <label
             className="mr-2 flex shrink-0 items-center gap-1.5 text-[10px] text-muted"

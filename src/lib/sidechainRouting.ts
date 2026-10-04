@@ -37,6 +37,8 @@ export interface RoutingSnapshot {
     start?: number;
     /** Delay (s) on its sends. */
     send?: number;
+    /** The track it takes its input from, if any ("Audio From"). */
+    inputFrom?: string | null;
   }[];
   buses: { id: string; chain: number; pdc: number }[];
 }
@@ -58,6 +60,7 @@ function feeds(snapshot: RoutingSnapshot): Map<string, Set<string>> {
   snapshot.channels.forEach((c) => {
     c.sends.forEach((bus) => add(bus, c.id));
     add(c.dest ?? "master", c.id);
+    if (c.inputFrom) add(c.id, c.inputFrom);
   });
   snapshot.buses.forEach((b) => add("master", b.id));
   return graph;

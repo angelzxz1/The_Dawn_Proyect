@@ -12,13 +12,13 @@ import { SynthInstrument } from "./synth";
 import { DrumRack } from "./drumRack";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
-import { chainLatency, nodeLatency, planCompensation } from "./latency";
-import { keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
+import { chainLatency, nodeLatency } from "./latency";
+import { audibleTracks, planMix } from "./mixGraph";
 import type { SidechainTap } from "./sidechainModel";
 import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
-import { downstreamOf, inputMap, routeMap, soloAudible, upstreamOf } from "./routing";
+import { downstreamOf, inputMap, routeMap, upstreamOf } from "./routing";
 
 const MIN_NOTE_DURATION = 0.05;
 /** Default extra render time so reverb/delay tails aren't cut off. */
@@ -138,8 +138,8 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
 /** The tracks heard in the mix: unmuted, and (if anything is soloed) on a
  * soloed track's path - its group, the tracks feeding it (routing.ts). */
 export function audibleChannels(channels: ChannelConfig[]): ChannelConfig[] {
-  const open = soloAudible(channels);
-  return channels.filter((c) => !c.muted && open.has(c.id));
+  const heard = audibleTracks(channels);
+  return channels.filter((c) => heard.has(c.id));
 }
 
 /** Renders the project offline and resolves with a 16-bit WAV file Blob. */
@@ -371,29 +371,52 @@ export async function renderProject(params: BounceParams, options: RenderOptions
       }
     });
 
+    // The same mix plan the live engine applies (mixGraph.ts): routes,
+    // delay compensation and sidechains. Nothing is live in an export.
+    hosts.push({ id: "master", built: masterBuilt });
+    const byId = new Map(params.channels.map((c) => [c.id, c]));
+    const isKeyed = (node: Tone.ToneAudioNode): node is Tone.ToneAudioNode & { sidechainInput: Tone.Gain; setSidechainActive(on: boolean): void } =>
+      "sidechainInput" in node;
+    const mix = planMix({
+      tracks: compensation.channels.map((c) => {
+        const channel = byId.get(c.id)!;
+        return {
+          id: c.id,
+          type: channel.type,
+          groupId: channel.groupId,
+          output: channel.output,
+          input: channel.input,
+          latency: c.latency,
+          live: false,
+          muted: channel.muted,
+          solo: channel.solo,
+          sends: sendsOf.get(c.id) ?? [],
+        };
+      }),
+      buses: compensation.buses,
+      masterLatency: masterLatency + (masterLimiter ? nodeLatency(masterLimiter) : 0),
+      compensation: params.delayCompensation ?? true,
+      hosts: hosts.map((h) => ({
+        id: h.id,
+        effects: h.built.map(({ fx, node }) => ({ id: fx.id, latency: nodeLatency(node), bypass: !!fx.bypass, keyed: isKeyed(node), sidechain: fx.sidechain })),
+      })),
+    });
+    const plan = mix.plan;
+
     // Each strip into the track it feeds, or the master.
     const builtIds = new Map(compensation.channels.map((c) => [c.id, c]));
+    compensation.channels.forEach((c) => {
+      const out = mix.outputs.get(c.id);
+      c.strip.connect(out?.kind === "track" ? builtIds.get(out.id)!.routeIn : direct);
+    });
     // Monitored tracks hear their source track's tap, like a live input.
-    liveInputs.forEach(([receiver, input]) => {
+    mix.inputs.forEach((input, receiver) => {
+      if (!monitored.has(receiver)) return;
       const tap = taps.get(input.track)?.[input.tap];
       const into = builtIds.get(receiver);
       if (tap && into) tap.connect(into.own);
     });
-    const destOf = (id: string) => {
-      const dest = routes.get(id) ?? null;
-      return dest && builtIds.has(dest) ? dest : null;
-    };
-    compensation.channels.forEach((c) => {
-      const dest = destOf(c.id);
-      c.strip.connect(dest ? builtIds.get(dest)!.routeIn : direct);
-    });
 
-    const plan = planCompensation({
-      enabled: params.delayCompensation ?? true,
-      channels: compensation.channels.map((c) => ({ id: c.id, latency: c.latency, live: false, dest: destOf(c.id) })),
-      buses: compensation.buses,
-      master: masterLatency + (masterLimiter ? nodeLatency(masterLimiter) : 0),
-    });
     compensation.channels.forEach((c) => {
       c.pdc.delayTime.value = plan.channel.get(c.id) ?? 0;
       c.own.delayTime.value = plan.own.get(c.id) ?? 0;
@@ -404,42 +427,17 @@ export async function renderProject(params: BounceParams, options: RenderOptions
     latency = plan.total;
 
     // Sidechains: tap -> alignment delay -> the effect's key input.
-    hosts.push({ id: "master", built: masterBuilt });
-    const snapshot: RoutingSnapshot = {
-      channels: compensation.channels.map((c) => ({
-        id: c.id,
-        sends: sendsOf.get(c.id) ?? [],
-        chain: c.latency,
-        pdc: plan.channel.get(c.id) ?? 0,
-        toMaster: plan.direct,
-        dest: destOf(c.id),
-        start: plan.own.get(c.id) ?? 0,
-        send: plan.send.get(c.id) ?? 0,
-      })),
-      buses: compensation.buses.map((b) => ({ id: b.id, chain: b.latency, pdc: plan.bus.get(b.id) ?? 0 })),
-    };
-    const isKeyed = (node: Tone.ToneAudioNode): node is Tone.ToneAudioNode & { sidechainInput: Tone.Gain; setSidechainActive(on: boolean): void } =>
-      "sidechainInput" in node;
-    const requests: SidechainRequest[] = hosts.flatMap((h) =>
-      h.built.filter(({ fx, node }) => fx.sidechain && isKeyed(node)).map(({ fx }) => ({ hostId: h.id, effectId: fx.id, routing: fx.sidechain }))
-    );
-    const accepted = resolveSidechains(snapshot, requests);
-    hosts.forEach((h) => {
-      let before = 0;
+    hosts.forEach((h) =>
       h.built.forEach(({ fx, node }) => {
-        const source = accepted.get(fx.id);
-        if (source && fx.sidechain && isKeyed(node)) {
-          const tap = taps.get(source)?.[fx.sidechain.tap];
-          if (tap) {
-            const delay = new Tone.Delay(keyDelay(snapshot, h.id, before, source, fx.sidechain.tap), MAX_COMPENSATION);
-            tap.connect(delay);
-            delay.connect(node.sidechainInput);
-            node.setSidechainActive(true);
-          }
-        }
-        if (!fx.bypass) before += nodeLatency(node);
-      });
-    });
+        const link = mix.sidechains.get(fx.id);
+        const tap = link ? taps.get(link.source)?.[link.tap] : undefined;
+        if (!link || !tap || !isKeyed(node)) return;
+        const delay = new Tone.Delay(link.delay, MAX_COMPENSATION);
+        tap.connect(delay);
+        delay.connect(node.sidechainInput);
+        node.setSidechainActive(true);
+      })
+    );
 
     if (automationEntries.length > 0) {
       // Offline rendering is non-realtime, so a scheduled callback's own

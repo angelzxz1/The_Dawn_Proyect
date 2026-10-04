@@ -70,7 +70,7 @@ import { MbDynamicsChain, type MbdMeters } from "./mbDynamics";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
 import { Metronome } from "./metronome";
 import { measureNativeLatencies } from "./nativeLatency";
-import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
+import { chainLatency, detectRoundTrip, nodeLatency, type CompensationPlan } from "./latency";
 import { InputRecorder, takeToWav } from "./inputRecorder";
 import type { Waveform } from "./waveform";
 import { installCpuMeter } from "./cpuMeter";
@@ -84,8 +84,9 @@ import { MultibandChain, type MultibandMeters } from "./multiband";
 import { UtilityChain, type UtilityMeters } from "./utility";
 import { TunerChain } from "./tuner";
 import type { SidechainRouting } from "./sidechainModel";
-import { canKeyFrom, keyDelay, resolveSidechains, tapLatency, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
-import { inputMap, routeMap, soloAudible, type RouteNode } from "./routing";
+import { canKeyFrom, tapLatency, type RoutingSnapshot } from "./sidechainRouting";
+import type { RouteNode } from "./routing";
+import { planMix, type MixGraph, type MixHost, type MixInput, type MixTrack } from "./mixGraph";
 import { type ImpulseParams, renderImpulse, reverbModeFromParam } from "./reverbModel";
 import { chorusDelayRange, chorusWaveformFromParam } from "./chorusModel";
 import { SaturatorChain } from "./saturator";
@@ -1360,7 +1361,7 @@ class AudioEngine {
       this.startPromise = Tone.start().then(() => {
         this.started = true;
         // Browsers' own nodes hide some delay; measure it for compensation.
-        void measureNativeLatencies(Tone.getContext().sampleRate).then(() => this.updateCompensation());
+        void measureNativeLatencies(Tone.getContext().sampleRate).then(() => this.refreshMix());
         void installCpuMeter();
       });
     }
@@ -1405,7 +1406,7 @@ class AudioEngine {
     if (!this.masterChannel || !this.masterLimiter) return;
     this.masterChannel.disconnect();
     this.wireEffectsChain([this.masterChannel], this.masterEffects, this.masterLimiter);
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   // --- Latency: delay compensation (see latency.ts) ---
@@ -1424,6 +1425,8 @@ class AudioEngine {
    * the master. */
   private routes = new Map<string, string | null>();
   private routeNodes: RouteNode[] = [];
+  /** The mix as last planned (mixGraph.ts). */
+  private mix: MixGraph | null = null;
   private latencyListeners = new Set<() => void>();
 
   private ensureClickOut(): Tone.Delay {
@@ -1440,17 +1443,62 @@ class AudioEngine {
     );
   }
 
-  /** Recomputes and applies every compensation delay - after anything that
-   * changes a chain's latency (an effect added/removed/bypassed, a latency
-   * setting), a track going live, or the settings changing. */
-  private updateCompensation(): void {
+  /** The mix as the engine has it now, for mixGraph.ts: tracks in the
+   * project's order (then any the routing hasn't been told about yet). */
+  private mixInput(): MixInput {
     const master = this.ensureMaster();
-    const plan = planCompensation({
-      enabled: this.delayCompensation,
-      channels: [...this.channels].map(([id, n]) => ({ id, latency: chainLatency(n.effects), live: this.isLive(id, n), dest: this.destOf(id) })),
-      buses: [...this.buses].map(([id, b]) => ({ id, latency: chainLatency(b.effects) })),
-      master: chainLatency(this.masterEffects) + nodeLatency(master.limiter),
+    const known = new Set<string>();
+    const tracks: MixTrack[] = [];
+    const add = (id: string, route: RouteNode | undefined) => {
+      const n = this.channels.get(id);
+      if (!n || known.has(id)) return;
+      known.add(id);
+      tracks.push({
+        id,
+        type: n.channelType,
+        groupId: route?.groupId,
+        output: route?.output,
+        input: route?.input,
+        latency: chainLatency(n.effects),
+        live: this.isLive(id, n),
+        muted: n.userMuted,
+        solo: this.soloedIds.has(id),
+        sends: [...n.sends.keys()],
+      });
+    };
+    this.routeNodes.forEach((r) => add(r.id, r));
+    this.channels.forEach((_, id) => add(id, undefined));
+    const hostOf = (id: string, effects: EffectNode[]): MixHost => ({
+      id,
+      effects: effects.map((e) => ({
+        id: e.id,
+        latency: nodeLatency(e.node),
+        bypass: !!e.bypass,
+        keyed: isSidechainNode(e.node),
+        sidechain: e.sidechain,
+      })),
     });
+    return {
+      tracks,
+      buses: [...this.buses].map(([id, b]) => ({ id, latency: chainLatency(b.effects) })),
+      masterLatency: chainLatency(this.masterEffects) + nodeLatency(master.limiter),
+      compensation: this.delayCompensation,
+      hosts: this.effectHosts().map(([id, effects]) => hostOf(id, effects)),
+    };
+  }
+
+  /** Re-plans the mix (mixGraph.ts) and applies it: every compensation
+   * delay, where each track's strip goes, mute and solo, and the
+   * sidechains. Called after anything that changes the routing, a chain's
+   * latency (an effect added/removed/bypassed, a latency setting), a track
+   * going live, mute/solo, a send, or the settings. */
+  private refreshMix(): void {
+    const master = this.ensureMaster();
+    const mix = planMix(this.mixInput());
+    const plan = mix.plan;
+    this.mix = mix;
+    this.routes = mix.routes;
+    this.trackInputs = mix.inputs;
     const setDelay = (delay: Tone.Delay | null, seconds: number) => {
       if (delay && Math.abs(Number(delay.delayTime.value) - seconds) > 1e-7) delay.delayTime.value = seconds;
     };
@@ -1458,8 +1506,9 @@ class AudioEngine {
       setDelay(n.pdc, plan.channel.get(id) ?? 0);
       setDelay(n.ownDelay, plan.own.get(id) ?? 0);
       setDelay(n.sendTap, plan.send.get(id) ?? 0);
-      const dest = this.destOf(id);
-      const route = dest ? `to:${dest}` : plan.live.has(id) ? "master" : "direct";
+      n.channel.mute = !mix.audible.has(id);
+      const out = mix.outputs.get(id) ?? { kind: "direct" };
+      const route = out.kind === "track" ? `to:${out.id}` : out.kind;
       if (route !== n.route) {
         try {
           if (n.route === "direct") n.channel.disconnect(this.directDelay!);
@@ -1471,7 +1520,7 @@ class AudioEngine {
         } catch {
           // Already disconnected (the old destination was removed).
         }
-        n.channel.connect(dest ? this.channels.get(dest)!.routeIn : route === "direct" ? this.directDelay! : master.channel);
+        n.channel.connect(out.kind === "track" ? this.channels.get(out.id)!.routeIn : out.kind === "direct" ? this.directDelay! : master.channel);
         n.route = route;
       }
     });
@@ -1480,27 +1529,27 @@ class AudioEngine {
     setDelay(this.clickOut, plan.total);
     const changed = plan.total !== this.compensation.total || plan.compensated !== this.compensation.compensated;
     this.compensation = plan;
-    this.rewireSidechains();
+    this.applySidechains(mix);
     if (changed) this.latencyListeners.forEach((fn) => fn());
   }
 
   /** Plugin delay compensation on/off (on by default). */
   setDelayCompensation(enabled: boolean): void {
     this.delayCompensation = enabled;
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   /** Whether monitored/armed tracks skip compensation to stay responsive. */
   setReducedLatencyMonitoring(enabled: boolean): void {
     this.reducedLatencyMonitoring = enabled;
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   /** The record-armed track - a MIDI one counts as played live. */
   setArmedChannel(id: string | null): void {
     if (this.armedChannelId === id) return;
     this.armedChannelId = id;
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   /** Called whenever the latency figures change. Returns an unsubscribe. */
@@ -1660,8 +1709,7 @@ class AudioEngine {
     nodes.channel.dispose();
     nodes.meter.dispose();
     this.channels.delete(id);
-    const wasSoloed = this.soloedIds.delete(id);
-    if (wasSoloed) this.channels.forEach((n, channelId) => this.applyMuteSolo(channelId, n));
+    this.soloedIds.delete(id);
     this.automation.delete(id);
     this.sustainedChannels.delete(id);
     this.sustainPending.delete(id);
@@ -1672,7 +1720,7 @@ class AudioEngine {
     if (this.recording?.channelId === id) {
       this.recording = null;
     }
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   /** Wires `sources` through the non-bypassed entries of `effects`, in
@@ -1727,7 +1775,7 @@ class AudioEngine {
     sources.forEach((source) => source.connect(nodes.ownDelay));
     nodes.head.disconnect();
     this.wireEffectsChain([nodes.head], nodes.effects, nodes.taps.postFx);
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   /** Same as `rewireChannel`, but for a bus: its "source" is always just
@@ -1737,7 +1785,7 @@ class AudioEngine {
     if (!bus) return;
     bus.head.disconnect();
     this.wireEffectsChain([bus.head], bus.effects, bus.taps.postFx);
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums,
@@ -2021,7 +2069,7 @@ class AudioEngine {
     if (!effect) return;
     this.safe(() => applyEffectParam(effect.node, effect.type, key, value));
     // The settings that change how late an effect is.
-    if (key === "oversample" || (effect.type === "pitchShift" && key === "window")) this.updateCompensation();
+    if (key === "oversample" || (effect.type === "pitchShift" && key === "window")) this.refreshMix();
   }
 
   // --- Sidechains (see sidechainRouting.ts) ---
@@ -2033,22 +2081,10 @@ class AudioEngine {
     { tap: Tone.Gain; delay: Tone.Delay; meter: Tone.Meter; node: SidechainNode }
   >();
 
+  /** The routing and its latencies as last planned (refreshMix keeps it
+   * current). */
   private routingSnapshot(): RoutingSnapshot {
-    const plan = this.compensation;
-    return {
-      channels: [...this.channels].map(([id, n]) => ({
-        id,
-        sends: [...n.sends.keys()],
-        chain: chainLatency(n.effects),
-        pdc: plan.channel.get(id) ?? 0,
-        toMaster: n.route === "master" ? 0 : plan.direct,
-        dest: this.destOf(id),
-        start: plan.own.get(id) ?? 0,
-        send: plan.send.get(id) ?? 0,
-        inputFrom: this.trackInputs.get(id)?.track ?? null,
-      })),
-      buses: [...this.buses].map(([id, b]) => ({ id, chain: chainLatency(b.effects), pdc: plan.bus.get(id) ?? 0 })),
-    };
+    return (this.mix ?? planMix(this.mixInput())).snapshot;
   }
 
   private effectHosts(): [string, EffectNode[]][] {
@@ -2059,54 +2095,35 @@ class AudioEngine {
     ];
   }
 
-  private sidechainRequests(except?: string): SidechainRequest[] {
-    return this.effectHosts().flatMap(([hostId, effects]) =>
-      effects
-        .filter((e) => e.sidechain && e.id !== except && isSidechainNode(e.node))
-        .map((e) => ({ hostId, effectId: e.id, routing: e.sidechain }))
-    );
-  }
-
-  /** Connects every keyed effect to its source (and disconnects the rest)
-   * - after anything that changes the routing or its latencies. */
-  private rewireSidechains(): void {
-    const snapshot = this.routingSnapshot();
-    const accepted = resolveSidechains(snapshot, this.sidechainRequests());
-    const kept = new Set<string>();
-    for (const [hostId, effects] of this.effectHosts()) {
-      let before = 0;
+  /** Connects every keyed effect to its source as the plan says (and
+   * disconnects the rest). */
+  private applySidechains(mix: MixGraph): void {
+    for (const [, effects] of this.effectHosts()) {
       for (const e of effects) {
         const node = e.node;
-        if (isSidechainNode(node)) {
-          const source = accepted.get(e.id);
-          const tapKind = e.sidechain?.tap ?? "postFx";
-          const from = source ? (this.channels.get(source) ?? this.buses.get(source)) : undefined;
-          const tap = from ? from.taps[tapKind] : null;
-          let link = this.sidechainLinks.get(e.id);
-          if (link && (link.tap !== tap || link.node !== node)) {
-            this.dropSidechainLink(e.id);
-            link = undefined;
-          }
-          if (tap && !link) {
-            const delay = new Tone.Delay(0, MAX_COMPENSATION);
-            const meter = new Tone.Meter({ smoothing: 0.6 });
-            tap.connect(delay);
-            delay.connect(node.sidechainInput);
-            delay.connect(meter);
-            link = { tap, delay, meter, node };
-            this.sidechainLinks.set(e.id, link);
-          }
-          if (link && source) {
-            const seconds = keyDelay(snapshot, hostId, before, source, tapKind);
-            if (Math.abs(Number(link.delay.delayTime.value) - seconds) > 1e-7) link.delay.delayTime.value = seconds;
-            kept.add(e.id);
-          }
-          node.setSidechainActive(kept.has(e.id));
+        if (!isSidechainNode(node)) continue;
+        const link = mix.sidechains.get(e.id);
+        const from = link ? (this.channels.get(link.source) ?? this.buses.get(link.source)) : undefined;
+        const tap = from && link ? from.taps[link.tap] : null;
+        let wired = this.sidechainLinks.get(e.id);
+        if (wired && (wired.tap !== tap || wired.node !== node)) {
+          this.dropSidechainLink(e.id);
+          wired = undefined;
         }
-        if (!e.bypass) before += nodeLatency(node);
+        if (tap && !wired) {
+          const delay = new Tone.Delay(0, MAX_COMPENSATION);
+          const meter = new Tone.Meter({ smoothing: 0.6 });
+          tap.connect(delay);
+          delay.connect(node.sidechainInput);
+          delay.connect(meter);
+          wired = { tap, delay, meter, node };
+          this.sidechainLinks.set(e.id, wired);
+        }
+        if (wired && link && Math.abs(Number(wired.delay.delayTime.value) - link.delay) > 1e-7) wired.delay.delayTime.value = link.delay;
+        node.setSidechainActive(!!(wired && link));
       }
     }
-    [...this.sidechainLinks.keys()].forEach((id) => kept.has(id) || this.dropSidechainLink(id));
+    [...this.sidechainLinks.keys()].forEach((id) => mix.sidechains.has(id) || this.dropSidechainLink(id));
   }
 
   private dropSidechainLink(effectId: string): void {
@@ -2128,7 +2145,7 @@ class AudioEngine {
     const effect = this.effectsHost(hostId)?.host.effects.find((e) => e.id === effectId);
     if (!effect) return;
     effect.sidechain = routing ? { ...routing } : undefined;
-    this.rewireSidechains();
+    this.refreshMix();
   }
 
   /** Whether an effect's key is connected, and its level (dB) - null if the
@@ -2147,7 +2164,7 @@ class AudioEngine {
    * without making a feedback loop. */
   sidechainSourcesAllowed(hostId: string, effectId: string): Set<string> {
     const snapshot = this.routingSnapshot();
-    const others = this.sidechainRequests(effectId);
+    const others = (this.mix?.requests ?? []).filter((r) => r.effectId !== effectId);
     const ids = [...this.channels.keys(), ...this.buses.keys()];
     return new Set(ids.filter((id) => canKeyFrom(snapshot, others, hostId, id)));
   }
@@ -2190,7 +2207,7 @@ class AudioEngine {
         nodes.sends.delete(id);
       }
     });
-    this.updateCompensation();
+    this.refreshMix();
   }
 
   setBusVolume(id: string, db: number): void {
@@ -2223,7 +2240,7 @@ class AudioEngine {
       if (gain) {
         gain.dispose();
         nodes.sends.delete(busId);
-        this.rewireSidechains();
+        this.refreshMix();
       }
       return;
     }
@@ -2233,7 +2250,7 @@ class AudioEngine {
       gain.connect(bus.input);
       nodes.sends.set(busId, gain);
       // Sends can close (or open) a sidechain loop.
-      this.rewireSidechains();
+      this.refreshMix();
     } else {
       gain.gain.value = Tone.dbToGain(db);
     }
@@ -2249,25 +2266,6 @@ class AudioEngine {
     if (nodes) nodes.channel.pan.value = pan;
   }
 
-  /** A channel should be audible only if the user hasn't muted it AND
-   * either nothing is soloed or it's one of the soloed ones. Applied as the
-   * channel's Tone `mute` (not Tone.Channel's own `solo` - see the comment
-   * on `soloedIds`). */
-  private applyMuteSolo(id: string, nodes: ChannelNodes): void {
-    nodes.channel.mute = nodes.userMuted || !this.soloOpen().has(id);
-  }
-
-  /** The tracks solo leaves open (routing.ts): a soloed track's whole path. */
-  private soloOpen(): Set<string> {
-    const known = new Set(this.routeNodes.map((n) => n.id));
-    const nodes = [
-      ...this.routeNodes.map((n) => ({ ...n, solo: this.soloedIds.has(n.id) })),
-      // Tracks the engine has that routing hasn't been told about yet.
-      ...[...this.channels.keys()].filter((id) => !known.has(id)).map((id) => ({ id, type: this.channels.get(id)!.channelType, solo: this.soloedIds.has(id) })),
-    ];
-    return soloAudible(nodes, this.routes);
-  }
-
   /** Where a track's audio goes: another track's id, or null for the master. */
   private destOf(id: string): string | null {
     const dest = this.routes.get(id) ?? null;
@@ -2277,24 +2275,21 @@ class AudioEngine {
   /** Tells the engine every track's group and output (see routing.ts). */
   setRouting(nodes: RouteNode[]): void {
     this.routeNodes = nodes.map((n) => ({ id: n.id, type: n.type, groupId: n.groupId, output: n.output, input: n.input }));
-    this.routes = routeMap(this.routeNodes);
-    this.trackInputs = inputMap(this.routeNodes, this.routes);
+    this.refreshMix();
     this.replugMonitors();
-    this.updateCompensation();
-    this.channels.forEach((n, channelId) => this.applyMuteSolo(channelId, n));
   }
 
   setMute(id: string, muted: boolean): void {
     const nodes = this.channels.get(id);
     if (!nodes) return;
     nodes.userMuted = muted;
-    this.applyMuteSolo(id, nodes);
+    this.refreshMix();
   }
 
   setSolo(id: string, solo: boolean): void {
     if (solo) this.soloedIds.add(id);
     else this.soloedIds.delete(id);
-    this.channels.forEach((nodes, channelId) => this.applyMuteSolo(channelId, nodes));
+    this.refreshMix();
   }
 
   /** Current output level for the channel's meter, 0-1. */

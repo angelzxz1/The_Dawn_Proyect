@@ -5,7 +5,9 @@
 // (stems), which exportProject.ts turns into WAV or MP3 files.
 
 import * as Tone from "tone";
-import { createInstrument, createEffectNode, applyEffectParam, IrLoaderChain } from "./audioEngine";
+import { createInstrument } from "./engine/instruments";
+import { applyEffectParam, createEffectNode, IrLoaderChain } from "./engine/effectNodes";
+import { MAX_COMPENSATION } from "./engine/nodes";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "./effectFiles";
 import { NamAmpChain } from "./namAmp";
 import { SynthInstrument } from "./synth";
@@ -45,8 +47,6 @@ export interface BounceParams {
   monitored?: string[];
 }
 
-/** Longest delay compensation can add to one path (s). */
-const MAX_COMPENSATION = 2;
 
 export interface RenderOptions {
   /** Render only this track (with its sends into buses), for a stem -

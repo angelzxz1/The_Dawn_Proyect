@@ -61,6 +61,7 @@ import { CompressorChain, type CompressorMeterReading } from "./compressor";
 import { GlueChain, type GlueMeterReading } from "./glue";
 import { MbDynamicsChain, type MbdMeters } from "./mbDynamics";
 import { LookaheadLimiter, type LimiterLevels } from "./lookaheadLimiter";
+import { Metronome } from "./metronome";
 import { measureNativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, planCompensation, type CompensationPlan } from "./latency";
 import { InputRecorder, takeToWav } from "./inputRecorder";
@@ -236,6 +237,10 @@ interface RecordingState {
   /** Notes currently down during the recording, keyed by note name. */
   open: Map<string, { time: number; velocity: number }>;
   events: NoteEvent[];
+  /** Where on the timeline the take starts (s); note times are from here. */
+  from: number;
+  /** Context time the transport starts at (after the count-in). */
+  startTime: number;
 }
 
 const MIN_NOTE_DURATION = 0.05;
@@ -1232,7 +1237,7 @@ class AudioEngine {
   private pendingLoads = 0;
   private readyListeners = new Set<() => void>();
   private micStream: MediaStream | null = null;
-  private audioRecording: { channelId: string; recorder: InputRecorder; startTime: number } | null =
+  private audioRecording: { channelId: string; recorder: InputRecorder; startTime: number; from: number } | null =
     null;
   /** Ids of channels the user currently has soloed - tracked here instead of
    * via Tone.Channel's own `solo`, whose Solo instance is shared globally
@@ -2319,11 +2324,11 @@ class AudioEngine {
     nodes.heldNotes.add(note);
     this.safe(() => nodes.instrument.triggerAttack(note, Tone.now(), velocity));
 
-    if (this.recording && this.recording.channelId === channelId) {
-      this.recording.open.set(note, {
-        time: Math.max(0, Tone.getTransport().seconds - this.midiRecordShift(channelId)),
-        velocity,
-      });
+    const rec = this.recording;
+    // Notes from the count-in aren't part of the take, except one played
+    // just ahead of the downbeat (it lands on it).
+    if (rec && rec.channelId === channelId && Tone.getContext().currentTime >= rec.startTime - 0.1) {
+      rec.open.set(note, { time: Math.max(0, this.takeSeconds(rec)), velocity });
     }
   }
 
@@ -2352,10 +2357,7 @@ class AudioEngine {
       const open = rec.open.get(note);
       if (open) {
         rec.open.delete(note);
-        const duration = Math.max(
-          Tone.getTransport().seconds - this.midiRecordShift(channelId) - open.time,
-          MIN_NOTE_DURATION
-        );
+        const duration = Math.max(this.takeSeconds(rec) - open.time, MIN_NOTE_DURATION);
         rec.events.push({
           note,
           time: open.time,
@@ -2501,13 +2503,18 @@ class AudioEngine {
    * seeked/paused position otherwise). */
   async startPlayback(): Promise<void> {
     await this.ensureStarted();
-    Tone.getTransport().start();
+    const transport = Tone.getTransport();
+    const pos = transport.ticks / transport.PPQ;
+    const time = Tone.now();
+    transport.start(time);
+    this.metronome.start(time, pos);
   }
 
   /** Pauses playback in place - unlike stopAll, the transport position is
    * preserved so playback can resume from the same spot. */
   pauseAll(): void {
     Tone.getTransport().pause();
+    this.metronome.stop();
     this.channels.forEach((nodes) => {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
@@ -2522,6 +2529,7 @@ class AudioEngine {
   stopAll(): void {
     const transport = Tone.getTransport();
     transport.stop();
+    this.metronome.stop();
     this.channels.forEach((nodes) => {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
@@ -2542,53 +2550,61 @@ class AudioEngine {
    * the transport is currently playing, paused, or stopped. */
   seekTo(seconds: number): void {
     Tone.getTransport().seconds = Math.max(0, seconds);
-  }
-
-  private countInSynth: Tone.Synth | null = null;
-
-  /** Plays `beats` audible clicks (accenting every downbeat) scheduled on
-   * the audio clock rather than the transport - the transport isn't running
-   * yet at this point - and resolves just before the downbeat after them,
-   * with its time, so the transport can start exactly on it. */
-  private playCountIn(beats: number): Promise<number> {
-    if (!this.countInSynth) {
-      this.countInSynth = new Tone.Synth({
-        oscillator: { type: "square" },
-        envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 },
-      }).connect(this.ensureClickOut());
-      this.countInSynth.volume.value = -8;
-    }
-    const secPerBeat = 60 / Tone.getTransport().bpm.value;
-    const now = Tone.now();
-    for (let i = 0; i < beats; i++) {
-      const accent = i % this.metronomeBeatsPerBar === 0;
-      this.safe(() =>
-        this.countInSynth!.triggerAttackRelease(
-          accent ? "C6" : "C5",
-          0.03,
-          now + i * secPerBeat
-        )
-      );
-    }
-    const downbeat = now + beats * secPerBeat;
-    const wait = (downbeat - Tone.getContext().currentTime - 0.08) * 1000;
-    return new Promise((resolve) => setTimeout(() => resolve(Math.max(downbeat, Tone.now())), Math.max(0, wait)));
+    this.resyncMetronome();
   }
 
   /** Arms a channel for recording and starts the transport (other channels'
    * clips still play back). `countInBeats` > 0 plays that many audible
    * clicks first and only starts the transport/recording once they finish,
    * like a real DAW's pre-roll. */
-  async startRecording(channelId: string, countInBeats = 0): Promise<void> {
+  async startRecording(channelId: string, countInBeats = 0, fromSeconds = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
-    const startTime = countInBeats > 0 ? await this.playCountIn(countInBeats) : Tone.now();
-    if (!this.channels.has(channelId)) return; // channel could've been removed mid-count-in
-    this.recording = { channelId, open: new Map(), events: [] };
+    const startTime = this.startTransportForRecording(countInBeats, fromSeconds);
+    this.recording = { channelId, open: new Map(), events: [], from: fromSeconds, startTime };
+  }
+
+  /** Starts the transport at `fromSeconds` after `countInBeats` beats of
+   * count-in (which the metronome plays), both scheduled ahead on the audio
+   * clock so nothing the page does meanwhile can delay them. Recording
+   * plays straight through, without the loop. Returns the context time the
+   * transport starts at. */
+  private startTransportForRecording(countInBeats: number, fromSeconds: number): number {
     const transport = Tone.getTransport();
     transport.stop();
-    transport.position = 0;
+    transport.loop = false;
+    this.metronome.setLoop(null);
+    transport.seconds = Math.max(0, fromSeconds);
+    const pos = transport.ticks / transport.PPQ;
+    const startTime = Tone.now() + 0.05 + countInBeats * (60 / transport.bpm.value);
     transport.start(startTime);
+    this.metronome.start(startTime, pos, countInBeats);
+    return startTime;
+  }
+
+  /** Where the transport is, in beats, at context time `time`. */
+  private transportBeatsAt(time: number): number {
+    const transport = Tone.getTransport();
+    return transport.getTicksAtTime(time) / transport.PPQ;
+  }
+
+  /** After the transport jumps or changes tempo or loop while playing, the
+   * metronome picks up from where it now is. */
+  private resyncMetronome(): void {
+    if (!this.metronome.running || Tone.getTransport().state !== "started") return;
+    const now = Tone.now();
+    this.metronome.resync(now, this.transportBeatsAt(now));
+  }
+
+  /** How far into the take (s) a note played now lands. */
+  private takeSeconds(rec: RecordingState): number {
+    return Tone.getTransport().seconds - this.midiRecordShift(rec.channelId) - rec.from;
+  }
+
+  /** Where on the timeline the take being recorded starts (s), for
+   * drawing it; null when not recording. */
+  get recordingFrom(): number | null {
+    return this.recording?.from ?? this.audioRecording?.from ?? null;
   }
 
   /** How far to move a recorded MIDI note earlier: a live (armed) track
@@ -2605,11 +2621,11 @@ class AudioEngine {
    * `offsetSeconds` is the clip's current position on the timeline, so
    * playback scheduling doesn't get reset to the start of the timeline.
    */
-  finishRecording(offsetSeconds = 0): NoteEvent[] {
+  finishRecording(offsetSeconds?: number): NoteEvent[] {
     const rec = this.recording;
     if (!rec) return [];
     const nodes = this.channels.get(rec.channelId);
-    const transportSeconds = Tone.getTransport().seconds - this.midiRecordShift(rec.channelId);
+    const transportSeconds = this.takeSeconds(rec);
 
     rec.open.forEach((open, note) => {
       rec.events.push({
@@ -2624,7 +2640,7 @@ class AudioEngine {
 
     this.recording = null;
     const events = rec.events.sort((a, b) => a.time - b.time);
-    this.setClip(rec.channelId, events, offsetSeconds);
+    this.setClip(rec.channelId, events, offsetSeconds ?? rec.from);
     return events;
   }
 
@@ -2640,7 +2656,7 @@ class AudioEngine {
     }
     const rec = this.recording;
     if (!rec) return null;
-    const now = Tone.getTransport().seconds - this.midiRecordShift(rec.channelId);
+    const now = this.takeSeconds(rec);
     const held = [...rec.open].map(([note, open]) => ({
       note,
       time: open.time,
@@ -2851,21 +2867,17 @@ class AudioEngine {
    * sample-accurately (see inputRecorder.ts) from before the count-in, so
    * the take can be lined up exactly.
    */
-  async startAudioRecording(channelId: string, countInBeats = 0): Promise<void> {
+  async startAudioRecording(channelId: string, countInBeats = 0, fromSeconds = 0): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
     const recorder = await InputRecorder.start(Tone.getContext(), await this.ensureMicSource());
-    const startTime = countInBeats > 0 ? await this.playCountIn(countInBeats) : Tone.now() + 0.05;
     if (!this.channels.has(channelId)) {
       recorder.cancel();
       return;
     }
-    this.audioRecording = { channelId, recorder, startTime };
+    const startTime = this.startTransportForRecording(countInBeats, fromSeconds);
+    this.audioRecording = { channelId, recorder, startTime, from: fromSeconds };
     recorder.startPreview(startTime + this.getRecordingLatency());
-    const transport = Tone.getTransport();
-    transport.stop();
-    transport.position = 0;
-    transport.start(startTime);
   }
 
   /** Stops the capture and returns the take as a WAV Blob - trimmed so its
@@ -2914,11 +2926,13 @@ class AudioEngine {
   setBpm(bpm: number): void {
     Tone.getTransport().bpm.value = bpm;
     setSynthTempo(bpm);
+    this.metronome.setTempo(bpm);
+    this.resyncMetronome();
   }
 
   setTimeSignature(beatsPerBar: number): void {
     Tone.getTransport().timeSignature = beatsPerBar;
-    this.metronomeBeatsPerBar = beatsPerBar;
+    this.metronome.setBeatsPerBar(beatsPerBar);
   }
 
   getTransportSeconds(): number {
@@ -2935,6 +2949,9 @@ class AudioEngine {
     transport.loopStart = startSeconds;
     transport.loopEnd = Math.max(startSeconds + 0.05, endSeconds);
     transport.loop = enabled;
+    const beat = transport.bpm.value / 60;
+    this.metronome.setLoop(enabled ? { start: Number(transport.loopStart) * beat, end: Number(transport.loopEnd) * beat } : null);
+    this.resyncMetronome();
   }
 
   getTransportState(): "started" | "stopped" | "paused" {
@@ -2942,45 +2959,12 @@ class AudioEngine {
   }
 
   // --- Metronome ---
-  private metronomeSynth: Tone.Synth | null = null;
-  private metronomeLoop: Tone.Loop | null = null;
-  private metronomeBeatsPerBar = 4;
-  private metronomeBeatIndex = 0;
-  private metronomeStartHooked = false;
+  // Clicks and the count-in are queued ahead on the audio clock (see
+  // metronome.ts), not through the transport.
+  private metronome = new Metronome(() => this.ensureClickOut());
 
   setMetronome(enabled: boolean): void {
-    if (!this.metronomeStartHooked) {
-      this.metronomeStartHooked = true;
-      Tone.getTransport().on("start", () => {
-        this.metronomeBeatIndex = 0;
-      });
-    }
-    if (enabled) {
-      if (!this.metronomeSynth) {
-        this.metronomeSynth = new Tone.Synth({
-          oscillator: { type: "square" },
-          envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 },
-        }).connect(this.ensureClickOut());
-        this.metronomeSynth.volume.value = -14;
-      }
-      if (!this.metronomeLoop) {
-        this.metronomeBeatIndex = 0;
-        this.metronomeLoop = new Tone.Loop((time) => {
-          const accent = this.metronomeBeatIndex % this.metronomeBeatsPerBar === 0;
-          this.safe(() =>
-            this.metronomeSynth!.triggerAttackRelease(
-              accent ? "C6" : "C5",
-              0.03,
-              time
-            )
-          );
-          this.metronomeBeatIndex += 1;
-        }, "4n").start(0);
-      }
-    } else {
-      this.metronomeLoop?.dispose();
-      this.metronomeLoop = null;
-    }
+    this.metronome.setEnabled(enabled);
   }
 }
 

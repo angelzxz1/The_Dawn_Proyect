@@ -23,11 +23,12 @@ type Preview =
   | { kind: "midi"; notes: readonly NoteEvent[]; count: number; held: NoteEvent[] };
 
 /** The take being recorded, drawn on its track as it comes in: a red clip
- * from the start that grows with the playhead, showing the audio's
+ * from where recording started that grows with the playhead, showing the audio's
  * waveform (or the notes played) so far. It's replaced by the real clip
  * once recording stops. */
 export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HEIGHT }: { channelId: string; pxPerSecond: number; rowHeight?: number }) {
-  const [state, setState] = useState<{ seconds: number; preview: Preview | null }>({ seconds: 0, preview: null });
+  // `from`: where the take starts on the timeline; `seconds`: how long it is.
+  const [state, setState] = useState<{ from: number; seconds: number; preview: Preview | null }>({ from: 0, seconds: 0, preview: null });
 
   useEffect(() => {
     let frame: number;
@@ -40,8 +41,10 @@ export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HE
         // Once Stop is pressed the engine lets go of the take; hold the last
         // frame until the finished clip replaces this one.
         if (live && live.channelId === channelId) {
+          const from = audioEngine.recordingFrom ?? 0;
           setState({
-            seconds: Math.max(0, audioEngine.getTransportSeconds()),
+            from,
+            seconds: Math.max(0, audioEngine.getTransportSeconds() - from),
             preview:
               live.kind === "audio"
                 ? { kind: "audio", waveform: live.waveform, version: live.version }
@@ -65,8 +68,8 @@ export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HE
 
   return (
     <div
-      className="pointer-events-none absolute left-0 z-[1] flex flex-col overflow-hidden rounded-md border"
-      style={{ top: pad, width: widthPx, height, borderColor: RECORD_RED, background: "rgba(255,90,90,0.14)" }}
+      className="pointer-events-none absolute z-[1] flex flex-col overflow-hidden rounded-md border"
+      style={{ left: state.from * pxPerSecond, top: pad, width: widthPx, height, borderColor: RECORD_RED, background: "rgba(255,90,90,0.14)" }}
       aria-label="Recording"
     >
       <div className="flex shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap px-1.5 text-[10px] font-semibold" style={{ height: HEADER, background: RECORD_RED, color: "#1a0a0a" }}>

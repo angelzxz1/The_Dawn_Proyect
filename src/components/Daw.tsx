@@ -1289,12 +1289,14 @@ export function Daw() {
       const recChannelId = recordingChannelRef.current;
       recordingChannelRef.current = null;
       if (recChannelId) {
+        // The take starts where recording started (the marker).
+        const takeFrom = audioEngine.recordingFrom ?? 0;
         if (channelTypeOf(recChannelId) === "audio") {
           const blob = await audioEngine.finishAudioRecording();
           if (blob && blob.size > 0) {
             const decoded = await decodeAudioFile(blob);
             const channelName = channels.find((c) => c.id === recChannelId)?.name ?? "take";
-            addAudioClip(recChannelId, decoded, 0, `${channelName} recording`, blob);
+            addAudioClip(recChannelId, decoded, takeFrom, `${channelName} recording`, blob);
           }
         } else {
           const events = audioEngine.finishRecording();
@@ -1303,7 +1305,7 @@ export function Daw() {
               (m, n) => Math.max(m, n.time + n.duration),
               0
             );
-            addMidiClip(recChannelId, 0, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
+            addMidiClip(recChannelId, takeFrom, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
           }
         }
       }
@@ -1355,7 +1357,7 @@ export function Daw() {
     setRecordingChannelId(armedChannelId);
     if (channelTypeOf(armedChannelId) === "audio") {
       try {
-        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar);
+        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds);
         setMicError(null);
         setTransportState("recording");
         track("recording_started", { kind: "audio" });
@@ -1371,8 +1373,8 @@ export function Daw() {
     }
     setTransportState("recording");
     track("recording_started", { kind: "midi" });
-    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar);
-  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices]);
+    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds);
+  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds]);
 
   const handleAddChannel = useCallback(
     (type: ChannelType) => {

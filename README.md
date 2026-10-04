@@ -597,10 +597,16 @@ Everything the synth can do is described in
 
 1. **Arm** the track you want to record into.
 2. Optionally, set a **count-in** (bars of clicks before recording starts)
-   and turn on the **metronome**. Recording always runs straight through,
-   even with the loop on.
-3. Press **Record**. The take appears on its track as a red clip that grows
-   while you play.
+   and turn on the **metronome**. The metronome accents each bar's first
+   beat by where you are in the song, wherever you start playing. Its clicks
+   are queued ahead on the audio clock, so a busy moment on the page (like
+   the start of a recording) can't delay or drop one. Recording always runs
+   straight through, even with the loop on.
+3. Click the ruler where you want to start (the marker), then press
+   **Record**. Recording starts at the marker, like Ableton; the count-in
+   plays the bars just before it, on the beat grid, so starting mid-bar
+   counts in correctly. The take appears on its track as a red clip that
+   grows while you play.
 4. Press **Stop**. The take becomes a normal clip.
 
 For audio:

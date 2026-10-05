@@ -18,6 +18,7 @@ import {
   type EffectPreset,
   type PresetRef,
 } from "@/lib/presets";
+import { useShortcuts } from "@/lib/shortcuts";
 
 const NO_PRESETS: EffectPreset[] = [];
 
@@ -176,20 +177,11 @@ function Popover({ anchor, onClose, children }: { anchor: React.RefObject<HTMLDi
       const t = e.target as Node;
       if (!ref.current?.contains(t) && !anchor.current?.contains(t)) onClose();
     };
-    // Captured first, so Escape closes this and not the plugin window
-    // under it.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      onClose();
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
-    };
+    return () => window.removeEventListener("mousedown", onDown);
   }, [anchor, onClose]);
+  // A menu is above the plugin window: Escape closes just the menu.
+  useShortcuts("menu", [{ keys: "escape", run: onClose, whileTyping: true }]);
   return createPortal(
     <div
       ref={ref}

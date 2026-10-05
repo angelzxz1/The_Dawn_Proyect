@@ -844,9 +844,17 @@ From there you can:
 
 ## Keyboard shortcuts
 
+They all go through one place (`src/lib/shortcuts.ts`), in layers: a menu
+takes a key before the window under it, and a dialog, the piano roll or the
+tour keeps the studio's keys (Space, R...) from acting behind it. Ctrl/Cmd+S
+and Ctrl/Cmd+O work everywhere but in the tour.
+
 | Keys | Action |
 | --- | --- |
 | Space | Play / pause |
+| R | Record, or stop recording (while the letters play a MIDI track's notes, R is a note: use Shift+R) |
+| Shift+R | Record, or stop recording |
+| Esc | Close the topmost menu, dialog or window |
 | Ctrl/Cmd+Z | Undo |
 | Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | Redo |
 | Ctrl/Cmd+C | Copy the clip under the playhead on the selected track |

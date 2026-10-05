@@ -11,6 +11,7 @@ import type { TrackColor } from "@/lib/colors";
 import { audioEngine } from "@/lib/audioEngine";
 import { copyNotes, getCopiedNotes } from "@/lib/clipboard";
 import { ScaleSelector } from "./ScaleSelector";
+import { useShortcuts } from "@/lib/shortcuts";
 
 interface PianoRollEditorProps {
   channelName: string;
@@ -91,11 +92,6 @@ function clampVelocity(v: number): number {
 
 function rowTop(midi: number): number {
   return (MAX_MIDI - midi) * ROW_H;
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
 }
 
 const DRUM_MIDIS = new Set(DRUM_PADS.map((p) => noteNameToMidi(p.note)));
@@ -211,74 +207,74 @@ export function PianoRollEditor({
     });
   };
 
-  // Mode toggle ('b'), Delete/Backspace, Space to play/stop, and arrow keys
-  // to nudge the current selection.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target)) return;
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedIds.size > 0) {
-          e.preventDefault();
-          handleDeleteSelected();
-        }
-      } else if (e.key.toLowerCase() === "b") {
-        setMode((m) => (m === "draw" ? "select" : "draw"));
-      } else if (e.key.toLowerCase() === "q" && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault();
-        handleQuantize();
-      } else if (e.code === "Space") {
-        e.preventDefault();
-        if (isPlaying) onPause();
-        else onPlay();
-      } else if (
-        selectedIds.size > 0 &&
-        (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
-      ) {
-        e.preventDefault();
-        const deltaRows = e.key === "ArrowUp" ? 1 : e.key === "ArrowDown" ? -1 : 0;
-        const deltaTime =
-          e.key === "ArrowRight" ? secondsPer16th : e.key === "ArrowLeft" ? -secondsPer16th : 0;
-        commit(
-          notes.map((n) => {
-            if (!selectedIds.has(n.id)) return n;
-            const midi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, noteNameToMidi(n.note) + deltaRows));
-            const time = Math.min(length, Math.max(0, n.time + deltaTime));
-            return { ...n, note: midiToNoteName(midi), time };
-          })
-        );
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        if (selectedIds.size === 0) return;
-        e.preventDefault();
+  // The piano roll's keys. It's modal: the studio's shortcuts and the note
+  // keys wait while it's open.
+  const nudge = (deltaRows: number, deltaTime: number) => {
+    if (selectedIds.size === 0) return false;
+    commit(
+      notes.map((n) => {
+        if (!selectedIds.has(n.id)) return n;
+        const midi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, noteNameToMidi(n.note) + deltaRows));
+        const time = Math.min(length, Math.max(0, n.time + deltaTime));
+        return { ...n, note: midiToNoteName(midi), time };
+      })
+    );
+  };
+  const pasteNotes = () => {
+    const copied = getCopiedNotes();
+    if (!copied || copied.length === 0) return false;
+    const anchor = insertAt ?? snapTime(Math.max(0, audioEngine.getTransportSeconds() - offset));
+    const earliest = Math.min(...copied.map((n) => n.time));
+    const shift = anchor - earliest;
+    const pasted: EditableNote[] = copied.map((n) => ({
+      ...n,
+      id: `n${idCounter++}`,
+      time: snapTime(Math.max(0, n.time + shift)),
+    }));
+    commit([...notes, ...pasted]);
+    setSelectedIds(new Set(pasted.map((p) => p.id)));
+    // The marker moves past what was pasted (rounded up to the beat), so
+    // pasting again carries on from there.
+    if (insertAt !== null) {
+      const span = Math.max(...copied.map((n) => n.time + n.duration)) - earliest;
+      const beats = Math.max(1, Math.ceil(span / secondsPerBeat - 1e-6));
+      setInsertAt(Math.min(length, anchor + beats * secondsPerBeat));
+    }
+  };
+  useShortcuts("editor", [
+    {
+      keys: "delete",
+      label: "Delete the selected notes",
+      run: () => {
+        if (selectedIds.size === 0) return false;
+        handleDeleteSelected();
+      },
+    },
+    { keys: "b", label: "Switch between Draw and Select", run: () => setMode((m) => (m === "draw" ? "select" : "draw")) },
+    { keys: "q", label: "Quantize", run: () => handleQuantize() },
+    { keys: "space", label: "Play / stop", run: () => (isPlaying ? onPause() : onPlay()) },
+    { keys: "arrowup", label: "Nudge the selected notes", run: () => nudge(1, 0) },
+    { keys: "arrowdown", run: () => nudge(-1, 0) },
+    { keys: "arrowright", run: () => nudge(0, secondsPer16th) },
+    { keys: "arrowleft", run: () => nudge(0, -secondsPer16th) },
+    {
+      keys: "mod+c",
+      label: "Copy notes",
+      run: () => {
+        if (selectedIds.size === 0) return false;
         copyNotes(stripIds(notes.filter((n) => selectedIds.has(n.id))));
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        const copied = getCopiedNotes();
-        if (!copied || copied.length === 0) return;
-        e.preventDefault();
-        const anchor = insertAt ?? snapTime(Math.max(0, audioEngine.getTransportSeconds() - offset));
-        const earliest = Math.min(...copied.map((n) => n.time));
-        const shift = anchor - earliest;
-        const pasted: EditableNote[] = copied.map((n) => ({
-          ...n,
-          id: `n${idCounter++}`,
-          time: snapTime(Math.max(0, n.time + shift)),
-        }));
-        commit([...notes, ...pasted]);
-        setSelectedIds(new Set(pasted.map((p) => p.id)));
-        // The marker moves past what was pasted (rounded up to the beat), so
-        // pasting again carries on from there.
-        if (insertAt !== null) {
-          const span = Math.max(...copied.map((n) => n.time + n.duration)) - earliest;
-          const beats = Math.max(1, Math.ceil(span / secondsPerBeat - 1e-6));
-          setInsertAt(Math.min(length, anchor + beats * secondsPerBeat));
-        }
-      } else if (e.key === "Escape" && insertAt !== null) {
+      },
+    },
+    { keys: "mod+v", label: "Paste notes", run: pasteNotes },
+    {
+      keys: "escape",
+      label: "Remove the insert marker",
+      run: () => {
+        if (insertAt === null) return false;
         setInsertAt(null);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, notes, isPlaying, onPlay, onPause, secondsPer16th, length, offset, quantizeBeats, secondsPerBeat, insertAt]);
+      },
+    },
+  ]);
 
   // Playhead line, driven by rAF so it doesn't cause React re-renders.
   useEffect(() => {

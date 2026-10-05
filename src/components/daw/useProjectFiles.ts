@@ -33,6 +33,7 @@ import { track } from "@/lib/telemetry";
 import { autosaveBlobs, documentToSave, openInStore, serializeProject, type SessionSettings } from "@/state/projectDocument";
 import { projectStore, useProjectDoc } from "@/state/projectStore";
 import { LATEST_VERSION } from "@/content/whatsNew";
+import { useShortcuts } from "@/lib/shortcuts";
 
 export interface ProjectFilesEvents {
   /** Another project is about to open: stop playing. */
@@ -328,23 +329,19 @@ export function useProjectFiles(session: SessionSettings, events: ProjectFilesEv
   }, [openDocument, flashNotice]);
 
   // Ctrl/Cmd+S saves, +Shift saves as, Ctrl/Cmd+O opens - everywhere, even
-  // while typing or in the piano roll.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const key = e.key.toLowerCase();
-      if (key === "s") {
-        e.preventDefault();
-        if (e.shiftKey) setSaveAsRequest((n) => n + 1);
-        else void save();
-      } else if (key === "o" && !e.shiftKey) {
-        e.preventDefault();
+  // while typing, in the piano roll or with a dialog open.
+  useShortcuts("global", [
+    { keys: "mod+s", label: "Save", whileTyping: true, run: () => void save() },
+    { keys: "mod+shift+s", label: "Save As", whileTyping: true, run: () => setSaveAsRequest((n) => n + 1) },
+    {
+      keys: "mod+o",
+      label: "Open a project",
+      whileTyping: true,
+      run: () => {
         if (supportsFolders()) void open();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [save, open]);
+      },
+    },
+  ]);
 
   // Autosave a moment after the project settles, not on every keystroke
   // or drag frame.

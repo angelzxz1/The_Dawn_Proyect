@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, FilePlus2, FolderOpen, History, Package, Save, Upload } from "lucide-react";
 import type { RecentProject } from "@/lib/projectFiles";
+import { useShortcuts } from "@/lib/shortcuts";
 
 /** The project's name (with a dot while there are unsaved changes) and
  * its File menu: New, Open, recent projects, Save, Save As, and a single
@@ -66,14 +67,10 @@ export function ProjectMenu({
     const onDown = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("mousedown", onDown);
   }, [open, folders, listRecent]);
+  useShortcuts("menu", [{ keys: "escape", run: () => setOpen(false), whileTyping: true }], { enabled: open });
 
   const item = (label: string, icon: React.ReactNode, onClick: () => void, hint?: string) => (
     <button

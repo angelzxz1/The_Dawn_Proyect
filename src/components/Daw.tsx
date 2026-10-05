@@ -24,6 +24,7 @@ import { automationCurrentValue, automationRange, automationTargetKey, automatio
 import { contextMenuItems, type ContextMenuState } from "./daw/contextMenus";
 import { busActions } from "@/state/busActions";
 import { useProjectFiles } from "./daw/useProjectFiles";
+import { useShortcuts } from "@/lib/shortcuts";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
@@ -104,10 +105,6 @@ const PITCH_BEND_RANGE_SEMITONES = 2;
 
 const AUTOMATION_LANE_HEIGHT = 56;
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
-}
 
 /** What an empty track lane suggests doing. */
 function laneHint(channel: ChannelConfig, armed: boolean): string {
@@ -120,7 +117,7 @@ function laneHint(channel: ChannelConfig, armed: boolean): string {
   if (!channel.instrument) return "Pick an instrument for this track in the rack below, or right-click to add a clip";
   if (channel.instrument === "drums") return "Drop a groove here from the Grooves tab, or right-click to add a clip";
   return armed
-    ? "Press R and play your MIDI keyboard or computer keys, or right-click to add a clip"
+    ? "Press Shift+R and play your MIDI keyboard or computer keys, or right-click to add a clip"
     : "Arm this track to play and record it, or right-click to add a clip";
 }
 
@@ -530,39 +527,6 @@ export function Daw() {
       transportState !== "recording" && (transportState === "stopped" ? loop.on : loopsFrom(loop, secondsToBeats(playFromSeconds, bpm)));
     audioEngine.setLoop(looping, beatsToSeconds(loop.start, bpm), beatsToSeconds(loop.end, bpm));
   }, [loop, bpm, transportState, playFromSeconds]);
-
-  // Ctrl/Cmd+L loops the selected clips (or switches the loop on and off
-  // when none are selected); with the loop brace selected, the arrow keys
-  // move it (up/down by its own length, left/right by the grid) and
-  // Ctrl/Cmd+left/right shorten or lengthen it - Ableton's keys.
-  useEffect(() => {
-    if (editingClip) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "l") {
-        e.preventDefault();
-        const ranges = Object.values(clipsByChannel)
-          .flat()
-          .filter((c) => selectedClipIds.has(c.id))
-          .map((c) => ({ start: secondsToBeats(c.offset, bpm), end: secondsToBeats(c.offset + c.length, bpm) }));
-        const around = loopAround(ranges);
-        if (around) {
-          setLoop({ on: true, ...around });
-          setLoopSelected(true);
-        } else toggleLoop();
-        return;
-      }
-      if (!loopSelected || !e.key.startsWith("Arrow")) return;
-      const unit = secondsToBeats(snapUnitFor(bpm, pxPerSecond, beatsPerBar), bpm);
-      const next = nudgeLoop(loop, e.key, unit, mod);
-      e.preventDefault();
-      if (next) setLoop(next);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [editingClip, clipsByChannel, selectedClipIds, bpm, pxPerSecond, beatsPerBar, loop, loopSelected, toggleLoop]);
 
   // Notes (computer keyboard, the on-screen piano/pads, or a MIDI
   // controller) only reach the armed channel - merely clicking a track to
@@ -988,24 +952,6 @@ export function Daw() {
     });
   }, [selectedChannelId]);
 
-  // Ctrl/Cmd+G groups the picked tracks, or the selected one; Escape
-  // forgets the picks.
-  useEffect(() => {
-    if (editingClip) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        handleGroupTracks(trackPicks.size > 0 ? [...trackPicks] : selectedChannelId ? [selectedChannelId] : []);
-      } else if (e.key === "Escape" && trackPicks.size > 0) {
-        setTrackPicks(new Set());
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [editingClip, trackPicks, selectedChannelId, handleGroupTracks]);
-
   const copyClipInstance = clipActions.copy;
 
   const handleCopyClip = useCallback(
@@ -1127,50 +1073,73 @@ export function Daw() {
 
   const handleAutomationPointsChange = trackActions.setAutomation;
 
-  // Space to play/pause, Ctrl/Cmd+C/V to copy/paste whatever's under the
-  // playhead on the armed track, Delete/Backspace to remove the selected
-  // clip - all suspended while the piano roll editor is open (it handles
-  // its own shortcuts) or while typing.
-  useEffect(() => {
-    if (editingClip) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target)) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        handleTogglePlay();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        handleCopyAtPlayhead();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        e.preventDefault();
-        handlePasteClip();
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedClipIds.size > 0) {
-        e.preventDefault();
-        handleDeleteSelectedClips();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d" && selectedClipIds.size > 0) {
-        e.preventDefault();
+  // The studio's keys (shortcuts.ts). The piano roll, dialogs and the note
+  // keys sit above them: while the note keys play a MIDI track, R is a note
+  // and Shift+R records.
+  const nudgeLoopWith = (e: KeyboardEvent) => {
+    if (!loopSelected) return false;
+    // Arrows move the loop (up/down by its length, left/right by the grid);
+    // Ctrl/Cmd+left/right shorten or lengthen it - Ableton's keys.
+    const unit = secondsToBeats(snapUnitFor(bpm, pxPerSecond, beatsPerBar), bpm);
+    const next = nudgeLoop(loop, e.key, unit, e.ctrlKey || e.metaKey);
+    if (next) setLoop(next);
+  };
+  useShortcuts("studio", [
+    { keys: "space", label: "Play / pause", run: () => handleTogglePlay() },
+    { keys: ["r", "shift+r"], label: "Record", run: () => void handleRecord() },
+    { keys: "mod+z", label: "Undo", run: () => undo() },
+    { keys: ["mod+shift+z", "mod+y"], label: "Redo", run: () => redo() },
+    { keys: "mod+c", label: "Copy the clip under the playhead", run: () => handleCopyAtPlayhead() },
+    { keys: "mod+v", label: "Paste the copied clip at the playhead", run: () => handlePasteClip() },
+    {
+      keys: "mod+d",
+      label: "Duplicate the selected clips",
+      run: () => {
+        if (selectedClipIds.size === 0) return false;
         handleDuplicateSelectedClips();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
-        e.preventDefault();
-        redo();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    editingClip,
-    handleTogglePlay,
-    handleCopyAtPlayhead,
-    handlePasteClip,
-    selectedClipIds,
-    handleDeleteSelectedClips,
-    handleDuplicateSelectedClips,
-    undo,
-    redo,
+      },
+    },
+    {
+      keys: "delete",
+      label: "Delete the selected clips",
+      run: () => {
+        if (selectedClipIds.size === 0) return false;
+        handleDeleteSelectedClips();
+      },
+    },
+    {
+      keys: "mod+l",
+      label: "Loop the selected clips, or switch the loop on/off",
+      run: () => {
+        const ranges = Object.values(clipsByChannel)
+          .flat()
+          .filter((c) => selectedClipIds.has(c.id))
+          .map((c) => ({ start: secondsToBeats(c.offset, bpm), end: secondsToBeats(c.offset + c.length, bpm) }));
+        const around = loopAround(ranges);
+        if (around) {
+          setLoop({ on: true, ...around });
+          setLoopSelected(true);
+        } else toggleLoop();
+      },
+    },
+    {
+      keys: ["arrowup", "arrowdown", "arrowleft", "arrowright", "mod+arrowleft", "mod+arrowright"],
+      label: "Move the selected loop brace (Ctrl/Cmd: resize it)",
+      run: nudgeLoopWith,
+    },
+    {
+      keys: "mod+g",
+      label: "Group the picked tracks, or the selected one",
+      run: () => handleGroupTracks(trackPicks.size > 0 ? [...trackPicks] : selectedChannelId ? [selectedChannelId] : []),
+    },
+    {
+      keys: "escape",
+      label: "Forget the tracks picked for grouping",
+      run: () => {
+        if (trackPicks.size === 0) return false;
+        setTrackPicks(new Set());
+      },
+    },
   ]);
 
   /** Opening the piano roll editor is the undo checkpoint for everything

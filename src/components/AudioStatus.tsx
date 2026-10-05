@@ -5,6 +5,7 @@ import { Cpu, Timer } from "lucide-react";
 import { audioEngine } from "@/lib/audioEngine";
 import { cpuReading, type CpuReading } from "@/lib/cpuMeter";
 import { loadAudioPrefs, saveAudioPrefs, type AudioPrefs } from "@/lib/audioPrefs";
+import { useShortcuts } from "@/lib/shortcuts";
 
 const ms = (seconds: number) => `${(seconds * 1000).toFixed(1)} ms`;
 
@@ -94,14 +95,10 @@ export function AudioStatus() {
     const onDown = (e: MouseEvent) => {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
+  useShortcuts("menu", [{ keys: "escape", run: () => setOpen(false), whileTyping: true }], { enabled: open });
 
   const runMeasure = async () => {
     setMeasure({ state: "running" });

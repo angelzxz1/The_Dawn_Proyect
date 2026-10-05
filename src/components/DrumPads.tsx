@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { PAD_KEYS, PAD_KEY_ORDER, defaultKitPads, type DrumKitParams } from "@/lib/drumParams";
 import { drumPads } from "@/lib/drums";
 import { padColor } from "./DrumRackWindow";
+import { useShortcuts } from "@/lib/shortcuts";
 
 interface DrumPadsProps {
   /** The armed track's kit (names and colors). */
@@ -30,32 +31,24 @@ export function DrumPads({ kit, activeNotes, onNoteOn, onNoteOff, keyboardShortc
     window.setTimeout(() => onNoteOff(note), HIT_DURATION_MS);
   };
 
-  useEffect(() => {
-    if (!keyboardShortcutsEnabled) return;
-    const isTypingTarget = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd/Alt-held keys are chord shortcuts, never pad input.
-      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+  // The pad keys sit above the studio's shortcuts, like the note keys.
+  useShortcuts("notes", [], {
+    enabled: keyboardShortcutsEnabled,
+    onKeyDown: (e, typing) => {
+      // Held modifiers make a shortcut (Ctrl+D, Shift+R), never a pad.
+      if (typing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
       const key = e.key.toLowerCase();
       const idx = PAD_KEYS.indexOf(key);
-      if (idx === -1 || pressedKeys.current.has(key)) return;
+      if (idx === -1) return false;
+      if (e.repeat || pressedKeys.current.has(key)) return true;
       pressedKeys.current.add(key);
       hit(noteOf(PAD_KEY_ORDER[idx]));
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
+      return true;
+    },
+    onKeyUp: (e) => {
       pressedKeys.current.delete(e.key.toLowerCase());
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardShortcutsEnabled]);
+    },
+  });
 
   const pad = (i: number, key: string) => {
     const note = noteOf(i);

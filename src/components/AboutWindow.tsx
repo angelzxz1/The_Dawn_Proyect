@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { CREDIT_KINDS, creditsOfKind } from "@/lib/credits";
 import { PrivacyPolicy } from "./PrivacyPolicy";
 import { SupportSection, WhatsNew } from "./SupportViews";
+import { useShortcuts } from "@/lib/shortcuts";
 
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 export const REPO_URL = "https://github.com/angelzxz1/The_Dawn_Proyect";
@@ -129,16 +130,7 @@ export function AboutWindow({
 }) {
   const [tab, setTab] = useState<AboutTab>(initialTab);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  useShortcuts("dialog", [{ keys: "escape", run: onClose, whileTyping: true }]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>

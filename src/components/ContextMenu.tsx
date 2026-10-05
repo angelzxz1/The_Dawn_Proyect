@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useShortcuts } from "@/lib/shortcuts";
 
 export interface ContextMenuItem {
   label: string;
@@ -27,16 +28,10 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     const onPointerDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
     window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, [onClose]);
+  useShortcuts("menu", [{ keys: "escape", run: onClose, whileTyping: true }]);
 
   // Keep the menu on-screen near the edges.
   const style: React.CSSProperties = {

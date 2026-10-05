@@ -22,6 +22,7 @@ import { allDrumKits, deleteDrumKit, saveDrumKit, serverDrumKits, subscribeDrumK
 import { newEffectFileId, registerEffectFile } from "@/lib/effectFiles";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
 import { PluginKnob } from "./PluginKnob";
+import { useShortcuts } from "@/lib/shortcuts";
 
 // The Drum Rack's window: 16 pads (C1 at the bottom left, like Ableton),
 // and an editor for the selected pad.
@@ -117,14 +118,7 @@ export function DrumRackWindow({ channelId, channelName, kit, onChange, onClose,
     };
   }, [channelId]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key === "Escape" && !(t && (t.tagName === "INPUT" || t.tagName === "SELECT"))) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useShortcuts("window", [{ keys: "escape", run: onClose }]);
 
   const loadFile = (pad: number, file: File) => {
     if (!file.type.startsWith("audio/") && !/\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(file.name)) return;
@@ -280,18 +274,10 @@ function DrumMark() {
 function useOutside(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
     const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && onClose();
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      onClose();
-    };
     window.addEventListener("pointerdown", down, true);
-    window.addEventListener("keydown", key, true);
-    return () => {
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("keydown", key, true);
-    };
+    return () => window.removeEventListener("pointerdown", down, true);
   }, [ref, onClose]);
+  useShortcuts("menu", [{ keys: "escape", run: onClose, whileTyping: true }]);
 }
 
 function KitList({ kits, current, onLoad, onClose }: { kits: DrumKitPreset[]; current?: string; onLoad: (k: DrumKitPreset) => void; onClose: () => void }) {

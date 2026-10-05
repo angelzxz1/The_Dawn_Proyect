@@ -9,6 +9,7 @@ import {
   midiToNoteName,
 } from "@/lib/piano";
 import { isNoteInScale, type ScaleSetting } from "@/lib/scales";
+import { useShortcuts } from "@/lib/shortcuts";
 
 interface PianoKeyboardProps {
   activeNotes: Set<string>;
@@ -60,42 +61,30 @@ export function PianoKeyboard({
     []
   );
 
-  useEffect(() => {
-    if (!keyboardShortcutsEnabled) return;
-
-    const isTypingTarget = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd/Alt-held keys are chord shortcuts (Ctrl+C to copy, etc.),
-      // never note input - even though e.g. "c" is also a note key.
-      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+  // The note keys sit above the studio's shortcuts: while they play notes,
+  // a letter is a note (R is F; Shift+R still records).
+  useShortcuts("notes", [], {
+    enabled: keyboardShortcutsEnabled,
+    onKeyDown: (e, typing) => {
+      // Held modifiers make a shortcut (Ctrl+C, Shift+R), never a note -
+      // even though e.g. "c" is also a note key.
+      if (typing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
       const key = e.key.toLowerCase();
       const offset = KEYBOARD_KEY_OFFSETS[key];
-      if (offset === undefined || pressedKeys.current.has(key)) return;
+      if (offset === undefined) return false;
+      if (e.repeat || pressedKeys.current.has(key)) return true;
       pressedKeys.current.add(key);
-      const note = midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset);
-      onNoteOn(note, 0.85);
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
+      onNoteOn(midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset), 0.85);
+      return true;
+    },
+    onKeyUp: (e) => {
       const key = e.key.toLowerCase();
       const offset = KEYBOARD_KEY_OFFSETS[key];
       if (offset === undefined || !pressedKeys.current.has(key)) return;
       pressedKeys.current.delete(key);
-      const note = midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset);
-      onNoteOff(note);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [octaveShift, onNoteOn, onNoteOff, keyboardShortcutsEnabled]);
+      onNoteOff(midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset));
+    },
+  });
 
   // Releases any keys the computer keyboard was holding when the octave shifts,
   // so notes don't get stuck on if the note name changes mid-hold.

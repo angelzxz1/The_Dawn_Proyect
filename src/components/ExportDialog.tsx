@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Download, Loader2, X } from "lucide-react";
 import type { BounceParams } from "@/lib/bounce";
 import { downloadBlob, ExportCancelled, exportProject, stemTracks, type ExportResult, type ExportStatus } from "@/lib/exportProject";
 import { loadExportSettings, MP3_BITRATES, saveExportSettings, safeFileName, TAIL_CHOICES, type ExportSettings } from "@/lib/exportFormats";
 import { reportError } from "@/lib/telemetry";
+import { useShortcuts } from "@/lib/shortcuts";
 
 function Segmented<T extends string | number>({
   value,
@@ -92,16 +93,17 @@ export function ExportDialog({
   const tracks = stemTracks(buildParams());
   const update = (patch: Partial<ExportSettings>) => setS((prev) => ({ ...prev, ...patch }));
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      if (busy) cancelRef.current = true;
-      else onClose();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [busy, onClose]);
+  // Escape cancels an export under way, else closes.
+  useShortcuts("dialog", [
+    {
+      keys: "escape",
+      whileTyping: true,
+      run: () => {
+        if (busy) cancelRef.current = true;
+        else onClose();
+      },
+    },
+  ]);
 
   const run = async () => {
     setError(null);

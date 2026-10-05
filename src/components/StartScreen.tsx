@@ -5,6 +5,7 @@ import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mi
 import { demoSongAvailable } from "@/lib/demoSong";
 import type { RecentProject } from "@/lib/projectFiles";
 import { PROJECT_TEMPLATES, type ProjectTemplate, type TemplateId } from "@/lib/templates";
+import { useShortcuts } from "@/lib/shortcuts";
 
 const ICONS: Record<TemplateId, typeof Guitar> = {
   "guitar-demo": Guitar,
@@ -84,15 +85,7 @@ export function StartScreen({
     if (folders) void listRecent().then((r) => setRecent(r.slice(0, 5)));
   }, [folders, listRecent]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  useShortcuts("dialog", [{ keys: "escape", run: onClose, whileTyping: true }]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">

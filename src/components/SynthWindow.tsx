@@ -65,6 +65,7 @@ import {
   useLiveFrames,
   useSynth,
 } from "./SynthUi";
+import { useShortcuts } from "@/lib/shortcuts";
 
 interface SynthWindowProps {
   channelId: string;
@@ -115,14 +116,7 @@ export function SynthWindow({ channelId, channelName, params, onChange, onClose,
     [params, update, begin, onFrame, dragging, focus]
   );
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key === "Escape" && !(t && (t.tagName === "INPUT" || t.tagName === "SELECT"))) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useShortcuts("window", [{ keys: "escape", run: onClose }]);
 
   const scale = useFitScale();
 
@@ -298,19 +292,10 @@ function PresetBar() {
 function useOutside(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
     const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && onClose();
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
     window.addEventListener("pointerdown", down, true);
-    window.addEventListener("keydown", key, true);
-    return () => {
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("keydown", key, true);
-    };
+    return () => window.removeEventListener("pointerdown", down, true);
   }, [ref, onClose]);
+  useShortcuts("menu", [{ keys: "escape", run: onClose, whileTyping: true }]);
 }
 
 function PresetBrowser({ presets, current, onLoad, onClose }: { presets: SynthPreset[]; current?: string; onLoad: (p: SynthPreset) => void; onClose: () => void }) {

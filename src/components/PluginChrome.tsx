@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { Maximize2, Power, X } from "lucide-react";
 import { PluginIcon } from "./PluginIcon";
 import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
@@ -72,11 +71,6 @@ export function PluginWindow({
   width: number;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div

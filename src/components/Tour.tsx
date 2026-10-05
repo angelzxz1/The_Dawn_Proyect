@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { useShortcuts } from "@/lib/shortcuts";
 
 // A four-step tour of the studio, shown once after the first visit's start
 // screen and reopenable from Help. Each step points at an element marked
@@ -35,12 +36,12 @@ export const TOUR_STEPS: Step[] = [
   {
     target: "transport",
     title: "Play and record",
-    text: "The transport: play, stop and Record (or press R). The metronome, count-in, tempo and time signature are here too.",
+    text: "The transport: play, stop and Record (or press R, or Shift+R while the letters play notes). The metronome, count-in, tempo and time signature are here too.",
   },
   {
     target: "track",
     title: "Tracks",
-    text: "Arm a track with its red button, then press R. Audio tracks record your guitar or mic, MIDI tracks your keyboard. Drag clips to move them; double-click a MIDI clip to edit its notes.",
+    text: "Arm a track with its red button, then press R (Shift+R on a MIDI track, where R plays a note). Audio tracks record your guitar or mic, MIDI tracks your keyboard. Drag clips to move them; double-click a MIDI clip to edit its notes.",
   },
   {
     target: "browser",
@@ -99,10 +100,10 @@ export function Tour({ onClose }: { onClose: () => void }) {
     };
   }, [current.target]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // The studio's own shortcuts (space, R...) wait while the tour is open.
-      e.stopPropagation();
+  // The tour takes every key: the studio's own shortcuts (Space, R...)
+  // wait while it's open.
+  useShortcuts("overlay", [], {
+    onKeyDown: (e) => {
       if (e.key === "Escape") {
         markTourDone();
         onClose();
@@ -114,10 +115,9 @@ export function Tour({ onClose }: { onClose: () => void }) {
           onClose();
         }
       } else if (e.key === "ArrowLeft" && step > 0) setStep(step - 1);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [step, onClose]);
+      return true;
+    },
+  });
 
   const pos = typeof window === "undefined" ? { top: 0, left: 0 } : cardPosition(box);
 

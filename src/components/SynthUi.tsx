@@ -18,6 +18,7 @@ import {
   type SynthParams,
 } from "@/lib/synthParams";
 import type { SynthLiveState } from "@/lib/synth";
+import { useShortcuts } from "@/lib/shortcuts";
 
 // Daybreak's look: night-blue panels, a dawn gradient for what's alive,
 // each modulation source with its own color.
@@ -432,19 +433,10 @@ function ModMenu({ dest, onClose }: { dest: ModDest; onClose: () => void }) {
   const mods = ui.params.mods.filter((m) => m.dest === dest);
   useEffect(() => {
     const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && onClose();
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Just this menu, not the window behind it.
-      e.stopPropagation();
-      onClose();
-    };
     window.addEventListener("pointerdown", down, true);
-    window.addEventListener("keydown", key, true);
-    return () => {
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("keydown", key, true);
-    };
+    return () => window.removeEventListener("pointerdown", down, true);
   }, [onClose]);
+  useShortcuts("menu", [{ keys: "escape", run: onClose, whileTyping: true }]);
   return (
     <div
       ref={ref}

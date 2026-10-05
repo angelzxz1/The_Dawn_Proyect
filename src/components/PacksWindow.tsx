@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { Download, Loader2, Package, Trash2, Upload, X } from "lucide-react";
 import { PACK_EXTENSION } from "@/lib/dawnPack";
 import { buildMyPresetsPack, installedPacks, subscribePacks, type InstalledPack } from "@/lib/packStore";
 import { downloadBlob } from "@/lib/exportProject";
 import { safeFileName } from "@/lib/exportFormats";
+import { useShortcuts } from "@/lib/shortcuts";
 
 const EMPTY: InstalledPack[] = [];
 
@@ -51,15 +52,7 @@ export function PacksWindow({
   const [info, setInfo] = useState({ name: "My Presets", author: "", license: "Personal use" });
   const fileInput = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  useShortcuts("dialog", [{ keys: "escape", run: onClose, whileTyping: true }]);
 
   const install = async (file: File) => {
     setBusy("install");

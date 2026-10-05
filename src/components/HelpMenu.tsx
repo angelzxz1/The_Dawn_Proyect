@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, CircleHelp, Compass, LifeBuoy, MessageSquare, Wrench } from "lucide-react";
+import { useShortcuts } from "@/lib/shortcuts";
 
 /** Help in the header: the tour, and the guides on the website. */
 export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedback: () => void }) {
@@ -13,18 +14,10 @@ export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedbac
     const onDown = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      setOpen(false);
-    };
     window.addEventListener("pointerdown", onDown);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("keydown", onKey, true);
-    };
+    return () => window.removeEventListener("pointerdown", onDown);
   }, [open]);
+  useShortcuts("menu", [{ keys: "escape", run: () => setOpen(false), whileTyping: true }], { enabled: open });
 
   const item = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] hover:bg-surface";
   const links: [string, string, typeof BookOpen][] = [

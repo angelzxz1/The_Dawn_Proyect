@@ -1,9 +1,7 @@
 // The DAW's "document" state - everything undo/redo and save/load need to
-// fully reconstruct the project - plus the one function that rebuilds the
-// live Tone.js graph from it. Both features share this so there's a single
-// definition of "what a project is" and "how to make the engine match it".
+// fully reconstruct the project. (engineSync.ts makes the live engine
+// match it.)
 
-import { audioEngine } from "./audioEngine";
 import type {
   BusConfig,
   ChannelConfig,
@@ -13,7 +11,6 @@ import type {
   TimeSignature,
 } from "./types";
 import type { EffectInstance } from "./effects";
-import { quarterNotesPerBar } from "./timeline";
 
 export interface ProjectState {
   channels: ChannelConfig[];
@@ -29,17 +26,13 @@ export interface ProjectState {
   masterEffects: EffectInstance[];
 }
 
-function isMidiClip(c: ClipInstance): c is MidiClipInstance {
-  return c.kind === "midi";
-}
-
 /** A MIDI clip's notes clamped to its own length - matches what the clip
  * box visually shows (ClipBlock hides anything at/after `length`), so
  * playback never sounds a note the clip's boundary already hides it
  * behind. When the clip is looping (`loopLength` set and shorter than
  * `length`), the note pattern within that first `loopLength` window tiles
- * to fill the rest of the box instead. Shared by the engine sync below and
- * by Daw.tsx's own rebuild after a live move/resize/edit/loop-toggle. */
+ * to fill the rest of the box instead. Used by the engine (engineSync.ts)
+ * and the export. */
 export function notesWithinClip(clip: MidiClipInstance): NoteEvent[] {
   const unit = clip.loopLength && clip.loopLength > 0 ? clip.loopLength : clip.length;
   const clampToUnit = (n: NoteEvent) => ({ ...n, duration: Math.min(n.duration, unit - n.time) });
@@ -61,113 +54,4 @@ export function notesWithinClip(clip: MidiClipInstance): NoteEvent[] {
     });
   }
   return tiled;
-}
-
-/**
- * Tears down and fully rebuilds every channel in the audio engine to match
- * `state` - used after an undo/redo jump and after loading a saved project,
- * where the live Tone.js graph needs to end up exactly matching a snapshot
- * rather than being incrementally patched toward it. `registeredIds` is the
- * caller's own bookkeeping set of channel ids currently registered with the
- * engine (Daw.tsx's `registeredChannelIds` ref) - it's cleared and
- * repopulated in place so the caller's regular per-render sync effect keeps
- * seeing accurate state afterward.
- */
-export function hydrateEngine(state: ProjectState, registeredIds: Set<string>): void {
-  registeredIds.forEach((id) => audioEngine.removeChannel(id));
-  registeredIds.clear();
-
-  // Must happen before any clip is scheduled below: Tone.js converts a
-  // scheduled note's time to ticks at the moment it's scheduled, using
-  // whatever tempo is active right then. Scheduling first and only
-  // updating the tempo afterward (e.g. via a React effect that fires on
-  // the next render) leaves every note's actual playback position keyed
-  // to the OLD tempo, silently drifting once the new tempo takes effect.
-  audioEngine.setBpm(state.bpm);
-  audioEngine.setTimeSignature(
-    quarterNotesPerBar(state.timeSignature.numerator, state.timeSignature.denominator)
-  );
-
-  state.buses.forEach((bus) => {
-    audioEngine.addBus(bus.id);
-    // A bus persists across repeated hydrates (unlike a channel), so its
-    // chain has to be cleared before re-adding from the snapshot - matches
-    // resetEffects's own reasoning below for the master bus.
-    audioEngine.resetEffects(bus.id);
-    (state.busEffects[bus.id] ?? []).forEach((fx) => {
-      audioEngine.addEffect(bus.id, fx.type, fx.id);
-      Object.entries(fx.params).forEach(([key, value]) =>
-        audioEngine.setEffectParam(bus.id, fx.id, key, value)
-      );
-      if (fx.bypass) audioEngine.setEffectBypass(bus.id, fx.id, true);
-      if (fx.file) void audioEngine.setEffectFile(bus.id, fx.id, fx.file.id);
-      if (fx.sidechain) audioEngine.setEffectSidechain(bus.id, fx.id, fx.sidechain);
-    });
-  });
-
-  state.channels.forEach((channel) => {
-    audioEngine.addChannel(channel.id, channel.type, channel.instrument, channel.synthParams, channel.drumParams);
-    audioEngine.setVolume(channel.id, channel.volume);
-    audioEngine.setPan(channel.id, channel.pan);
-    audioEngine.setMute(channel.id, channel.muted);
-    audioEngine.setSolo(channel.id, channel.solo);
-    registeredIds.add(channel.id);
-
-    (state.channelEffects[channel.id] ?? []).forEach((fx) => {
-      audioEngine.addEffect(channel.id, fx.type, fx.id);
-      Object.entries(fx.params).forEach(([key, value]) =>
-        audioEngine.setEffectParam(channel.id, fx.id, key, value)
-      );
-      if (fx.bypass) audioEngine.setEffectBypass(channel.id, fx.id, true);
-      if (fx.file) void audioEngine.setEffectFile(channel.id, fx.id, fx.file.id);
-      if (fx.sidechain) audioEngine.setEffectSidechain(channel.id, fx.id, fx.sidechain);
-    });
-
-    Object.entries(channel.sends ?? {}).forEach(([busId, db]) => {
-      audioEngine.setSend(channel.id, busId, db);
-    });
-    audioEngine.setAutomation(channel.id, channel.automationLanes ?? []);
-
-    const clips = state.clipsByChannel[channel.id] ?? [];
-    if (channel.type === "midi") {
-      const flattened = clips
-        .filter(isMidiClip)
-        .flatMap((clip) => notesWithinClip(clip).map((n) => ({ ...n, time: clip.offset + n.time })));
-      audioEngine.setClip(channel.id, flattened, 0);
-    } else {
-      clips.forEach((clip) => {
-        if (clip.kind === "audio") {
-          audioEngine.loadAudioClip(
-            channel.id,
-            clip.id,
-            clip.url,
-            {
-              offsetSeconds: clip.offset,
-              bufferOffsetSeconds: clip.sourceOffset,
-              trimSeconds: clip.length,
-              loopLength: clip.loopLength,
-              fadeIn: clip.fadeIn,
-              fadeOut: clip.fadeOut,
-            },
-            clip.gainDb
-          );
-        }
-      });
-    }
-  });
-
-  audioEngine.setMasterVolume(state.masterVolume);
-  audioEngine.setMasterPan(state.masterPan);
-  // Master persists across repeated hydrates just like a bus - see the
-  // matching resetEffects call above.
-  audioEngine.resetEffects("master");
-  state.masterEffects.forEach((fx) => {
-    audioEngine.addEffect("master", fx.type, fx.id);
-    Object.entries(fx.params).forEach(([key, value]) =>
-      audioEngine.setEffectParam("master", fx.id, key, value)
-    );
-    if (fx.bypass) audioEngine.setEffectBypass("master", fx.id, true);
-    if (fx.file) void audioEngine.setEffectFile("master", fx.id, fx.file.id);
-    if (fx.sidechain) audioEngine.setEffectSidechain("master", fx.id, fx.sidechain);
-  });
 }

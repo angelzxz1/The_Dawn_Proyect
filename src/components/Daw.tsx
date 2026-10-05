@@ -50,7 +50,8 @@ import { listenToWebMidi } from "@/lib/webMidi";
 import { MASTER_COLOR, trackColorOf } from "@/lib/colors";
 import { canMoveTrack, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, outputTargets, routeMap } from "@/lib/routing";
 import { decodeAudioFile } from "@/lib/audioFile";
-import { hydrateEngine, type ProjectState } from "@/lib/project";
+import type { ProjectState } from "@/lib/project";
+import { hydrateEngine, syncEngine } from "@/lib/engineSync";
 import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
@@ -332,21 +333,23 @@ export function Daw() {
   const pushHistory = useCallback(() => projectStore.push(), []);
 
   /** After undo/redo replaced the document: the view lets go of what may
-   * be gone, and the engine is rebuilt from it. */
-  const afterRestore = useCallback((s: ProjectState) => {
+   * be gone, and the engine changes what differs (engineSync.ts). */
+  const afterRestore = useCallback((before: ProjectState, restored: ProjectState) => {
     setSelectedClipIds(new Set());
     setEditingClip(null);
-    hydrateEngine(s, registeredChannelIds.current);
+    syncEngine(before, restored, registeredChannelIds.current, audioEngine);
   }, []);
 
   const undo = useCallback(() => {
+    const before = projectStore.get();
     const restored = projectStore.undo();
-    if (restored) afterRestore(restored);
+    if (restored) afterRestore(before, restored);
   }, [afterRestore]);
 
   const redo = useCallback(() => {
+    const before = projectStore.get();
     const restored = projectStore.redo();
-    if (restored) afterRestore(restored);
+    if (restored) afterRestore(before, restored);
   }, [afterRestore]);
   const { canUndo, canRedo } = useHistoryState();
 
@@ -1366,7 +1369,7 @@ export function Daw() {
     setFxMasterOpen(false);
     setFxChannelId(state.channels[0]?.id ?? null);
     if (state.channels[0]) setSelectedChannelId(state.channels[0].id);
-    hydrateEngine(state, registeredChannelIds.current);
+    hydrateEngine(state, registeredChannelIds.current, audioEngine);
   }, []);
   const {
     isLoading: isLoadingProject,

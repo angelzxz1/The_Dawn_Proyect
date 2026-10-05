@@ -8,38 +8,24 @@
 import { audioEngine } from "@/lib/audioEngine";
 import type { DecodedAudioClip } from "@/lib/audioFile";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
-import type { AudioClipTiming } from "@/lib/engine/nodes";
 import { grooveBeats, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
-import { notesWithinClip } from "@/lib/project";
+import { audioClipTiming, midiTimeline } from "@/lib/engineSync";
 import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, NoteEvent } from "@/lib/types";
 import { audioBlobs } from "./audioBlobs";
 import { newClipId } from "./ids";
 import { projectStore } from "./projectStore";
 
+export { audioClipTiming };
+
 export function isMidiClip(c: ClipInstance): c is MidiClipInstance {
   return c.kind === "midi";
-}
-
-/** The engine's timing for an audio clip, from the clip's own fields -
- * every place that (re)schedules a clip's player uses this, so they can't
- * drift apart. */
-export function audioClipTiming(clip: AudioClipInstance): AudioClipTiming {
-  return {
-    offsetSeconds: clip.offset,
-    bufferOffsetSeconds: clip.sourceOffset,
-    trimSeconds: clip.length,
-    loopLength: clip.loopLength,
-    fadeIn: clip.fadeIn,
-    fadeOut: clip.fadeOut,
-  };
 }
 
 /** Rebuilds a MIDI track's part from all its clips' notes (each shifted by
  * its clip's offset): the engine plays one flat note list per track, and
  * doesn't know about clips. Called after any change to a MIDI clip. */
 export function rebuildMidiPart(channelId: string, midiClips: MidiClipInstance[]): void {
-  const flattened: NoteEvent[] = midiClips.flatMap((c) => notesWithinClip(c).map((n) => ({ ...n, time: c.offset + n.time })));
-  audioEngine.setClip(channelId, flattened, 0);
+  audioEngine.setClip(channelId, midiTimeline(midiClips), 0);
 }
 
 export const clipsOf = (channelId: string): ClipInstance[] => projectStore.get().clipsByChannel[channelId] ?? [];

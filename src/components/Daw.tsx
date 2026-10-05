@@ -8,45 +8,20 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import {
-  Clipboard,
-  Copy,
-  CopyPlus,
-  Download,
-  FileAudio,
-  FilePlus2,
-  FolderInput,
-  FolderOutput,
-  FolderPlus,
-  ChevronsDownUp,
-  Heart,
-  Info,
-  Loader2,
-  MessageSquare,
-  Pencil,
-  Redo2,
-  Repeat,
-  Scissors,
-  Sliders,
-  KeyboardMusic,
-  Trash2,
-  Undo2,
-  X,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
+import { Download, ChevronsDownUp, Heart, Info, Loader2, MessageSquare, Redo2, Repeat, KeyboardMusic, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { TrackHeader } from "./TrackHeader";
 import { TrackLane } from "./TrackLane";
 import { TimelineScrollbar } from "./TimelineScrollbar";
-import { ValueBar } from "./ValueBar";
-import { Meter } from "./Meter";
 import { TimelineRuler } from "./TimelineRuler";
 import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
 import { NoteInputWindow } from "./NoteInputWindow";
 import { EffectWindow } from "./daw/EffectWindow";
+import { MasterBusRow } from "./daw/MasterBusRow";
 import { RecoveryNotice } from "./daw/RecoveryNotice";
+import { contextMenuItems, type ContextMenuState } from "./daw/contextMenus";
+import { busActions } from "@/state/busActions";
 import { useProjectFiles } from "./daw/useProjectFiles";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
@@ -57,7 +32,7 @@ import { DrumRackWindow } from "./DrumRackWindow";
 import { ExpressionControls } from "./ExpressionControls";
 import { PianoRollEditor } from "./PianoRollEditor";
 import { ScaleSelector } from "./ScaleSelector";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { ContextMenu } from "./ContextMenu";
 import { FxRack } from "./FxRack";
 import { SynthWindow } from "./SynthWindow";
 import type { SidechainSource } from "./SidechainPanel";
@@ -73,11 +48,10 @@ import { midiToNoteName } from "@/lib/piano";
 import { listenToWebMidi } from "@/lib/webMidi";
 import { MASTER_COLOR, trackColorOf } from "@/lib/colors";
 import { canMoveTrack, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, outputTargets, routeMap } from "@/lib/routing";
-import { getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile } from "@/lib/audioFile";
 import { hydrateEngine, type ProjectState } from "@/lib/project";
 import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
-import { newAutomationLaneId, newBusId } from "@/state/ids";
+import { newAutomationLaneId } from "@/state/ids";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
 import { TelemetrySwitch } from "./TelemetrySwitch";
@@ -186,11 +160,6 @@ function automationTargetOptions(
   return options;
 }
 
-type ContextMenuState =
-  | { kind: "clip"; channelId: string; clipId: string; x: number; y: number }
-  | { kind: "lane"; channelId: string; x: number; y: number; atSeconds: number }
-  | { kind: "header"; channelId: string; x: number; y: number };
-
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
@@ -223,13 +192,8 @@ function laneHint(channel: ChannelConfig, armed: boolean): string {
 // The document's setters (stable: they write to the project store).
 const setChannels = projectSetter("channels");
 const setClipsByChannel = projectSetter("clipsByChannel");
-const setBuses = projectSetter("buses");
-const setBusEffects = projectSetter("busEffects");
 const setBpm = projectSetter("bpm");
 const setTimeSignature = projectSetter("timeSignature");
-const setMasterName = projectSetter("masterName");
-const setMasterVolume = projectSetter("masterVolume");
-const setMasterPan = projectSetter("masterPan");
 
 export function Daw() {
   // The document lives in the project store (src/state/projectStore.ts),
@@ -324,7 +288,6 @@ export function Daw() {
       return false;
     }
   });
-  const busRowRef = useRef<HTMLDivElement>(null);
   const toggleNoteInput = useCallback((open: boolean) => {
     setNoteInputOpen(open);
     try {
@@ -366,8 +329,6 @@ export function Daw() {
     enabled: false,
   });
   const masterName = useProjectValue("masterName");
-  const [editingMasterName, setEditingMasterName] = useState(false);
-  const [masterNameDraft, setMasterNameDraft] = useState("Master");
   const masterVolume = useProjectValue("masterVolume");
   const masterPan = useProjectValue("masterPan");
   const [masterLimiterThreshold, setMasterLimiterThreshold] = useState(-1);
@@ -1193,41 +1154,12 @@ export function Daw() {
 
   // --- Send/return buses ---
 
-  const handleAddBus = useCallback(() => {
-    pushHistory();
-    const id = newBusId();
-    setBuses((prev) => [...prev, { id, name: `Bus ${prev.length + 1}`, colorIndex: prev.length }]);
-  }, [pushHistory]);
-
   const handleRemoveBus = useCallback(
     (id: string) => {
-      pushHistory();
-      audioEngine.removeBus(id);
-      setBuses((prev) => prev.filter((b) => b.id !== id));
-      setBusEffects((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setChannels((prev) =>
-        prev.map((c) => {
-          if (!c.sends || !(id in c.sends)) return c;
-          const sends = { ...c.sends };
-          delete sends[id];
-          return { ...c, sends };
-        })
-      );
+      busActions.remove(id);
       if (fxBusId === id) setFxBusId(null);
     },
-    [pushHistory, fxBusId]
-  );
-
-  const handleRenameBus = useCallback(
-    (id: string, name: string) => {
-      pushHistory();
-      setBuses((prev) => prev.map((b) => (b.id === id ? { ...b, name } : b)));
-    },
-    [pushHistory]
+    [fxBusId]
   );
 
   const openBusFx = useCallback((busId: string) => {
@@ -1384,167 +1316,35 @@ export function Daw() {
     setContextMenu({ kind: "header", channelId, x: e.clientX, y: e.clientY });
   }, []);
 
-  const clipMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
-    if (!contextMenu || contextMenu.kind !== "clip") return [];
-    const { channelId, clipId } = contextMenu;
-    const clip = clipsOf(channelId).find((c) => c.id === clipId);
-    if (!clip) return [];
-    const hasNotes = clip.kind === "midi" && clip.notes.length > 0;
-    const copied = getCopiedClip();
-    const pasteDisabled = !copied || copied.kind !== channelTypeOf(channelId);
-    const t = audioEngine.getTransportSeconds();
-    const canSplit = t > clip.offset && t < clip.offset + clip.length;
-    const groupSize = selectedClipIds.size;
-    const deleteLabel = groupSize > 1 ? `Delete ${groupSize} clips` : "Delete clip";
-    const duplicateLabel = groupSize > 1 ? `Duplicate ${groupSize} clips` : "Duplicate clip";
-
-    const commonTail: (ContextMenuItem | "separator")[] = [
-      {
-        label: "Split at playhead",
-        icon: <Scissors size={13} />,
-        disabled: !canSplit,
-        onSelect: () => handleSplitClipAtPlayhead(channelId, clipId),
-      },
-      {
-        label: duplicateLabel,
-        icon: <CopyPlus size={13} />,
-        onSelect: () => handleDuplicateSelectedClips(),
-      },
-      {
-        label: clip.loopLength ? "Stop looping clip" : "Loop clip",
-        icon: <Repeat size={13} />,
-        onSelect: () => handleToggleLoopClip(channelId, clipId),
-      },
-      "separator",
-      {
-        label: deleteLabel,
-        icon: <Trash2 size={13} />,
-        danger: true,
-        onSelect: () => handleDeleteSelectedClips(),
-      },
-    ];
-
-    if (clip.kind === "audio") {
-      return [
-        { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(channelId, clipId) },
-        {
-          label: "Paste clip here",
-          icon: <Clipboard size={13} />,
-          disabled: pasteDisabled,
-          onSelect: () => pasteReplaceClip(channelId, clipId),
-        },
-        "separator",
-        ...commonTail,
-      ];
-    }
-    return [
-      { label: "Edit in piano roll", icon: <Pencil size={13} />, onSelect: () => handleEditClip(channelId, clipId) },
-      "separator",
-      { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => handleCopyClip(channelId, clipId) },
-      {
-        label: "Paste clip here",
-        icon: <Clipboard size={13} />,
-        disabled: pasteDisabled,
-        onSelect: () => pasteReplaceClip(channelId, clipId),
-      },
-      "separator",
-      { label: "Export .mid", icon: <Download size={13} />, disabled: !hasNotes, onSelect: () => handleExportClipMidi(channelId, clipId) },
-      ...commonTail,
-    ];
+  // Built when a menu opens (what's under the playhead, what's copied).
+  const contextMenuList = useMemo(
+    () =>
+      contextMenu
+        ? contextMenuItems(
+            contextMenu,
+            { channels, clipsOf, selectedClips: selectedClipIds.size, trackPicks },
+            {
+              editClip: handleEditClip,
+              copyClip: handleCopyClip,
+              pasteOver: pasteReplaceClip,
+              exportClipMidi: handleExportClipMidi,
+              splitAtPlayhead: handleSplitClipAtPlayhead,
+              toggleLoop: handleToggleLoopClip,
+              duplicateSelected: handleDuplicateSelectedClips,
+              deleteSelected: handleDeleteSelectedClips,
+              addEmptyClip: handleAddEmptyClipAt,
+              importAudio: triggerAudioImport,
+              pasteAt: handlePasteClipAtBar,
+              groupTracks: handleGroupTracks,
+              setTrackGroup: handleSetTrackGroup,
+              toggleFold: handleToggleFold,
+              removeTrack: handleRemoveChannel,
+            }
+          )
+        : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, clipsOf, channelTypeOf, selectedClipIds]);
-
-  const laneMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
-    if (!contextMenu || contextMenu.kind !== "lane") return [];
-    const { channelId, atSeconds } = contextMenu;
-    const copied = getCopiedClip();
-    const pasteDisabled = !copied || copied.kind !== channelTypeOf(channelId);
-    // A group's lane holds no clips.
-    if (channelTypeOf(channelId) === "group") return [];
-    const items: (ContextMenuItem | "separator")[] =
-      channelTypeOf(channelId) === "midi"
-        ? [
-            {
-              label: "Add empty MIDI clip here",
-              icon: <FilePlus2 size={13} />,
-              onSelect: () => handleAddEmptyClipAt(channelId, atSeconds),
-            },
-          ]
-        : [
-            {
-              label: "Import audio clip here…",
-              icon: <FileAudio size={13} />,
-              onSelect: () => triggerAudioImport(channelId, atSeconds),
-            },
-          ];
-    items.push({
-      label: "Paste clip here",
-      icon: <Clipboard size={13} />,
-      disabled: pasteDisabled,
-      onSelect: () => handlePasteClipAtBar(channelId, atSeconds),
-    });
-    return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, channelTypeOf]);
-
-  const headerMenuItems = useMemo((): (ContextMenuItem | "separator")[] => {
-    if (!contextMenu || contextMenu.kind !== "header") return [];
-    const id = contextMenu.channelId;
-    const channel = channels.find((c) => c.id === id);
-    if (!channel) return [];
-    const isGroup = channel.type === "group";
-    const clipItems: ContextMenuItem[] = isGroup
-      ? []
-      : channel.type === "midi"
-        ? [
-            {
-              label: "Add empty MIDI clip",
-              icon: <FilePlus2 size={13} />,
-              onSelect: () => handleAddEmptyClipAt(id, endOfContent(id)),
-            },
-          ]
-        : [
-            {
-              label: "Import audio clip…",
-              icon: <FileAudio size={13} />,
-              onSelect: () => triggerAudioImport(id, endOfContent(id)),
-            },
-          ];
-    // Grouping: the Ctrl/Cmd-clicked tracks (with this one), or this one.
-    const picked = trackPicks.has(id) ? [...trackPicks] : [id];
-    const groups = channels.filter((c) => c.type === "group" && c.id !== channel.groupId);
-    const groupItems: ContextMenuItem[] = isGroup
-      ? [{ label: "Ungroup (keep the tracks)", icon: <FolderOutput size={13} />, onSelect: () => handleRemoveChannel(id) }]
-      : [
-          {
-            label: picked.length > 1 ? `Group ${picked.length} tracks (Ctrl+G)` : "Group this track (Ctrl+G)",
-            icon: <FolderPlus size={13} />,
-            onSelect: () => handleGroupTracks(picked),
-          },
-          ...groups.map((g) => ({ label: `Move into “${g.name}”`, icon: <FolderInput size={13} />, onSelect: () => handleSetTrackGroup(id, g.id) })),
-          ...(channel.groupId ? [{ label: "Take out of the group", icon: <FolderOutput size={13} />, onSelect: () => handleSetTrackGroup(id, null) }] : []),
-        ];
-    const foldItem: ContextMenuItem = {
-      label: channel.folded ? (isGroup ? "Unfold the group" : "Unfold track") : isGroup ? "Fold the group (hide its tracks)" : "Fold track",
-      icon: <ChevronsDownUp size={13} />,
-      onSelect: () => handleToggleFold(id),
-    };
-    const removeItems: (ContextMenuItem | "separator")[] =
-      channels.length > 1 && !isGroup
-        ? [
-            "separator",
-            {
-              label: "Remove track",
-              icon: <X size={13} />,
-              danger: true,
-              onSelect: () => handleRemoveChannel(id),
-            },
-          ]
-        : [];
-    const items: (ContextMenuItem | "separator")[] = [...clipItems, ...(clipItems.length ? ["separator" as const] : []), ...groupItems, foldItem, ...removeItems];
-    return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextMenu, channels, trackPicks, channelTypeOf, endOfContent]);
+    [contextMenu, channels, clipsOf, selectedClipIds, trackPicks]
+  );
 
   const handlePreviewNote = useCallback(
     (channelId: string, note: string) => {
@@ -2310,148 +2110,13 @@ export function Daw() {
         }}
       />
 
-      {/* Master and the send/return buses share one row, so the tracks keep
-          the room. The buses scroll sideways when there are many. */}
-      <div className="flex shrink-0 items-center gap-3 rounded-lg border border-border bg-surface px-3 py-1.5">
-        <div className="flex shrink-0 items-center gap-2" title="Master output: every track routes through here before the speakers.">
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: MASTER_COLOR.accent }} />
-          {editingMasterName ? (
-            <input
-              autoFocus
-              value={masterNameDraft}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => setMasterNameDraft(e.target.value)}
-              onBlur={() => {
-                const trimmed = masterNameDraft.trim();
-                if (trimmed && trimmed !== masterName) setMasterName(trimmed);
-                setEditingMasterName(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                else if (e.key === "Escape") setEditingMasterName(false);
-              }}
-              className="w-20 rounded border border-accent bg-surface px-1 text-xs font-medium outline-none"
-            />
-          ) : (
-            <span
-              title="Double-click to rename"
-              onDoubleClick={() => {
-                setMasterNameDraft(masterName);
-                setEditingMasterName(true);
-              }}
-              className="w-20 shrink-0 truncate text-xs font-medium"
-            >
-              {masterName}
-            </span>
-          )}
-          <div className="h-8">
-            <Meter channelId="master" />
-          </div>
-          <ValueBar
-            label="Pan"
-            value={masterPan}
-            min={-1}
-            max={1}
-            defaultValue={0}
-            onChange={setMasterPan}
-            onDragStart={pushHistory}
-            formatValue={(v) => (Math.abs(v) < 0.02 ? "C" : v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`)}
-            bipolar
-          />
-          <ValueBar
-            label="Vol"
-            value={masterVolume}
-            min={-60}
-            max={6}
-            defaultValue={0}
-            onChange={setMasterVolume}
-            onDragStart={pushHistory}
-            formatValue={(v) => (v <= -60 ? "-∞" : `${v.toFixed(1)}dB`)}
-          />
-          <ValueBar
-            label="Ceiling"
-            value={masterLimiterThreshold}
-            min={-24}
-            max={0}
-            defaultValue={-1}
-            onChange={setMasterLimiterThreshold}
-            onDragStart={pushHistory}
-            formatValue={(v) => `${v.toFixed(1)}dB`}
-          />
-          <span className="text-[10px] text-muted/70">limiter</span>
-          <button
-            type="button"
-            title={`FX${masterEffects.length > 0 ? ` (${masterEffects.length})` : ""} — master bus effects`}
-            onClick={openMasterFx}
-            className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
-              masterEffects.length > 0 ? "text-accent" : "text-muted"
-            }`}
-          >
-            <Sliders size={11} />
-            FX
-            {masterEffects.length > 0 && (
-              <span className="flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
-                {masterEffects.length}
-              </span>
-            )}
-          </button>
-        </div>
-        <div className="h-8 w-px shrink-0 bg-border" />
-        <span
-          className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted"
-          title="Send/return buses: set each track's send level to a bus in its FX rack."
-        >
-          Buses
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            handleAddBus();
-            // Bring the new bus into view at the end of the row.
-            setTimeout(() => busRowRef.current?.scrollTo({ left: busRowRef.current.scrollWidth, behavior: "smooth" }), 50);
-          }}
-          title="Add a send/return bus"
-          className="shrink-0 rounded border border-border px-2 py-1 text-[11px] text-muted hover:border-accent hover:text-accent"
-        >
-          + Bus
-        </button>
-        <div ref={busRowRef} className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-0.5">
-          {buses.map((bus) => (
-            <div
-              key={bus.id}
-              className="flex shrink-0 items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-1"
-            >
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ background: trackColorOf(bus).accent }}
-              />
-              <input
-                value={bus.name}
-                onChange={(e) => handleRenameBus(bus.id, e.target.value)}
-                className="w-20 bg-transparent text-xs outline-none"
-                title="Bus name"
-              />
-              <button
-                type="button"
-                title="Open bus effects"
-                onClick={() => openBusFx(bus.id)}
-                className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-accent"
-              >
-                FX{(busEffects[bus.id]?.length ?? 0) > 0 ? ` (${busEffects[bus.id]!.length})` : ""}
-              </button>
-              <button
-                type="button"
-                title="Remove bus"
-                onClick={() => handleRemoveBus(bus.id)}
-                className="rounded px-1 text-[10px] text-muted hover:bg-surface hover:text-record"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          {buses.length === 0 && <span className="text-[10px] text-muted/70">No buses yet: add one for a shared reverb or delay.</span>}
-        </div>
-      </div>
+      <MasterBusRow
+        limiterThreshold={masterLimiterThreshold}
+        onLimiterThresholdChange={setMasterLimiterThreshold}
+        onOpenMasterFx={openMasterFx}
+        onOpenBusFx={openBusFx}
+        onRemoveBus={handleRemoveBus}
+      />
 
       <NoteInputWindow
         open={noteInputOpen}
@@ -2531,13 +2196,7 @@ export function Daw() {
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
-          items={
-            contextMenu.kind === "clip"
-              ? clipMenuItems
-              : contextMenu.kind === "lane"
-                ? laneMenuItems
-                : headerMenuItems
-          }
+          items={contextMenuList}
         />
       )}
 

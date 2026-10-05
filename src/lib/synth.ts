@@ -207,7 +207,7 @@ export class SynthInstrument implements Instrument {
   }
 
   private seconds(time?: Tone.Unit.Time): number {
-    return time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
+    return time !== undefined ? Tone.Time(time).toSeconds() : Tone.immediate();
   }
 
   triggerAttack(note: string, time?: Tone.Unit.Time, velocity = 0.8): void {

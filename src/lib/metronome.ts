@@ -2,10 +2,10 @@ import * as Tone from "tone";
 
 // The metronome and the count-in, scheduled on the audio clock.
 //
-// Tone's transport only schedules events a few ms ahead (the engine keeps
-// its lookAhead short so live playing feels immediate), so a click
-// scheduled through it comes late, or is dropped, whenever the page is busy
-// for a moment - as it is right when recording starts. The metronome works
+// Tone's transport queues events a few tens of ms ahead (context.ts), from
+// the page's main thread; a click is the one sound that must never slip,
+// even when the page is busy for longer - as it can be right when
+// recording starts. So the metronome works
 // like a dedicated click track: it knows where the transport is (the
 // position at a given context time, the tempo and the loop) and queues each
 // click as a buffer source a fifth of a second ahead, so a busy page can't

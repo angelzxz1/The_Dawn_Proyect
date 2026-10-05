@@ -146,12 +146,12 @@ export class DrumRack implements Instrument {
   }
 
   private seconds(time?: Tone.Unit.Time): number {
-    return time !== undefined ? Tone.Time(time).toSeconds() : Tone.now();
+    return time !== undefined ? Tone.Time(time).toSeconds() : Tone.immediate();
   }
 
   /** Plays a pad now (clicking it in the window). */
   audition(pad: number, velocity = 0.9): void {
-    this.send({ type: "on", note: padNote(pad), vel: velocity, time: Tone.now() });
+    this.send({ type: "on", note: padNote(pad), vel: velocity, time: Tone.immediate() });
   }
 
   triggerAttack(note: string, time?: Tone.Unit.Time, velocity = 0.8): void {

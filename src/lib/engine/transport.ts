@@ -5,12 +5,11 @@
 import * as Tone from "tone";
 import { Metronome } from "../metronome";
 
-/** How far ahead (s) Play and Record start the transport. The page redraws
- * itself right as they're pressed, and with the short lookAhead (see
- * context.ts) the first notes would otherwise be scheduled during that
- * redraw and come out late; starting just after it keeps the first beat on
- * time. */
-const START_HEADROOM = 0.12;
+/** How far ahead of the audio clock (s) Play and Record start the
+ * transport: past the scheduling window (context.ts), with room for the
+ * redraw the page does right as they're pressed, so the first beat is
+ * queued in time like every other. */
+const START_LEAD = 0.13;
 
 export class Transport {
   private readonly metronome: Metronome;
@@ -45,7 +44,7 @@ export class Transport {
   /** Plays from wherever the transport sits. */
   play(): void {
     const pos = this.positionBeats;
-    const time = Tone.now() + START_HEADROOM;
+    const time = Tone.immediate() + START_LEAD;
     this.tone.start(time);
     this.metronome.start(time, pos);
   }
@@ -61,7 +60,7 @@ export class Transport {
     this.metronome.setLoop(null);
     this.tone.seconds = Math.max(0, fromSeconds);
     const pos = this.positionBeats;
-    const startTime = Tone.now() + START_HEADROOM + countInBeats * (60 / this.tone.bpm.value);
+    const startTime = Tone.immediate() + START_LEAD + countInBeats * (60 / this.tone.bpm.value);
     this.tone.start(startTime);
     this.metronome.start(startTime, pos, countInBeats);
     return startTime;
@@ -83,10 +82,14 @@ export class Transport {
     this.resyncMetronome();
   }
 
+  /** Where the transport is now: while playing, the position being heard
+   * (at the audio clock's time - Tone's own reading is a scheduling window
+   * ahead), which is also where a note played now is recorded. */
   get seconds(): number {
+    const seconds = this.tone.state === "started" ? this.tone.getSecondsAtTime(Tone.immediate()) : this.tone.seconds;
     // Stopping a transport whose context hasn't run yet can leave it a hair
     // below zero (the stop lands a lookahead later); the timeline starts at 0.
-    return Math.max(0, this.tone.seconds);
+    return Math.max(0, seconds);
   }
 
   get state(): "started" | "stopped" | "paused" {

@@ -126,7 +126,7 @@ class AudioEngine {
     const pending = this.sustainPending.get(channelId);
     if (!pending || pending.size === 0) return;
     const nodes = this.channels.get(channelId);
-    pending.forEach((note) => this.safe(() => nodes?.instrument.triggerRelease(note, Tone.now())));
+    pending.forEach((note) => this.safe(() => nodes?.instrument.triggerRelease(note, Tone.immediate())));
     pending.clear();
   }
 
@@ -1135,12 +1135,13 @@ class AudioEngine {
     return (effect.node as LookaheadLimiter).meterLevels;
   }
 
-  /** Live note-on, triggered immediately (not scheduled on the transport). */
+  /** Live note-on: plays at the audio clock's current time, not the
+   * transport's lookahead (context.ts). */
   noteOn(channelId: string, note: string, velocity = 0.8): void {
     const nodes = this.channels.get(channelId);
     if (!nodes || nodes.heldNotes.has(note)) return;
     nodes.heldNotes.add(note);
-    this.safe(() => nodes.instrument.triggerAttack(note, Tone.now(), velocity));
+    this.safe(() => nodes.instrument.triggerAttack(note, Tone.immediate(), velocity));
 
     if (this.recording?.channelId === channelId) this.recording.noteOn(note, velocity, Tone.getContext().currentTime);
   }
@@ -1162,7 +1163,7 @@ class AudioEngine {
       }
       pending.add(note);
     } else {
-      this.safe(() => nodes.instrument.triggerRelease(note, Tone.now()));
+      this.safe(() => nodes.instrument.triggerRelease(note, Tone.immediate()));
     }
 
     if (this.recording?.channelId === channelId) this.recording.noteOff(note);
@@ -1380,7 +1381,7 @@ class AudioEngine {
     const take = this.recording;
     if (!take) return [];
     const nodes = this.channels.get(take.channelId);
-    take.heldNotes.forEach((note) => this.safe(() => nodes?.instrument.triggerRelease(note, Tone.now())));
+    take.heldNotes.forEach((note) => this.safe(() => nodes?.instrument.triggerRelease(note, Tone.immediate())));
     nodes?.heldNotes.clear();
     this.recording = null;
     const events = take.finish();

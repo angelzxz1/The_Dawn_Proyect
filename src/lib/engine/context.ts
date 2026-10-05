@@ -1,5 +1,5 @@
-// The app's audio context: 48 kHz (see below) and a short lookAhead, set
-// up once when the engine module first loads.
+// The app's audio context: 48 kHz, and how far ahead the transport
+// schedules (see below), set up once when the engine module first loads.
 
 import * as Tone from "tone";
 import { AudioContext as StdAudioContext } from "standardized-audio-context";
@@ -7,15 +7,18 @@ import { AudioContext as StdAudioContext } from "standardized-audio-context";
 /** The rate the app asks the browser to run audio at (see below). */
 export const PREFERRED_SAMPLE_RATE = 48000;
 
-// Every live-triggered note (a keyboard/MIDI-controller key, a drum pad)
-// goes out via Tone.now(), which Tone.js defines as `currentTime +
-// context.lookAhead` - a deliberate scheduling safety margin meant for
-// Transport-driven playback, not live input. Its 100ms default was the
-// actual source of the noticeable keypress-to-sound delay (not a bug in
-// how notes are triggered here - they already go out immediately, via
-// Tone.now(), with no debounce/setTimeout in the way). Trimming it to
-// 10ms keeps enough margin that sequenced clip/automation playback still
-// schedules safely, while cutting live playing latency by ~90ms.
+/** How far ahead (s) the transport schedules clips' notes and automation.
+ * Its clock wakes every SCHEDULE_TICK on the page's main thread and queues
+ * what falls within this window, so a note is handed to the audio thread
+ * 45-60 ms before it's due: the page can be busy that long (a redraw, a
+ * project loading) without a note coming late. Live playing doesn't wait
+ * for it - keys, pads and MIDI input play at the audio clock's current
+ * time (Tone.immediate()) - but knob, fader and mute changes land this far
+ * ahead (Tone's params change at Tone.now()). */
+export const SCHEDULE_AHEAD = 0.06;
+/** How often the transport's clock queues the next notes (s). */
+const SCHEDULE_TICK = 0.015;
+
 if (typeof window !== "undefined") {
   // Amp models (NAM) are trained at 48 kHz and the engine runs them at the
   // context's rate without resampling - at 44.1 kHz a model's tone shifts
@@ -41,5 +44,9 @@ if (typeof window !== "undefined") {
       // A browser that can't run at that rate keeps its default context.
     }
   }
-  Tone.getContext().lookAhead = 0.01;
+  // Setting lookAhead also sets the clock's tick (to half of it): set the
+  // tick after.
+  const context = Tone.getContext() as Tone.Context;
+  context.lookAhead = SCHEDULE_AHEAD;
+  context.updateInterval = SCHEDULE_TICK;
 }

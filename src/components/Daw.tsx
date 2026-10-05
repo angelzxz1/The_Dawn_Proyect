@@ -45,6 +45,8 @@ import { Playhead } from "./Playhead";
 import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
 import { NoteInputWindow } from "./NoteInputWindow";
+import { EffectWindow } from "./daw/EffectWindow";
+import { effectActions } from "@/state/effectActions";
 import { DrumPads } from "./DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "./LoopBar";
 import { DrumRackWindow } from "./DrumRackWindow";
@@ -54,28 +56,8 @@ import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FxRack } from "./FxRack";
 import { SynthWindow } from "./SynthWindow";
-import { EQThreeWindow } from "./EQThreeWindow";
-import { CompressorWindow } from "./CompressorWindow";
-import { DelayWindow } from "./DelayWindow";
-import { ReverbWindow } from "./ReverbWindow";
-import { LimiterWindow } from "./LimiterWindow";
-import { FilterWindow } from "./FilterWindow";
-import { ChorusWindow } from "./ChorusWindow";
-import { PitchShiftWindow } from "./PitchShiftWindow";
-import { DistortionWindow } from "./DistortionWindow";
-import { IrLoaderWindow } from "./IrLoaderWindow";
-import { NamAmpWindow } from "./NamAmpWindow";
-import { GateWindow } from "./GateWindow";
-import { GlueWindow } from "./GlueWindow";
-import { MbDynamicsWindow } from "./MbDynamicsWindow";
 import type { SidechainSource } from "./SidechainPanel";
-import { EffectPresetContext, type PresetChange } from "./PresetMenu";
-import { findPreset, paramsFromPreset } from "@/lib/presets";
-import { SIDECHAIN_TAP_LABELS, type SidechainRouting } from "@/lib/sidechainModel";
-import { ParamEqWindow } from "./ParamEqWindow";
-import { MultibandWindow } from "./MultibandWindow";
-import { UtilityWindow } from "./UtilityWindow";
-import { TunerWindow } from "./TunerWindow";
+import { SIDECHAIN_TAP_LABELS } from "@/lib/sidechainModel";
 import { AudioStatus } from "./AudioStatus";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
@@ -91,6 +73,9 @@ import { canMoveTrack, groupTracks, hiddenByFoldedGroups, inputSources, MASTER_O
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile, type DecodedAudioClip } from "@/lib/audioFile";
 import { hydrateEngine, notesWithinClip, type ProjectState } from "@/lib/project";
+import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
+import { audioBlobs } from "@/state/audioBlobs";
+import { bumpIdFrom, createChannel, newAutomationLaneId, newBusId, newClipId } from "@/state/ids";
 import { loadProject, saveProject } from "@/lib/persistence";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
@@ -145,26 +130,10 @@ import { openFeedback, PostExportNote } from "./SupportViews";
 import { shouldAskAfterExport, supportLinks } from "@/lib/support";
 import { LATEST_VERSION } from "@/content/whatsNew";
 import type { ProjectTemplate } from "@/lib/templates";
-import type { EffectChain } from "@/lib/chains";
 import { grooveBeats, grooveById, grooveHits, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
-import {
-  EFFECT_LABELS,
-  automatableParamSpecs,
-  paramSpecs,
-  type EffectFileRef,
-  type EffectInstance,
-  type EffectType,
-} from "@/lib/effects";
-import {
-  discardEffectFile,
-  effectFileBlob,
-  importAudioEffectFile,
-  importNamModelFile,
-  referencedEffectFiles,
-  registerEffectFile,
-} from "@/lib/effectFiles";
-import { MAX_IR_SECONDS } from "@/lib/irModel";
+import { EFFECT_LABELS, automatableParamSpecs, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
+import { effectFileBlob, referencedEffectFiles, registerEffectFile } from "@/lib/effectFiles";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
@@ -188,7 +157,6 @@ import type {
   AutomationLane,
   AutomationPoint,
   AutomationTarget,
-  BusConfig,
   ChannelConfig,
   ChannelType,
   ClipInstance,
@@ -280,10 +248,6 @@ function isMidiClip(c: ClipInstance): c is MidiClipInstance {
   return c.kind === "midi";
 }
 
-function isAudioClip(c: ClipInstance): c is AudioClipInstance {
-  return c.kind === "audio";
-}
-
 /** Builds the engine's timing options from an audio clip's own fields -
  * shared by every call site that (re)schedules an audio clip's player, so
  * they can't drift out of sync with each other. */
@@ -296,51 +260,6 @@ function audioClipTiming(clip: AudioClipInstance): AudioClipTiming {
     fadeIn: clip.fadeIn,
     fadeOut: clip.fadeOut,
   };
-}
-
-let channelCounter = 0;
-function createChannel(name: string, type: ChannelType): ChannelConfig {
-  channelCounter += 1;
-  return {
-    id: `ch-${channelCounter}`,
-    name,
-    volume: 0,
-    pan: 0,
-    colorIndex: channelCounter - 1,
-    type,
-    instrument: null,
-    muted: false,
-    solo: false,
-    armed: false,
-  };
-}
-
-/** After restoring ids from a saved project, makes sure the next
- * auto-generated id (`ch-N` / `clip-N`) can't collide with a restored one. */
-function bumpCounterFromId(id: string, prefix: string): void {
-  const match = id.match(new RegExp(`^${prefix}-(\\d+)$`));
-  if (!match) return;
-  const n = parseInt(match[1], 10);
-  if (prefix === "ch") channelCounter = Math.max(channelCounter, n);
-  else if (prefix === "clip") clipIdCounter = Math.max(clipIdCounter, n);
-}
-
-let clipIdCounter = 0;
-function newClipId(): string {
-  clipIdCounter += 1;
-  return `clip-${clipIdCounter}`;
-}
-
-let busCounter = 0;
-function newBusId(): string {
-  busCounter += 1;
-  return `bus-${busCounter}`;
-}
-
-let automationLaneCounter = 0;
-function newAutomationLaneId(): string {
-  automationLaneCounter += 1;
-  return `auto-${automationLaneCounter}`;
 }
 
 /** A stable string key for an automation target, so two targets can be
@@ -365,18 +284,28 @@ function laneHint(channel: ChannelConfig, armed: boolean): string {
     : "Arm this track to play and record it, or right-click to add a clip";
 }
 
+// The document's setters (stable: they write to the project store).
+const setChannels = projectSetter("channels");
+const setClipsByChannel = projectSetter("clipsByChannel");
+const setChannelEffects = projectSetter("channelEffects");
+const setBuses = projectSetter("buses");
+const setBusEffects = projectSetter("busEffects");
+const setBpm = projectSetter("bpm");
+const setTimeSignature = projectSetter("timeSignature");
+const setMasterName = projectSetter("masterName");
+const setMasterVolume = projectSetter("masterVolume");
+const setMasterPan = projectSetter("masterPan");
+
 export function Daw() {
-  const [channels, setChannels] = useState<ChannelConfig[]>(() => [
-    createChannel("MIDI 1", "midi"),
-    createChannel("MIDI 2", "midi"),
-    createChannel("Audio 1", "audio"),
-  ]);
+  // The document lives in the project store (src/state/projectStore.ts),
+  // with its undo history.
+  const channels = useProjectValue("channels");
   // Every track can hold any number of independent clips, each its own box
   // on the timeline - not a single clip slot per track.
-  const [clipsByChannel, setClipsByChannel] = useState<Record<string, ClipInstance[]>>({});
-  const [channelEffects, setChannelEffects] = useState<Record<string, EffectInstance[]>>({});
-  const [buses, setBuses] = useState<BusConfig[]>([]);
-  const [busEffects, setBusEffects] = useState<Record<string, EffectInstance[]>>({});
+  const clipsByChannel = useProjectValue("clipsByChannel");
+  const channelEffects = useProjectValue("channelEffects");
+  const buses = useProjectValue("buses");
+  const busEffects = useProjectValue("busEffects");
   // Which track (or, exclusively, which bus) the persistent FX rack at the
   // bottom of the screen currently shows - defaults to the first channel so
   // the rack is never empty, matching Ableton's "always shows the selected
@@ -488,11 +417,8 @@ export function Daw() {
   const [editingClip, setEditingClip] = useState<{ channelId: string; clipId: string } | null>(
     null
   );
-  const [bpm, setBpm] = useState(120);
-  const [timeSignature, setTimeSignature] = useState<TimeSignature>({
-    numerator: 4,
-    denominator: 4,
-  });
+  const bpm = useProjectValue("bpm");
+  const timeSignature = useProjectValue("timeSignature");
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
   const [transportState, setTransportState] = useState<TransportState>(
     "stopped"
@@ -504,13 +430,13 @@ export function Daw() {
     scale: "Major",
     enabled: false,
   });
-  const [masterName, setMasterName] = useState("Master");
+  const masterName = useProjectValue("masterName");
   const [editingMasterName, setEditingMasterName] = useState(false);
   const [masterNameDraft, setMasterNameDraft] = useState("Master");
-  const [masterVolume, setMasterVolume] = useState(0);
-  const [masterPan, setMasterPan] = useState(0);
+  const masterVolume = useProjectValue("masterVolume");
+  const masterPan = useProjectValue("masterPan");
   const [masterLimiterThreshold, setMasterLimiterThreshold] = useState(-1);
-  const [masterEffects, setMasterEffects] = useState<EffectInstance[]>([]);
+  const masterEffects = useProjectValue("masterEffects");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   // --- Snap-to-grid, loop region, count-in ---
@@ -525,17 +451,8 @@ export function Daw() {
   const [playFromSeconds, setPlayFromSeconds] = useState(0);
   const [countInBars, setCountInBars] = useState(0);
 
-  // --- Undo/redo: a stack of full-project snapshots. Refs (not state) so
-  // pushing doesn't itself trigger a re-render - `historyTick` is bumped
-  // separately just to refresh the undo/redo buttons' enabled state. ---
-  const historyPast = useRef<ProjectState[]>([]);
-  const historyFuture = useRef<ProjectState[]>([]);
-  // Bumped after every push/undo/redo purely to trigger a re-render so the
-  // undo/redo buttons' disabled state (read from the refs above) refreshes.
-  const [, setHistoryTick] = useState(0);
 
   // --- Save/load ---
-  const audioBlobsRef = useRef(new Map<string, Blob>());
   const projectLoadedRef = useRef(false);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   // Set when the last saved project couldn't be opened and the studio
@@ -598,117 +515,31 @@ export function Daw() {
   const registeredChannelIds = useRef(new Set<string>());
   const registeredBusIds = useRef(new Set<string>());
 
-  // --- Undo/redo -------------------------------------------------------
-  // A snapshot covers the "document" - channels/clips/effects/tempo/master
-  // - not transport or view state like the playhead, zoom, or selection,
-  // matching what a DAW's undo stack usually covers. `liveProjectRef` is
-  // refreshed every render so `pushHistory` (called from inside other
-  // handlers, some with narrower dependency arrays) always snapshots the
-  // truly current state rather than a stale closure.
-  const liveProjectRef = useRef<ProjectState>({
-    channels,
-    clipsByChannel,
-    channelEffects,
-    buses,
-    busEffects,
-    bpm,
-    timeSignature,
-    masterVolume,
-    masterPan,
-    masterName,
-    masterEffects,
-  });
-  liveProjectRef.current = {
-    channels,
-    clipsByChannel,
-    channelEffects,
-    buses,
-    busEffects,
-    bpm,
-    timeSignature,
-    masterVolume,
-    masterPan,
-    masterName,
-    masterEffects,
-  };
+  // --- Undo/redo (the project store keeps the steps) ---
 
-  const MAX_HISTORY = 100;
+  /** Records the document as it is now as an undo step - call at the very
+   * top of a handler, before changing anything, or right as a drag gesture
+   * starts, so the step is genuinely the "before". */
+  const pushHistory = useCallback(() => projectStore.push(), []);
 
-  /** Releases an audio clip's blob/object-URL for good - only safe to call
-   * once nothing in the live document or the undo/redo stacks can still
-   * reference it (see `pushHistory` below). Deleting a clip must NOT call
-   * this directly: undo has to bring the actual audio back, not just the
-   * clip's visual box, so the blob has to outlive the delete until the
-   * snapshot that could restore it is itself gone for good. */
-  const releaseOrphanedAudioBlobs = useCallback((discarded: ProjectState[]) => {
-    if (discarded.length === 0) return;
-    const reachable = new Set<string>();
-    const collectReachable = (s: ProjectState) =>
-      Object.values(s.clipsByChannel).forEach((clips) =>
-        clips.forEach((c) => {
-          if (c.kind === "audio") reachable.add(c.id);
-        })
-      );
-    collectReachable(liveProjectRef.current);
-    historyPast.current.forEach(collectReachable);
-    historyFuture.current.forEach(collectReachable);
-    discarded.forEach((s) =>
-      Object.values(s.clipsByChannel).forEach((clips) =>
-        clips.forEach((c) => {
-          if (c.kind === "audio" && !reachable.has(c.id)) {
-            URL.revokeObjectURL(c.url);
-            audioBlobsRef.current.delete(c.id);
-          }
-        })
-      )
-    );
-  }, []);
-
-  /** Pushes the CURRENT (pre-mutation) state onto the undo stack - call at
-   * the very top of a handler, before any setState, or right as a drag
-   * gesture starts, so the captured snapshot is genuinely "before". */
-  const pushHistory = useCallback(() => {
-    historyPast.current.push(liveProjectRef.current);
-    const evicted: ProjectState[] =
-      historyPast.current.length > MAX_HISTORY ? [historyPast.current.shift()!] : [];
-    const discardedFuture = historyFuture.current;
-    historyFuture.current = [];
-    releaseOrphanedAudioBlobs([...evicted, ...discardedFuture]);
-    setHistoryTick((t) => t + 1);
-  }, [releaseOrphanedAudioBlobs]);
-
-  const applySnapshot = useCallback((s: ProjectState) => {
-    setChannels(s.channels);
-    setClipsByChannel(s.clipsByChannel);
-    setChannelEffects(s.channelEffects);
-    setBuses(s.buses);
-    setBusEffects(s.busEffects);
-    setBpm(s.bpm);
-    setTimeSignature(s.timeSignature);
-    setMasterVolume(s.masterVolume);
-    setMasterPan(s.masterPan);
-    setMasterName(s.masterName);
-    setMasterEffects(s.masterEffects);
+  /** After undo/redo replaced the document: the view lets go of what may
+   * be gone, and the engine is rebuilt from it. */
+  const afterRestore = useCallback((s: ProjectState) => {
     setSelectedClipIds(new Set());
     setEditingClip(null);
     hydrateEngine(s, registeredChannelIds.current);
   }, []);
 
   const undo = useCallback(() => {
-    if (historyPast.current.length === 0) return;
-    const prev = historyPast.current.pop()!;
-    historyFuture.current.push(liveProjectRef.current);
-    applySnapshot(prev);
-    setHistoryTick((t) => t + 1);
-  }, [applySnapshot]);
+    const restored = projectStore.undo();
+    if (restored) afterRestore(restored);
+  }, [afterRestore]);
 
   const redo = useCallback(() => {
-    if (historyFuture.current.length === 0) return;
-    const next = historyFuture.current.pop()!;
-    historyPast.current.push(liveProjectRef.current);
-    applySnapshot(next);
-    setHistoryTick((t) => t + 1);
-  }, [applySnapshot]);
+    const restored = projectStore.redo();
+    if (restored) afterRestore(restored);
+  }, [afterRestore]);
+  const { canUndo, canRedo } = useHistoryState();
 
   const clipsOf = useCallback(
     (channelId: string): ClipInstance[] => clipsByChannel[channelId] ?? [],
@@ -788,7 +619,7 @@ export function Daw() {
         gainDb: extra?.gainDb ?? 0,
         loopLength: extra?.loopLength ?? null,
       };
-      audioBlobsRef.current.set(clip.id, sourceBlob);
+      audioBlobs.set(clip.id, sourceBlob);
       setClipsByChannel((prev) => ({ ...prev, [channelId]: [...clipsOf(channelId), clip] }));
       audioEngine.loadAudioClip(channelId, clip.id, decoded.url, audioClipTiming(clip), clip.gainDb);
       return clip.id;
@@ -843,8 +674,8 @@ export function Daw() {
         newlySelected.add(id);
         if (c.kind === "audio") {
           const dup: AudioClipInstance = { ...c, id, offset: dupOffset };
-          const blob = audioBlobsRef.current.get(c.id);
-          if (blob) audioBlobsRef.current.set(id, blob);
+          const blob = audioBlobs.get(c.id);
+          if (blob) audioBlobs.set(id, blob);
           audioEngine.loadAudioClip(chId, id, dup.url, audioClipTiming(dup), dup.gainDb);
           return dup;
         }
@@ -896,10 +727,10 @@ export function Daw() {
           fadeIn: 0,
           loopLength: null,
         };
-        const blob = audioBlobsRef.current.get(clip.id);
+        const blob = audioBlobs.get(clip.id);
         if (blob) {
-          audioBlobsRef.current.set(firstId, blob);
-          audioBlobsRef.current.set(secondId, blob);
+          audioBlobs.set(firstId, blob);
+          audioBlobs.set(secondId, blob);
         }
         audioEngine.loadAudioClip(channelId, firstId, clip.url, audioClipTiming(firstAudio), firstAudio.gainDb);
         audioEngine.loadAudioClip(channelId, secondId, clip.url, audioClipTiming(secondAudio), secondAudio.gainDb);
@@ -926,7 +757,7 @@ export function Daw() {
       setClipsByChannel((prev) => ({ ...prev, [channelId]: updated }));
       if (clip.kind === "audio") {
         audioEngine.removeAudioClip(channelId, clipId);
-        audioBlobsRef.current.delete(clip.id);
+        audioBlobs.delete(clip.id);
       } else {
         rebuildMidiPart(channelId, updated.filter(isMidiClip));
       }
@@ -1939,7 +1770,7 @@ export function Daw() {
       pushHistory();
       if (copied.kind === "audio") {
         const blob = await fetch(copied.url).then((r) => r.blob());
-        audioBlobsRef.current.set(clipId, blob);
+        audioBlobs.set(clipId, blob);
         const updatedClip: AudioClipInstance = {
           id: clipId,
           kind: "audio",
@@ -2036,162 +1867,6 @@ export function Daw() {
     setAutomationTarget({ kind: "volume" });
   }, []);
 
-  /** A newly added effect with a preset loaded into it (as is, if there's
-   * no such preset). */
-  const withPreset = useCallback(
-    (hostId: string, created: EffectInstance, presetId: string | undefined): EffectInstance => {
-      const preset = findPreset(presetId);
-      if (!preset || preset.type !== created.type) return created;
-      const params = paramsFromPreset(preset, created.params, bpm);
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== created.params[key]) audioEngine.setEffectParam(hostId, created.id, key, value);
-      });
-      return { ...created, params, preset: { id: preset.id, name: preset.name } };
-    },
-    [bpm]
-  );
-
-  /** Loads a preset into an effect on a track, a bus or the master (or
-   * marks the one it was saved as) - one undo step. */
-  const handleEffectPresetChange = useCallback(
-    (hostId: string, effectId: string, change: PresetChange) => {
-      const project = liveProjectRef.current;
-      const list = hostId === "master" ? project.masterEffects : project.channelEffects[hostId] ?? project.busEffects[hostId] ?? [];
-      const effect = list.find((e) => e.id === effectId);
-      if (!effect) return;
-      pushHistory();
-      Object.entries(change.params).forEach(([key, value]) => {
-        if (value !== effect.params[key]) audioEngine.setEffectParam(hostId, effectId, key, value);
-      });
-      const update = (effects: EffectInstance[]) =>
-        effects.map((e) => {
-          if (e.id !== effectId) return e;
-          const next: EffectInstance = { ...e, params: { ...change.params } };
-          if (change.preset) next.preset = change.preset;
-          else delete next.preset;
-          return next;
-        });
-      if (hostId === "master") setMasterEffects(update);
-      else if (project.channels.some((c) => c.id === hostId)) setChannelEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
-      else setBusEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
-    },
-    [pushHistory]
-  );
-
-  const handleAddEffect = useCallback(
-    (type: EffectType, atIndex?: number, presetId?: string) => {
-      if (!fxChannelId) return;
-      pushHistory();
-      const added = audioEngine.addEffect(fxChannelId, type, undefined, atIndex);
-      const created = added && withPreset(fxChannelId, added, presetId);
-      if (created) {
-        setChannelEffects((prev) => {
-          const list = [...(prev[fxChannelId] ?? [])];
-          if (atIndex !== undefined && atIndex >= 0 && atIndex <= list.length) {
-            list.splice(atIndex, 0, created);
-          } else {
-            list.push(created);
-          }
-          return { ...prev, [fxChannelId]: list };
-        });
-      }
-    },
-    [fxChannelId, pushHistory, withPreset]
-  );
-
-  /** Adds a ready-made chain (see chains.ts) to the end of the selected
-   * track's effects, as one undo step. */
-  const handleAddChain = useCallback(
-    (chain: EffectChain) => {
-      const hostId = fxChannelId;
-      if (!hostId) return;
-      pushHistory();
-      const added: EffectInstance[] = [];
-      chain.steps.forEach((step) => {
-        const fx = audioEngine.addEffect(hostId, step.type);
-        if (!fx) return;
-        let created = withPreset(hostId, fx, step.preset);
-        if (step.params) {
-          Object.entries(step.params).forEach(([key, value]) => audioEngine.setEffectParam(hostId, created.id, key, value));
-          created = { ...created, params: { ...created.params, ...step.params } };
-        }
-        if (step.file) {
-          created = { ...created, file: step.file };
-          void audioEngine.setEffectFile(hostId, created.id, step.file.id);
-        }
-        added.push(created);
-      });
-      setChannelEffects((prev) => ({ ...prev, [hostId]: [...(prev[hostId] ?? []), ...added] }));
-    },
-    [fxChannelId, pushHistory, withPreset]
-  );
-
-  const handleRemoveEffect = useCallback(
-    (effectId: string) => {
-      if (!fxChannelId) return;
-      pushHistory();
-      audioEngine.removeEffect(fxChannelId, effectId);
-      setChannelEffects((prev) => ({
-        ...prev,
-        [fxChannelId]: (prev[fxChannelId] ?? []).filter((e) => e.id !== effectId),
-      }));
-    },
-    [fxChannelId, pushHistory]
-  );
-
-  /** Moves an existing effect to an absolute position in the chain - what
-   * dragging a device card to a new slot in the FX rack calls. */
-  const handleMoveEffect = useCallback(
-    (effectId: string, toIndex: number) => {
-      if (!fxChannelId) return;
-      pushHistory();
-      audioEngine.moveEffect(fxChannelId, effectId, toIndex);
-      setChannelEffects((prev) => {
-        const list = [...(prev[fxChannelId] ?? [])];
-        const idx = list.findIndex((e) => e.id === effectId);
-        if (idx === -1) return prev;
-        const [entry] = list.splice(idx, 1);
-        const clamped = Math.max(0, Math.min(list.length, toIndex));
-        list.splice(clamped, 0, entry);
-        return { ...prev, [fxChannelId]: list };
-      });
-    },
-    [fxChannelId, pushHistory]
-  );
-
-  const handleEffectParamChange = useCallback(
-    (effectId: string, key: string, value: number) => {
-      if (!fxChannelId) return;
-      audioEngine.setEffectParam(fxChannelId, effectId, key, value);
-      setChannelEffects((prev) => ({
-        ...prev,
-        [fxChannelId]: (prev[fxChannelId] ?? []).map((e) =>
-          e.id === effectId ? { ...e, params: { ...e.params, [key]: value } } : e
-        ),
-      }));
-    },
-    [fxChannelId]
-  );
-
-  const handleEffectBypassToggle = useCallback(
-    (effectId: string) => {
-      if (!fxChannelId) return;
-      pushHistory();
-      setChannelEffects((prev) => {
-        const list = prev[fxChannelId] ?? [];
-        const effect = list.find((e) => e.id === effectId);
-        if (!effect) return prev;
-        const bypass = !effect.bypass;
-        audioEngine.setEffectBypass(fxChannelId, effectId, bypass);
-        return {
-          ...prev,
-          [fxChannelId]: list.map((e) => (e.id === effectId ? { ...e, bypass } : e)),
-        };
-      });
-    },
-    [fxChannelId, pushHistory]
-  );
-
   const handleDrumKitChange = useCallback(
     (kit: DrumKitParams) => {
       if (!fxChannelId) return;
@@ -2280,238 +1955,17 @@ export function Daw() {
     setFxBusId(null);
   }, []);
 
-  const handleBusAddEffect = useCallback(
-    (type: EffectType, atIndex?: number, presetId?: string) => {
-      if (!fxBusId) return;
-      pushHistory();
-      const added = audioEngine.addEffect(fxBusId, type, undefined, atIndex);
-      const created = added && withPreset(fxBusId, added, presetId);
-      if (created) {
-        setBusEffects((prev) => {
-          const list = [...(prev[fxBusId] ?? [])];
-          if (atIndex !== undefined && atIndex >= 0 && atIndex <= list.length) {
-            list.splice(atIndex, 0, created);
-          } else {
-            list.push(created);
-          }
-          return { ...prev, [fxBusId]: list };
-        });
-      }
-    },
-    [fxBusId, pushHistory, withPreset]
-  );
-
-  const handleBusRemoveEffect = useCallback(
-    (effectId: string) => {
-      if (!fxBusId) return;
-      pushHistory();
-      audioEngine.removeEffect(fxBusId, effectId);
-      setBusEffects((prev) => ({
-        ...prev,
-        [fxBusId]: (prev[fxBusId] ?? []).filter((e) => e.id !== effectId),
-      }));
-    },
-    [fxBusId, pushHistory]
-  );
-
-  const handleBusMoveEffect = useCallback(
-    (effectId: string, toIndex: number) => {
-      if (!fxBusId) return;
-      pushHistory();
-      audioEngine.moveEffect(fxBusId, effectId, toIndex);
-      setBusEffects((prev) => {
-        const list = [...(prev[fxBusId] ?? [])];
-        const idx = list.findIndex((e) => e.id === effectId);
-        if (idx === -1) return prev;
-        const [entry] = list.splice(idx, 1);
-        const clamped = Math.max(0, Math.min(list.length, toIndex));
-        list.splice(clamped, 0, entry);
-        return { ...prev, [fxBusId]: list };
-      });
-    },
-    [fxBusId, pushHistory]
-  );
-
-  const handleBusEffectParamChange = useCallback(
-    (effectId: string, key: string, value: number) => {
-      if (!fxBusId) return;
-      audioEngine.setEffectParam(fxBusId, effectId, key, value);
-      setBusEffects((prev) => ({
-        ...prev,
-        [fxBusId]: (prev[fxBusId] ?? []).map((e) =>
-          e.id === effectId ? { ...e, params: { ...e.params, [key]: value } } : e
-        ),
-      }));
-    },
-    [fxBusId]
-  );
-
-  const handleBusEffectBypassToggle = useCallback(
-    (effectId: string) => {
-      if (!fxBusId) return;
-      pushHistory();
-      setBusEffects((prev) => {
-        const list = prev[fxBusId] ?? [];
-        const effect = list.find((e) => e.id === effectId);
-        if (!effect) return prev;
-        const bypass = !effect.bypass;
-        audioEngine.setEffectBypass(fxBusId, effectId, bypass);
-        return {
-          ...prev,
-          [fxBusId]: list.map((e) => (e.id === effectId ? { ...e, bypass } : e)),
-        };
-      });
-    },
-    [fxBusId, pushHistory]
-  );
-
   // --- Master bus effects chain ---
-
-  const handleMasterAddEffect = useCallback(
-    (type: EffectType, atIndex?: number, presetId?: string) => {
-      pushHistory();
-      const added = audioEngine.addEffect("master", type, undefined, atIndex);
-      const created = added && withPreset("master", added, presetId);
-      if (created) {
-        setMasterEffects((prev) => {
-          const list = [...prev];
-          if (atIndex !== undefined && atIndex >= 0 && atIndex <= list.length) {
-            list.splice(atIndex, 0, created);
-          } else {
-            list.push(created);
-          }
-          return list;
-        });
-      }
-    },
-    [pushHistory, withPreset]
-  );
-
-  const handleMasterRemoveEffect = useCallback(
-    (effectId: string) => {
-      pushHistory();
-      audioEngine.removeEffect("master", effectId);
-      setMasterEffects((prev) => prev.filter((e) => e.id !== effectId));
-    },
-    [pushHistory]
-  );
-
-  const handleMasterMoveEffect = useCallback(
-    (effectId: string, toIndex: number) => {
-      pushHistory();
-      audioEngine.moveEffect("master", effectId, toIndex);
-      setMasterEffects((prev) => {
-        const list = [...prev];
-        const idx = list.findIndex((e) => e.id === effectId);
-        if (idx === -1) return prev;
-        const [entry] = list.splice(idx, 1);
-        const clamped = Math.max(0, Math.min(list.length, toIndex));
-        list.splice(clamped, 0, entry);
-        return list;
-      });
-    },
-    [pushHistory]
-  );
-
-  const handleMasterEffectParamChange = useCallback((effectId: string, key: string, value: number) => {
-    audioEngine.setEffectParam("master", effectId, key, value);
-    setMasterEffects((prev) =>
-      prev.map((e) => (e.id === effectId ? { ...e, params: { ...e.params, [key]: value } } : e))
-    );
-  }, []);
-
-  const handleMasterEffectBypassToggle = useCallback(
-    (effectId: string) => {
-      pushHistory();
-      setMasterEffects((prev) => {
-        const effect = prev.find((e) => e.id === effectId);
-        if (!effect) return prev;
-        const bypass = !effect.bypass;
-        audioEngine.setEffectBypass("master", effectId, bypass);
-        return prev.map((e) => (e.id === effectId ? { ...e, bypass } : e));
-      });
-    },
-    [pushHistory]
-  );
-
-  const setEffectFile = useCallback(
-    (hostId: string, effectId: string, file: EffectFileRef | null) => {
-      pushHistory();
-      const update = (list: EffectInstance[]) =>
-        list.map((e) => {
-          if (e.id !== effectId) return e;
-          const next = { ...e };
-          if (file) next.file = file;
-          else delete next.file;
-          return next;
-        });
-      if (hostId === "master") setMasterEffects(update);
-      else if (liveProjectRef.current.channels.some((c) => c.id === hostId))
-        setChannelEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
-      else setBusEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
-      void audioEngine.setEffectFile(hostId, effectId, file?.id ?? null);
-    },
-    [pushHistory]
-  );
-
-  /** Sets where a dynamics effect on a track, a bus or the master listens
-   * (its sidechain). */
-  const setEffectSidechain = useCallback(
-    (hostId: string, effectId: string, routing: SidechainRouting) => {
-      pushHistory();
-      const update = (list: EffectInstance[]) => list.map((e) => (e.id === effectId ? { ...e, sidechain: routing } : e));
-      if (hostId === "master") setMasterEffects(update);
-      else if (liveProjectRef.current.channels.some((c) => c.id === hostId))
-        setChannelEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
-      else setBusEffects((prev) => ({ ...prev, [hostId]: update(prev[hostId] ?? []) }));
-      audioEngine.setEffectSidechain(hostId, effectId, routing);
-    },
-    [pushHistory]
-  );
-
-  /** Loads an uploaded file (an IR) into a file-based effect on a track, a
-   * bus or the master bus. Resolves with an error message if the file can't
-   * be used, leaving the effect unchanged. */
-  const handleLoadEffectFile = useCallback(
-    async (hostId: string, effectId: string, file: File): Promise<string | null> => {
-      const project = liveProjectRef.current;
-      const effects =
-        hostId === "master" ? project.masterEffects : project.channelEffects[hostId] ?? project.busEffects[hostId] ?? [];
-      const effect = effects.find((e) => e.id === effectId);
-      if (effect?.type === "namAmp") {
-        // The engine is the real judge of a model file, so it's loaded there
-        // first; only a model that loads becomes part of the project.
-        const result = await importNamModelFile(file);
-        if ("error" in result) return result.error;
-        const error = await audioEngine.setEffectFile(hostId, effectId, result.ref.id);
-        if (error) {
-          discardEffectFile(result.ref.id);
-          void audioEngine.setEffectFile(hostId, effectId, effect.file?.id ?? null);
-          return `Couldn't load "${file.name}": ${error}`;
-        }
-        setEffectFile(hostId, effectId, result.ref);
-        track("nam_model_loaded", { via: "file" });
-        return null;
-      }
-      const result = await importAudioEffectFile(file, audioEngine.sampleRate, MAX_IR_SECONDS);
-      if ("error" in result) return result.error;
-      setEffectFile(hostId, effectId, result.ref);
-      track("ir_loaded", { via: "file" });
-      return null;
-    },
-    [setEffectFile]
-  );
 
   /** Adds an effect (from the EffectBrowser sidebar, dragged or clicked) to
    * whichever target - a track, a bus, or the master bus - the FX rack
    * currently shows. */
   const handleSidebarAddEffect = useCallback(
     (type: EffectType, presetId?: string) => {
-      if (fxMasterOpen) handleMasterAddEffect(type, undefined, presetId);
-      else if (fxBusId) handleBusAddEffect(type, undefined, presetId);
-      else handleAddEffect(type, undefined, presetId);
+      const hostId = fxMasterOpen ? "master" : fxBusId ?? fxChannelId;
+      if (hostId) effectActions.add(hostId, type, undefined, presetId);
     },
-    [fxMasterOpen, fxBusId, handleMasterAddEffect, handleBusAddEffect, handleAddEffect]
+    [fxMasterOpen, fxBusId, fxChannelId]
   );
 
   // --- Automation lanes ---
@@ -2951,7 +2405,7 @@ export function Daw() {
     setSaveStatus("saving");
     try {
       // Audio clips plus every uploaded effect file (IRs) still in use.
-      const blobsToSave = new Map(audioBlobsRef.current);
+      const blobsToSave = audioBlobs.snapshot();
       referencedEffectFiles([...Object.values(channelEffects), ...Object.values(busEffects), masterEffects], channels).forEach(
         (ref) => {
           const blob = effectFileBlob(ref.id);
@@ -2975,11 +2429,10 @@ export function Daw() {
     const oldUrls = new Set<string>();
     const collectUrls = (st: ProjectState) =>
       Object.values(st.clipsByChannel).forEach((l) => l.forEach((c) => c.kind === "audio" && c.url && oldUrls.add(c.url)));
-    collectUrls(liveProjectRef.current);
-    historyPast.current.forEach(collectUrls);
-    historyFuture.current.forEach(collectUrls);
+    const steps = projectStore.allSteps();
+    [steps.doc, ...steps.past, ...steps.future].forEach(collectUrls);
     oldUrls.forEach((u) => URL.revokeObjectURL(u));
-    audioBlobsRef.current.clear();
+    audioBlobs.clear();
 
     // One playable URL per recording/imported file, shared by the song and
     // its history.
@@ -2991,25 +2444,19 @@ export function Daw() {
       if (!blob) return "";
       url = URL.createObjectURL(blob);
       urls.set(id, url);
-      audioBlobsRef.current.set(id, blob);
+      audioBlobs.set(id, blob);
       return url;
     };
     const snapshots: SerializedSnapshot[] = [project, ...(history?.past ?? []), ...(history?.future ?? [])];
     // New ids must never collide with restored ones.
     let maxEffectN = 0;
     snapshots.forEach((snap) => {
-      Object.values(snap.clipsByChannel).forEach((l) => l.forEach((c) => bumpCounterFromId(c.id, "clip")));
+      Object.values(snap.clipsByChannel).forEach((l) => l.forEach((c) => bumpIdFrom(c.id)));
       snap.channels.forEach((c) => {
-        bumpCounterFromId(c.id, "ch");
-        (c.automationLanes ?? []).forEach((lane) => {
-          const match = lane.id.match(/^auto-(\d+)$/);
-          if (match) automationLaneCounter = Math.max(automationLaneCounter, parseInt(match[1], 10));
-        });
+        bumpIdFrom(c.id);
+        (c.automationLanes ?? []).forEach((lane) => bumpIdFrom(lane.id));
       });
-      snap.buses.forEach((b) => {
-        const match = b.id.match(/^bus-(\d+)$/);
-        if (match) busCounter = Math.max(busCounter, parseInt(match[1], 10));
-      });
+      snap.buses.forEach((b) => bumpIdFrom(b.id));
       [...Object.values(snap.channelEffects).flat(), ...Object.values(snap.busEffects).flat(), ...snap.masterEffects].forEach((fx) => {
         const match = fx.id.match(/^fx-(\d+)$/);
         if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
@@ -3023,18 +2470,24 @@ export function Daw() {
 
     const toState = (snap: SerializedSnapshot): ProjectState => ({ ...snap, clipsByChannel: deserializeClips(snap.clipsByChannel, urlFor) });
     const state = toState(project);
-    setChannels(state.channels);
-    setClipsByChannel(state.clipsByChannel);
-    setChannelEffects(state.channelEffects);
-    setBuses(state.buses);
-    setBusEffects(state.busEffects);
-    setBpm(state.bpm);
-    setTimeSignature(state.timeSignature);
-    setMasterVolume(state.masterVolume);
-    setMasterPan(state.masterPan);
-    setMasterName(state.masterName);
+    projectStore.load(
+      {
+        channels: state.channels,
+        clipsByChannel: state.clipsByChannel,
+        channelEffects: state.channelEffects,
+        buses: state.buses,
+        busEffects: state.busEffects,
+        bpm: state.bpm,
+        timeSignature: state.timeSignature,
+        masterVolume: state.masterVolume,
+        masterPan: state.masterPan,
+        masterName: state.masterName,
+        masterEffects: state.masterEffects,
+      },
+      (history?.past ?? []).map(toState),
+      (history?.future ?? []).map(toState)
+    );
     setMasterLimiterThreshold(project.masterLimiterThreshold);
-    setMasterEffects(state.masterEffects);
     setScaleSetting(project.scaleSetting);
     setSnapResolution(project.snapResolution);
     setCountInBars(project.countInBars);
@@ -3048,9 +2501,6 @@ export function Daw() {
     setFxChannelId(state.channels[0]?.id ?? null);
     if (state.channels[0]) setSelectedChannelId(state.channels[0].id);
     hydrateEngine(state, registeredChannelIds.current);
-    historyPast.current = (history?.past ?? []).map(toState);
-    historyFuture.current = (history?.future ?? []).map(toState);
-    setHistoryTick((t) => t + 1);
     markCleanRef.current = true;
   }, []);
 
@@ -3144,12 +2594,12 @@ export function Daw() {
   const buildDocument = useCallback((): ProjectDocument => {
     const project = buildProject();
     const history: SavedHistory = {
-      past: historyPast.current.slice(-MAX_SAVED_HISTORY).map(serializeSnapshot),
-      future: historyFuture.current.slice(-MAX_SAVED_HISTORY).map(serializeSnapshot),
+      past: projectStore.allSteps().past.slice(-MAX_SAVED_HISTORY).map(serializeSnapshot),
+      future: projectStore.allSteps().future.slice(-MAX_SAVED_HISTORY).map(serializeSnapshot),
     };
     const clipIds = referencedClipIds({ project, history });
     const blobs = new Map<string, Blob>();
-    audioBlobsRef.current.forEach((blob, id) => clipIds.has(id) && blobs.set(id, blob));
+    audioBlobs.forEach((blob, id) => clipIds.has(id) && blobs.set(id, blob));
     const steps: SerializedSnapshot[] = [project, ...history.past, ...history.future];
     referencedEffectFiles(
       steps.flatMap((st) => [...Object.values(st.channelEffects), ...Object.values(st.busEffects), st.masterEffects]),
@@ -3369,7 +2819,6 @@ export function Daw() {
     return () => clearTimeout(timer);
   }, [persistNow]);
 
-  const selectedChannel = channels.find((c) => c.id === selectedChannelId);
   const editingChannel = channels.find((c) => c.id === editingClip?.channelId);
   const editingClipInstance = editingClip
     ? clipsOf(editingClip.channelId).find((c) => c.id === editingClip.clipId)
@@ -3471,7 +2920,7 @@ export function Daw() {
       )}
       <EffectBrowser
         onAddEffect={handleSidebarAddEffect}
-        onAddChain={fxChannel ? handleAddChain : undefined}
+        onAddChain={fxChannel ? (chain) => effectActions.addChain(fxChannel.id, chain) : undefined}
         grooves={
           <GrooveBrowser
             canAdd={fxChannel?.type === "midi"}
@@ -3594,7 +3043,7 @@ export function Daw() {
             <button
               type="button"
               onClick={undo}
-              disabled={historyPast.current.length === 0}
+              disabled={!canUndo}
               title="Undo (Ctrl/Cmd+Z)"
               className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
             >
@@ -3603,7 +3052,7 @@ export function Daw() {
             <button
               type="button"
               onClick={redo}
-              disabled={historyFuture.current.length === 0}
+              disabled={!canRedo}
               title="Redo (Ctrl/Cmd+Shift+Z)"
               className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
             >
@@ -4221,7 +3670,7 @@ export function Daw() {
           channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
           hostId={fxHostId}
           sidechainSources={sidechainSources}
-          onPresetChange={(effectId, change) => handleEffectPresetChange(fxHostId, effectId, change)}
+          onPresetChange={(effectId, change) => effectActions.changePreset(fxHostId, effectId, change)}
           channelType={fxChannel?.type}
           color={fxChannel ? trackColorOf(fxChannel) : fxBus ? trackColorOf(fxBus) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
@@ -4236,15 +3685,15 @@ export function Daw() {
           onOpenSynthSettings={() => setSynthWindowOpen(true)}
           onSynthParamsChange={fxChannel ? handleSynthParamsChange : undefined}
           onSendChange={fxChannel ? handleSendChange : undefined}
-          onAddEffect={fxChannel ? handleAddEffect : fxBus ? handleBusAddEffect : handleMasterAddEffect}
-          onRemoveEffect={fxChannel ? handleRemoveEffect : fxBus ? handleBusRemoveEffect : handleMasterRemoveEffect}
-          onMoveEffect={fxChannel ? handleMoveEffect : fxBus ? handleBusMoveEffect : handleMasterMoveEffect}
-          onBypassToggle={fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle}
+          onAddEffect={(type, atIndex, presetId) => effectActions.add(fxHostId, type, atIndex, presetId)}
+          onRemoveEffect={(effectId) => effectActions.remove(fxHostId, effectId)}
+          onMoveEffect={(effectId, toIndex) => effectActions.move(fxHostId, effectId, toIndex)}
+          onBypassToggle={(effectId) => effectActions.toggleBypass(fxHostId, effectId)}
           onParamDragStart={pushHistory}
-          onParamChange={fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange}
+          onParamChange={(effectId, key, value) => effectActions.setParam(fxHostId, effectId, key, value)}
           onOpenEffectWindow={setExpandedEffectId}
-          onLoadEffectFile={(effectId, file) => handleLoadEffectFile(fxHostId, effectId, file)}
-          onClearEffectFile={(effectId) => setEffectFile(fxHostId, effectId, null)}
+          onLoadEffectFile={(effectId, file) => effectActions.loadFile(fxHostId, effectId, file)}
+          onClearEffectFile={(effectId) => effectActions.setFile(fxHostId, effectId, null)}
           inputOptions={fxChannel?.type === "audio" ? inputOptionsFor(fxChannel) : undefined}
           inputValue={fxChannel?.input?.track ?? ""}
           inputTap={fxChannel?.input?.tap ?? "postFx"}
@@ -4345,457 +3794,16 @@ export function Daw() {
         />
       )}
 
-      <EffectPresetContext.Provider
-        value={
-          expandedEffectId && expandedEffect
-            ? { effect: expandedEffect, bpm, onChange: (change) => handleEffectPresetChange(fxHostId, expandedEffectId, change) }
-            : null
-        }
-      >
-      {expandedEffectId && expandedEffect?.type === "eq3" && (
-        <EQThreeWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "compressor" && (
-        <CompressorWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+      {expandedEffectId && expandedEffect && (
+        <EffectWindow
           hostId={fxHostId}
-          effectId={expandedEffectId}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          sidechain={expandedEffect.sidechain}
-          sidechainSources={sidechainSources}
-          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
-        />
-      )}
-      {expandedEffectId && expandedEffect?.type === "glue" && (
-        <GlueWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          sidechain={expandedEffect.sidechain}
-          sidechainSources={sidechainSources}
-          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
-        />
-      )}
-      {expandedEffectId && expandedEffect?.type === "mbDynamics" && (
-        <MbDynamicsWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          sidechain={expandedEffect.sidechain}
-          sidechainSources={sidechainSources}
-          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "paramEq" && (
-        <ParamEqWindow
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "utility" && (
-        <UtilityWindow
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "tuner" && (
-        <TunerWindow
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "multiband" && (
-        <MultibandWindow
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          sidechain={expandedEffect.sidechain}
-          sidechainSources={sidechainSources}
-          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "gate" && (
-        <GateWindow
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          sidechain={expandedEffect.sidechain}
-          sidechainSources={sidechainSources}
-          onSidechainChange={(routing) => setEffectSidechain(fxHostId, expandedEffectId, routing)}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "namAmp" && (
-        <NamAmpWindow
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          file={expandedEffect.file}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
-          onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
-          onPickFile={(ref) => {
-            setEffectFile(fxHostId, expandedEffectId, ref);
-            track(expandedEffect.type === "namAmp" ? "nam_model_loaded" : "ir_loaded", { via: "browser" });
-          }}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "irLoader" && (
-        <IrLoaderWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          file={expandedEffect.file}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-          onLoadFile={(file) => handleLoadEffectFile(fxHostId, expandedEffectId, file)}
-          onClearFile={() => setEffectFile(fxHostId, expandedEffectId, null)}
-          onPickFile={(ref) => {
-            setEffectFile(fxHostId, expandedEffectId, ref);
-            track(expandedEffect.type === "namAmp" ? "nam_model_loaded" : "ir_loaded", { via: "browser" });
-          }}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "distortion" && (
-        <DistortionWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "pitchShift" && (
-        <PitchShiftWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "chorus" && (
-        <ChorusWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "filter" && (
-        <FilterWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "limiter" && (
-        <LimiterWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          hostId={fxHostId}
-          effectId={expandedEffectId}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "reverb" && (
-        <ReverbWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
-          onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
-        />
-      )}
-
-      {expandedEffectId && expandedEffect?.type === "delay" && (
-        <DelayWindow
-          channelName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          hostName={fxChannel?.name ?? fxBus?.name ?? masterName}
+          effect={expandedEffect}
           bpm={bpm}
-          params={expandedEffect.params}
-          bypass={!!expandedEffect.bypass}
-          onBypassToggle={() =>
-            (fxChannel ? handleEffectBypassToggle : fxBus ? handleBusEffectBypassToggle : handleMasterEffectBypassToggle)(
-              expandedEffectId
-            )
-          }
+          sidechainSources={sidechainSources}
           onClose={() => setExpandedEffectId(null)}
-          onParamChange={(key, v) =>
-            (fxChannel ? handleEffectParamChange : fxBus ? handleBusEffectParamChange : handleMasterEffectParamChange)(
-              expandedEffectId,
-              key,
-              v
-            )
-          }
-          onParamDragStart={pushHistory}
         />
       )}
-      </EffectPresetContext.Provider>
       </div>
     </div>
   );

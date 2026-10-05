@@ -12,8 +12,9 @@ import { groupTracks, moveTrack, setTrackGroup, ungroup } from "@/lib/routing";
 import { defaultSynthParams } from "@/lib/synth";
 import type { SynthParams } from "@/lib/synthParams";
 import { track } from "@/lib/telemetry";
-import type { ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/lib/types";
-import { createChannel } from "./ids";
+import { automationTargetKey } from "@/lib/automationTargets";
+import type { AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/lib/types";
+import { createChannel, newAutomationLaneId } from "./ids";
 import { projectStore } from "./projectStore";
 
 const channels = () => projectStore.get().channels;
@@ -181,6 +182,20 @@ export const trackActions = {
   setOutput(id: string, output: string | null): void {
     projectStore.push();
     updateTrack(id, (c) => (output ? { ...c, output } : without(c, "output")));
+  },
+
+  /** Sets the points of a track's automation lane for `target` (making
+   * the lane the first time). No undo step: that's taken as the drag starts. */
+  setAutomation(id: string, target: AutomationTarget, points: AutomationPoint[]): void {
+    const current = channels().find((c) => c.id === id);
+    if (!current) return;
+    const key = automationTargetKey(target);
+    const existing = current.automationLanes ?? [];
+    const lanes = existing.some((l) => automationTargetKey(l.target) === key)
+      ? existing.map((l) => (automationTargetKey(l.target) === key ? { ...l, points } : l))
+      : [...existing, { id: newAutomationLaneId(), target, points }];
+    audioEngine.setAutomation(id, lanes);
+    updateTrack(id, (c) => ({ ...c, automationLanes: lanes }));
   },
 
   // --- Folding (a view choice: no undo step) ---

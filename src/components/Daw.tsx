@@ -20,6 +20,7 @@ import { NoteInputWindow } from "./NoteInputWindow";
 import { EffectWindow } from "./daw/EffectWindow";
 import { MasterBusRow } from "./daw/MasterBusRow";
 import { RecoveryNotice } from "./daw/RecoveryNotice";
+import { automationCurrentValue, automationRange, automationTargetKey, automationTargetOptions } from "@/lib/automationTargets";
 import { contextMenuItems, type ContextMenuState } from "./daw/contextMenus";
 import { busActions } from "@/state/busActions";
 import { useProjectFiles } from "./daw/useProjectFiles";
@@ -51,7 +52,6 @@ import { canMoveTrack, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, output
 import { decodeAudioFile } from "@/lib/audioFile";
 import { hydrateEngine, type ProjectState } from "@/lib/project";
 import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
-import { newAutomationLaneId } from "@/state/ids";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
 import { TelemetrySwitch } from "./TelemetrySwitch";
@@ -73,7 +73,7 @@ import { shouldAskAfterExport, supportLinks } from "@/lib/support";
 import type { ProjectTemplate } from "@/lib/templates";
 import { grooveById, grooveHits, grooveKit, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
-import { EFFECT_LABELS, automatableParamSpecs, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
+import { type EffectType } from "@/lib/effects";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
@@ -92,7 +92,7 @@ import {
   snapUnitFor,
   type SnapResolution,
 } from "@/lib/timeline";
-import type { AutomationLane, AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/lib/types";
+import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/lib/types";
 
 type TransportState = "stopped" | "playing" | "paused" | "recording";
 
@@ -103,75 +103,9 @@ const PITCH_BEND_RANGE_SEMITONES = 2;
 
 const AUTOMATION_LANE_HEIGHT = 56;
 
-/** The value range and display format an automation target's curve should
- * be edited in - matches the same range each target's own live control
- * (the volume/pan ValueBars, or the effect's own param knob) uses. */
-function automationRange(
-  target: AutomationTarget,
-  channelEffects: EffectInstance[]
-): { min: number; max: number; format: (v: number) => string } {
-  if (target.kind === "volume") {
-    return { min: -60, max: 6, format: (v) => (v <= -60 ? "-∞" : `${v.toFixed(1)}dB`) };
-  }
-  if (target.kind === "pan") {
-    return {
-      min: -1,
-      max: 1,
-      format: (v) => (Math.abs(v) < 0.02 ? "C" : v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`),
-    };
-  }
-  const fx = channelEffects.find((e) => e.id === target.effectId);
-  const spec = fx && paramSpecs(fx.type).find((s) => s.key === target.paramKey);
-  if (spec) return { min: spec.min, max: spec.max, format: spec.format };
-  return { min: 0, max: 1, format: (v) => v.toFixed(2) };
-}
-
-/** An automation target's own live value right now - the channel's Vol/Pan
- * ValueBar, or the effect's own param - drawn as the lane's dashed
- * reference line. */
-function automationCurrentValue(
-  target: AutomationTarget,
-  channel: ChannelConfig,
-  channelEffects: EffectInstance[]
-): number {
-  if (target.kind === "volume") return channel.volume;
-  if (target.kind === "pan") return channel.pan;
-  const fx = channelEffects.find((e) => e.id === target.effectId);
-  return fx?.params[target.paramKey] ?? 0;
-}
-
-/** All targets a channel's automation dropdown can offer: its own
- * volume/pan, plus one entry per param of each of its active effects. */
-function automationTargetOptions(
-  channelEffects: EffectInstance[]
-): { target: AutomationTarget; label: string }[] {
-  const options: { target: AutomationTarget; label: string }[] = [
-    { target: { kind: "volume" }, label: "Volume" },
-    { target: { kind: "pan" }, label: "Pan" },
-  ];
-  channelEffects.forEach((fx) => {
-    automatableParamSpecs(fx).forEach((spec) => {
-      options.push({
-        target: { kind: "effect", effectId: fx.id, paramKey: spec.key },
-        label: `${EFFECT_LABELS[fx.type]}: ${spec.label}`,
-      });
-    });
-  });
-  return options;
-}
-
 function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
-}
-
-
-
-/** A stable string key for an automation target, so two targets can be
- * compared for equality (e.g. "does this channel already have a lane for
- * Pan?") without a deep-equal check. */
-function automationTargetKey(target: AutomationTarget): string {
-  return target.kind === "effect" ? `effect:${target.effectId}:${target.paramKey}` : target.kind;
 }
 
 /** What an empty track lane suggests doing. */
@@ -190,7 +124,6 @@ function laneHint(channel: ChannelConfig, armed: boolean): string {
 }
 
 // The document's setters (stable: they write to the project store).
-const setChannels = projectSetter("channels");
 const setClipsByChannel = projectSetter("clipsByChannel");
 const setBpm = projectSetter("bpm");
 const setTimeSignature = projectSetter("timeSignature");
@@ -1189,32 +1122,7 @@ export function Daw() {
 
   // --- Automation lanes ---
 
-  const setChannelAutomationLanes = useCallback(
-    (channelId: string, updater: (lanes: AutomationLane[]) => AutomationLane[]) => {
-      const current = channels.find((c) => c.id === channelId);
-      if (!current) return;
-      const lanes = updater(current.automationLanes ?? []);
-      audioEngine.setAutomation(channelId, lanes);
-      setChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, automationLanes: lanes } : c)));
-    },
-    [channels]
-  );
-
-  /** Gets (creating an empty one first if needed) the lane for a target. */
-  const handleAutomationPointsChange = useCallback(
-    (channelId: string, target: AutomationTarget, points: AutomationPoint[]) => {
-      setChannelAutomationLanes(channelId, (lanes) => {
-        const idx = lanes.findIndex((l) => automationTargetKey(l.target) === automationTargetKey(target));
-        if (idx === -1) {
-          return [...lanes, { id: newAutomationLaneId(), target, points }];
-        }
-        const next = [...lanes];
-        next[idx] = { ...next[idx], points };
-        return next;
-      });
-    },
-    [setChannelAutomationLanes]
-  );
+  const handleAutomationPointsChange = trackActions.setAutomation;
 
   // Space to play/pause, Ctrl/Cmd+C/V to copy/paste whatever's under the
   // playhead on the armed track, Delete/Backspace to remove the selected

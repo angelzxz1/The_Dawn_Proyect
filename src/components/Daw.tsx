@@ -46,6 +46,8 @@ import { TransportBar } from "./TransportBar";
 import { PianoKeyboard } from "./PianoKeyboard";
 import { NoteInputWindow } from "./NoteInputWindow";
 import { EffectWindow } from "./daw/EffectWindow";
+import { RecoveryNotice } from "./daw/RecoveryNotice";
+import { useProjectFiles } from "./daw/useProjectFiles";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
@@ -63,7 +65,7 @@ import { SIDECHAIN_TAP_LABELS } from "@/lib/sidechainModel";
 import { AudioStatus } from "./AudioStatus";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
-import { audioEngine, bumpEffectIdCounter } from "@/lib/audioEngine";
+import { audioEngine } from "@/lib/audioEngine";
 import { type DrumKitParams } from "@/lib/drumParams";
 import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/lib/arrangementLoop";
 import { downloadMidiFile, parseMidiFile } from "@/lib/midiFile";
@@ -75,66 +77,29 @@ import { getCopiedClip } from "@/lib/clipboard";
 import { decodeAudioFile } from "@/lib/audioFile";
 import { hydrateEngine, type ProjectState } from "@/lib/project";
 import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
-import { audioBlobs } from "@/state/audioBlobs";
-import { bumpIdFrom, newAutomationLaneId, newBusId } from "@/state/ids";
-import { loadProject, saveProject } from "@/lib/persistence";
+import { newAutomationLaneId, newBusId } from "@/state/ids";
 import { ProjectMenu } from "./ProjectMenu";
 import { AboutWindow, type AboutTab } from "./AboutWindow";
 import { TelemetrySwitch } from "./TelemetrySwitch";
 import { startTelemetry, track, trackAppOpened, trackOnce } from "@/lib/telemetry";
-import {
-  BUNDLE_EXTENSION,
-  MAX_SAVED_HISTORY,
-  createProjectFolder,
-  decodeBundle,
-  deserializeClips,
-  encodeBundle,
-  ensurePermission,
-  isBrave,
-  loadFromFolder,
-  pickProjectFolder,
-  readOpenProject,
-  recentProjects,
-  referencedClipIds,
-  rememberRecent,
-  safeName,
-  saveToFolder,
-  serializeClips,
-  serializeSnapshot,
-  supportsFolders,
-  writeOpenProject,
-  type ProjectDocument,
-  type ProjectFolder,
-  type RecentProject,
-  type SavedHistory,
-  type SerializedSnapshot,
-} from "@/lib/projectFiles";
-import { PROJECT_VERSION, type SerializedProject } from "@/lib/projectSchema";
-import {
-  clearRecoveryNotice,
-  downloadLatestBackup,
-  readRecoveryNotice,
-  startFreshKeepingBackup,
-} from "@/lib/projectRecovery";
+import { isBrave, recentProjects, supportsFolders } from "@/lib/projectFiles";
+import { type SerializedProject } from "@/lib/projectSchema";
 import type { BounceParams } from "@/lib/bounce";
 import { ExportDialog } from "./ExportDialog";
 import { GrooveBrowser } from "./GrooveBrowser";
 import { StartScreen } from "./StartScreen";
 import { Tour, tourDone } from "./Tour";
 import { HelpMenu } from "./HelpMenu";
-import { fetchDemoSong } from "@/lib/demoSong";
 import { PacksWindow } from "./PacksWindow";
 import { AppUpdater } from "./AppUpdater";
-import { installPack, removePack, restorePacks } from "@/lib/packStore";
+import { installPack, removePack } from "@/lib/packStore";
 import { PACK_EXTENSION } from "@/lib/dawnPack";
 import { openFeedback, PostExportNote } from "./SupportViews";
 import { shouldAskAfterExport, supportLinks } from "@/lib/support";
-import { LATEST_VERSION } from "@/content/whatsNew";
 import type { ProjectTemplate } from "@/lib/templates";
 import { grooveById, grooveHits, grooveKit, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
 import { EFFECT_LABELS, automatableParamSpecs, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
-import { effectFileBlob, referencedEffectFiles, registerEffectFile } from "@/lib/effectFiles";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,
@@ -422,26 +387,6 @@ export function Daw() {
   const [countInBars, setCountInBars] = useState(0);
 
 
-  // --- Save/load ---
-  const projectLoadedRef = useRef(false);
-  const [isLoadingProject, setIsLoadingProject] = useState(true);
-  // Set when the last saved project couldn't be opened and the studio
-  // started fresh (the old project is kept as a backup in this browser).
-  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(() => readRecoveryNotice());
-  const [backupDownloadFailed, setBackupDownloadFailed] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  // The open project: its name, the folder it's saved in (if any), and
-  // whether it has changes that aren't saved there yet.
-  const [projectName, setProjectName] = useState("Untitled");
-  const projectFolderRef = useRef<ProjectFolder | null>(null);
-  const [projectFolderName, setProjectFolderName] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [projectBusy, setProjectBusy] = useState(false);
-  const [projectNotice, setProjectNotice] = useState<string | null>(null);
-  const markCleanRef = useRef(true);
-  /** The next autosave rewrites all stored audio (another project opened). */
-  const fullAutosaveRef = useRef(false);
-  const forceDirtyRef = useRef(false);
   const [exportOpen, setExportOpen] = useState(false);
   const samplesReady = useSyncExternalStore(
     useCallback((listener) => audioEngine.onReadyChange(listener), []),
@@ -1695,140 +1640,11 @@ export function Daw() {
     [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds]
   );
 
-  // --- Save/load: the whole project autosaves to IndexedDB a moment after
-  // any change (a working copy that survives a reload or a crash), and is
-  // saved to a folder on the computer (or one project file) with Save. ---
+  // --- The project's files: autosave, Save, Open (useProjectFiles.ts) ---
 
-  /** The project as saved (clips without their session-only URLs). */
-  const buildProject = useCallback(
-    (): SerializedProject => ({
-      version: PROJECT_VERSION,
-      savedAt: Date.now(),
-      channels,
-      clipsByChannel: serializeClips(clipsByChannel),
-      channelEffects,
-      buses,
-      busEffects,
-      bpm,
-      timeSignature,
-      masterVolume,
-      masterPan,
-      masterName,
-      masterLimiterThreshold,
-      masterEffects,
-      scaleSetting,
-      snapResolution,
-      countInBars,
-      metronomeEnabled,
-      loop,
-    }),
-    [
-      channels,
-      clipsByChannel,
-      channelEffects,
-      buses,
-      busEffects,
-      bpm,
-      timeSignature,
-      masterVolume,
-      masterPan,
-      masterName,
-      masterLimiterThreshold,
-      masterEffects,
-      scaleSetting,
-      snapResolution,
-      countInBars,
-      metronomeEnabled,
-      loop,
-    ]
-  );
-
-  const persistNow = useCallback(async () => {
-    setSaveStatus("saving");
-    try {
-      // Audio clips plus every uploaded effect file (IRs) still in use.
-      const blobsToSave = audioBlobs.snapshot();
-      referencedEffectFiles([...Object.values(channelEffects), ...Object.values(busEffects), masterEffects], channels).forEach(
-        (ref) => {
-          const blob = effectFileBlob(ref.id);
-          if (blob) blobsToSave.set(ref.id, blob);
-        }
-      );
-      const replaceAll = fullAutosaveRef.current;
-      await saveProject(buildProject(), blobsToSave, replaceAll);
-      if (replaceAll) fullAutosaveRef.current = false;
-      await writeOpenProject({ name: projectName, folder: projectFolderRef.current, dirty });
-      setSaveStatus("saved");
-    } catch {
-      setSaveStatus("error");
-    }
-  }, [buildProject, channels, channelEffects, busEffects, masterEffects, projectName, dirty]);
-
-  /** Makes a project (from the working copy, a folder, a project file, or a
-   * new one) the open one: its state, the audio engine, and its undo
-   * history. The previous project's audio is let go of. */
-  const applyDocument = useCallback((project: SerializedProject, blobs: Map<string, Blob>, history: SavedHistory | null) => {
-    const oldUrls = new Set<string>();
-    const collectUrls = (st: ProjectState) =>
-      Object.values(st.clipsByChannel).forEach((l) => l.forEach((c) => c.kind === "audio" && c.url && oldUrls.add(c.url)));
-    const steps = projectStore.allSteps();
-    [steps.doc, ...steps.past, ...steps.future].forEach(collectUrls);
-    oldUrls.forEach((u) => URL.revokeObjectURL(u));
-    audioBlobs.clear();
-
-    // One playable URL per recording/imported file, shared by the song and
-    // its history.
-    const urls = new Map<string, string>();
-    const urlFor = (id: string) => {
-      let url = urls.get(id);
-      if (url) return url;
-      const blob = blobs.get(id);
-      if (!blob) return "";
-      url = URL.createObjectURL(blob);
-      urls.set(id, url);
-      audioBlobs.set(id, blob);
-      return url;
-    };
-    const snapshots: SerializedSnapshot[] = [project, ...(history?.past ?? []), ...(history?.future ?? [])];
-    // New ids must never collide with restored ones.
-    let maxEffectN = 0;
-    snapshots.forEach((snap) => {
-      Object.values(snap.clipsByChannel).forEach((l) => l.forEach((c) => bumpIdFrom(c.id)));
-      snap.channels.forEach((c) => {
-        bumpIdFrom(c.id);
-        (c.automationLanes ?? []).forEach((lane) => bumpIdFrom(lane.id));
-      });
-      snap.buses.forEach((b) => bumpIdFrom(b.id));
-      [...Object.values(snap.channelEffects).flat(), ...Object.values(snap.busEffects).flat(), ...snap.masterEffects].forEach((fx) => {
-        const match = fx.id.match(/^fx-(\d+)$/);
-        if (match) maxEffectN = Math.max(maxEffectN, parseInt(match[1], 10));
-      });
-      referencedEffectFiles([...Object.values(snap.channelEffects), ...Object.values(snap.busEffects), snap.masterEffects], snap.channels).forEach((ref) => {
-        const blob = blobs.get(ref.id);
-        if (blob) registerEffectFile(ref.id, blob);
-      });
-    });
-    bumpEffectIdCounter(maxEffectN);
-
-    const toState = (snap: SerializedSnapshot): ProjectState => ({ ...snap, clipsByChannel: deserializeClips(snap.clipsByChannel, urlFor) });
-    const state = toState(project);
-    projectStore.load(
-      {
-        channels: state.channels,
-        clipsByChannel: state.clipsByChannel,
-        channelEffects: state.channelEffects,
-        buses: state.buses,
-        busEffects: state.busEffects,
-        bpm: state.bpm,
-        timeSignature: state.timeSignature,
-        masterVolume: state.masterVolume,
-        masterPan: state.masterPan,
-        masterName: state.masterName,
-        masterEffects: state.masterEffects,
-      },
-      (history?.past ?? []).map(toState),
-      (history?.future ?? []).map(toState)
-    );
+  /** A project was opened: its session settings, a fresh view, and the
+   * engine rebuilt from it. */
+  const applyOpened = useCallback((project: SerializedProject, state: ProjectState) => {
     setMasterLimiterThreshold(project.masterLimiterThreshold);
     setScaleSetting(project.scaleSetting);
     setSnapResolution(project.snapResolution);
@@ -1843,194 +1659,44 @@ export function Daw() {
     setFxChannelId(state.channels[0]?.id ?? null);
     if (state.channels[0]) setSelectedChannelId(state.channels[0].id);
     hydrateEngine(state, registeredChannelIds.current);
-    markCleanRef.current = true;
   }, []);
-
-  // Restore the working copy on mount, before autosave is allowed to run (so
-  // a fresh page load never overwrites a real saved project with the
-  // starter 3-channel default before the load has even been tried).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [result, info] = await Promise.all([
-        loadProject().catch(() => null),
-        readOpenProject().catch(() => null),
-        restorePacks().catch(() => undefined),
-      ]);
-      if (cancelled) return;
-      if (result) {
-        try {
-          // normalizeProject returns null for data that isn't a project at
-          // all; anything else has already been repaired into a valid shape.
-          if (!result.project) throw new Error("the saved data isn't a project");
-          applyDocument(result.project, result.blobs, null);
-        } catch (err) {
-          // Never leave the studio stuck on a project it can't open: keep a
-          // backup of it, start fresh, and say what happened.
-          await startFreshKeepingBackup(
-            `Couldn't open the saved project (${err instanceof Error ? err.message : String(err)}).`
-          );
-          return;
+  const {
+    isLoading: isLoadingProject,
+    saveStatus,
+    name: projectName,
+    folderName: projectFolderName,
+    dirty,
+    busy: projectBusy,
+    notice: projectNotice,
+    flashNotice: flashProjectNotice,
+    saveAsRequest,
+    save: handleSave,
+    saveAs: handleSaveAs,
+    downloadFile: downloadProjectFile,
+    confirmDiscard,
+    open: handleOpenProject,
+    openRecent: handleOpenRecent,
+    importFile: handleImportProjectFile,
+    loadDemo: handleLoadDemo,
+    startNew,
+  } = useProjectFiles(
+    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop },
+    {
+      beforeOpen: () => {
+        audioEngine.stopAll();
+        setTransportState("stopped");
+      },
+      opened: applyOpened,
+      started: ({ firstVisit, newVersion }) => {
+        // A first visit gets the start screen; someone back after an
+        // update sees what's new, once.
+        if (firstVisit) {
+          welcomeRef.current = true;
+          setStartScreen("welcome");
         }
-      }
-      if (info) {
-        setProjectName(info.name || "Untitled");
-        projectFolderRef.current = info.folder;
-        setProjectFolderName(info.folder?.name ?? null);
-        // Unsaved changes stay unsaved across a reload.
-        if (info.dirty) forceDirtyRef.current = true;
-      }
-      projectLoadedRef.current = true;
-      setIsLoadingProject(false);
-      // Nothing saved in this browser yet: a first visit. Someone coming
-      // back after an update sees what's new, once.
-      if (!result) {
-        welcomeRef.current = true;
-        setStartScreen("welcome");
-      }
-      try {
-        const seen = localStorage.getItem("dawn.lastSeenVersion");
-        if (result && seen !== LATEST_VERSION) setAboutTab("news");
-        localStorage.setItem("dawn.lastSeenVersion", LATEST_VERSION);
-      } catch {
-        // No storage: skip the release notes.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // Runs once on mount only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // --- Unsaved changes. `buildProject` is a new function exactly when the
-  // song changes, so "saved" is simply which one was last written. ---
-  const savedDocRef = useRef<unknown>(null);
-  const currentDocRef = useRef<unknown>(null);
-  useEffect(() => {
-    currentDocRef.current = buildProject;
-    if (markCleanRef.current) {
-      markCleanRef.current = false;
-      savedDocRef.current = buildProject;
+        if (newVersion) setAboutTab("news");
+      },
     }
-    if (forceDirtyRef.current) {
-      forceDirtyRef.current = false;
-      savedDocRef.current = null;
-    }
-    setDirty(buildProject !== savedDocRef.current);
-  }, [buildProject]);
-
-  /** Marks the song as it was when `doc` was taken as saved. */
-  const markSaved = useCallback((doc: unknown) => {
-    savedDocRef.current = doc;
-    setDirty(currentDocRef.current !== doc);
-  }, []);
-
-  const flashProjectNotice = useCallback((text: string) => {
-    setProjectNotice(text);
-    window.setTimeout(() => setProjectNotice((cur) => (cur === text ? null : cur)), 5000);
-  }, []);
-
-  /** Everything Save writes: the song, the last undo/redo steps, and the
-   * audio and effect files either of them uses. */
-  const buildDocument = useCallback((): ProjectDocument => {
-    const project = buildProject();
-    const history: SavedHistory = {
-      past: projectStore.allSteps().past.slice(-MAX_SAVED_HISTORY).map(serializeSnapshot),
-      future: projectStore.allSteps().future.slice(-MAX_SAVED_HISTORY).map(serializeSnapshot),
-    };
-    const clipIds = referencedClipIds({ project, history });
-    const blobs = new Map<string, Blob>();
-    audioBlobs.forEach((blob, id) => clipIds.has(id) && blobs.set(id, blob));
-    const steps: SerializedSnapshot[] = [project, ...history.past, ...history.future];
-    referencedEffectFiles(
-      steps.flatMap((st) => [...Object.values(st.channelEffects), ...Object.values(st.busEffects), st.masterEffects]),
-      steps.flatMap((st) => st.channels)
-    ).forEach((ref) => {
-      const blob = effectFileBlob(ref.id);
-      if (blob) blobs.set(ref.id, blob);
-    });
-    return { name: projectName, project, history, blobs };
-  }, [buildProject, projectName]);
-
-  const saveInto = useCallback(
-    async (folder: ProjectFolder, name: string) => {
-      setProjectBusy(true);
-      const doc = currentDocRef.current;
-      try {
-        if (!(await ensurePermission(folder))) throw new Error("permission to write to the folder was refused");
-        await saveToFolder(folder, { ...buildDocument(), name });
-        projectFolderRef.current = folder;
-        setProjectFolderName(folder.name);
-        setProjectName(name);
-        markSaved(doc);
-        await rememberRecent(name, folder);
-        flashProjectNotice(`Saved to the folder "${folder.name}"`);
-        track("project_saved", { target: "folder" });
-      } catch (err) {
-        flashProjectNotice(`Couldn't save: ${err instanceof Error ? err.message : String(err)}`);
-        track("error_shown", { area: "save" });
-      } finally {
-        setProjectBusy(false);
-      }
-    },
-    [buildDocument, markSaved, flashProjectNotice]
-  );
-
-  const downloadProjectFile = useCallback(
-    async (name: string) => {
-      const blob = await encodeBundle({ ...buildDocument(), name });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${safeName(name)}${BUNDLE_EXTENSION}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
-      track("project_saved", { target: "file" });
-    },
-    [buildDocument]
-  );
-
-  const handleSaveAs = useCallback(
-    async (name: string) => {
-      if (!supportsFolders()) {
-        const doc = currentDocRef.current;
-        await downloadProjectFile(name);
-        setProjectName(name);
-        markSaved(doc);
-        return;
-      }
-      const folder = await createProjectFolder(name).catch(() => null);
-      if (folder) await saveInto(folder, name);
-    },
-    [downloadProjectFile, saveInto, markSaved]
-  );
-
-  const [saveAsRequest, setSaveAsRequest] = useState(0);
-  const handleSave = useCallback(async () => {
-    if (projectFolderRef.current) await saveInto(projectFolderRef.current, projectName);
-    else setSaveAsRequest((n) => n + 1);
-  }, [saveInto, projectName]);
-
-  const confirmDiscard = useCallback(
-    () => !dirty || window.confirm(`"${projectName}" has unsaved changes. Discard them?`),
-    [dirty, projectName]
-  );
-
-  const openDocument = useCallback(
-    (doc: ProjectDocument, folder: ProjectFolder | null) => {
-      audioEngine.stopAll();
-      setTransportState("stopped");
-      applyDocument(doc.project, doc.blobs, doc.history);
-      fullAutosaveRef.current = true;
-      setProjectName(doc.name);
-      projectFolderRef.current = folder;
-      setProjectFolderName(folder?.name ?? null);
-      flashProjectNotice(`Opened "${doc.name}"`);
-    },
-    [applyDocument, flashProjectNotice]
   );
 
   const handleInstallPack = useCallback(async (file: File): Promise<{ ok: boolean; message: string }> => {
@@ -2057,109 +1723,13 @@ export function Daw() {
   /** Starts a new project from a template (the start screen's cards). */
   const handleTemplate = useCallback(
     (template: ProjectTemplate) => {
-      audioEngine.stopAll();
-      setTransportState("stopped");
-      applyDocument(template.build(), new Map(), null);
-      fullAutosaveRef.current = true;
-      setProjectName(template.id === "empty" ? "Untitled" : template.name);
-      projectFolderRef.current = null;
-      setProjectFolderName(null);
+      startNew(template.build(), template.id === "empty" ? "Untitled" : template.name);
       setCursorSeconds(0);
       closeStartScreen();
       track("template_chosen", { template: template.id });
     },
-    [applyDocument, closeStartScreen]
+    [startNew, closeStartScreen]
   );
-
-  const openFolder = useCallback(
-    async (folder: ProjectFolder) => {
-      setProjectBusy(true);
-      try {
-        if (!(await ensurePermission(folder))) throw new Error("permission to read the folder was refused");
-        const doc = await loadFromFolder(folder);
-        openDocument(doc, folder);
-        await rememberRecent(doc.name, folder);
-      } catch (err) {
-        flashProjectNotice(`Couldn't open it: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        setProjectBusy(false);
-      }
-    },
-    [openDocument, flashProjectNotice]
-  );
-
-  const handleOpenProject = useCallback(async () => {
-    if (!confirmDiscard()) return;
-    try {
-      const folder = await pickProjectFolder();
-      if (folder) await openFolder(folder);
-    } catch (err) {
-      flashProjectNotice(err instanceof Error ? err.message : String(err));
-    }
-  }, [confirmDiscard, openFolder, flashProjectNotice]);
-
-  const handleOpenRecent = useCallback(
-    async (r: RecentProject) => {
-      if (!confirmDiscard()) return;
-      await openFolder(r.folder);
-    },
-    [confirmDiscard, openFolder]
-  );
-
-  const handleImportProjectFile = useCallback(
-    async (file: File) => {
-      if (!confirmDiscard()) return;
-      try {
-        openDocument(await decodeBundle(file), null);
-        // An imported file isn't anywhere on disk until it's saved.
-        forceDirtyRef.current = true;
-      } catch (err) {
-        flashProjectNotice(`Couldn't open "${file.name}": ${err instanceof Error ? err.message : String(err)}`);
-      }
-    },
-    [confirmDiscard, openDocument, flashProjectNotice]
-  );
-
-  /** Opens the demo song (the start screen's offer, and the first visit). */
-  const handleLoadDemo = useCallback(async (): Promise<boolean> => {
-    try {
-      openDocument(await decodeBundle(await fetchDemoSong()), null);
-      track("template_chosen", { template: "demo" });
-      return true;
-    } catch (err) {
-      flashProjectNotice(`Couldn't open the demo song: ${err instanceof Error ? err.message : String(err)}`);
-      return false;
-    }
-  }, [openDocument, flashProjectNotice]);
-
-  // Ctrl/Cmd+S saves, +Shift saves as, Ctrl/Cmd+O opens - everywhere, even
-  // while typing or in the piano roll.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const key = e.key.toLowerCase();
-      if (key === "s") {
-        e.preventDefault();
-        if (e.shiftKey) setSaveAsRequest((n) => n + 1);
-        else void handleSave();
-      } else if (key === "o" && !e.shiftKey) {
-        e.preventDefault();
-        if (supportsFolders()) void handleOpenProject();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleSave, handleOpenProject]);
-
-  // Debounced autosave - fires a moment after the document settles, not on
-  // every keystroke/drag frame.
-  useEffect(() => {
-    if (!projectLoadedRef.current) return;
-    const timer = setTimeout(() => {
-      void persistNow();
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [persistNow]);
 
   const editingChannel = channels.find((c) => c.id === editingClip?.channelId);
   const editingClipInstance = editingClip
@@ -2223,43 +1793,7 @@ export function Daw() {
           </div>
         </div>
       )}
-      {recoveryNotice && (
-        <div
-          role="alert"
-          className="fixed left-1/2 top-3 z-[90] flex w-[min(640px,calc(100vw-32px))] -translate-x-1/2 items-start gap-3 rounded-lg border border-border bg-surface-raised p-3 text-sm shadow-2xl"
-        >
-          <div className="flex-1">
-            <p className="font-medium">The studio started with a fresh project.</p>
-            <p className="mt-1 text-xs text-muted">
-              {recoveryNotice} A backup of it is kept in this browser.
-              {backupDownloadFailed && " (No backup was found to download.)"}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              void downloadLatestBackup()
-                .then((found) => setBackupDownloadFailed(!found))
-                .catch(() => setBackupDownloadFailed(true));
-            }}
-            className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-surface"
-          >
-            <Download size={13} />
-            Download backup
-          </button>
-          <button
-            type="button"
-            title="Dismiss"
-            onClick={() => {
-              clearRecoveryNotice();
-              setRecoveryNotice(null);
-            }}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted hover:bg-surface"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <RecoveryNotice />
       <EffectBrowser
         onAddEffect={handleSidebarAddEffect}
         onAddChain={fxChannel ? (chain) => effectActions.addChain(fxChannel.id, chain) : undefined}

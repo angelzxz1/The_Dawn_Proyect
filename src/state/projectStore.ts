@@ -157,6 +157,13 @@ class ProjectStore {
 
 export const projectStore = new ProjectStore();
 
+const getDoc = () => projectStore.get();
+
+/** The whole document, for what follows every part of it (saving). */
+export function useProjectDoc(): ProjectState {
+  return useSyncExternalStore(projectStore.subscribe, getDoc, getDoc);
+}
+
 /** One part of the document (re-renders when it changes). */
 export function useProjectValue<K extends keyof ProjectState>(key: K): ProjectState[K] {
   return useSyncExternalStore(

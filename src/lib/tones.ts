@@ -6,6 +6,7 @@
 
 import { cabImpulse, factoryCab, FACTORY_CABS } from "./cabIrs";
 import { encodeWav } from "./wav";
+import { noteIssue } from "./issues";
 
 export interface ToneEntry {
   id: string;
@@ -95,7 +96,10 @@ export function bundledTones(): Promise<ToneEntry[]> {
   manifest ??= fetch("/tones/manifest.json")
     .then((r) => (r.ok ? r.json() : null))
     .then(parseToneManifest)
-    .catch(() => []);
+    .catch((error) => {
+      noteIssue("tones.manifest", error);
+      return [];
+    });
   return manifest;
 }
 

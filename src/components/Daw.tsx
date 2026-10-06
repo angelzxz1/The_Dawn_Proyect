@@ -95,6 +95,7 @@ import {
   type SnapResolution,
 } from "@/lib/timeline";
 import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/lib/types";
+import { noteIssue } from "@/lib/issues";
 
 type TransportState = "stopped" | "playing" | "paused" | "recording";
 
@@ -314,9 +315,10 @@ export function Daw() {
     audioEngine
       .openInput()
       .then(() => setMicError(null))
-      .catch(() =>
-        setMicError("Couldn't open your audio input - allow microphone access in the browser, and pick your interface in the track's Input menu.")
-      );
+      .catch((error) => {
+        noteIssue("input.open", error, { report: false });
+        setMicError("Couldn't open your audio input - allow microphone access in the browser, and pick your interface in the track's Input menu.");
+      });
   }, [armedAudio]);
 
   const registeredChannelIds = useRef(new Set<string>());
@@ -611,11 +613,10 @@ export function Daw() {
     audioEngine
       .requestMicAccess()
       .then(refreshInputDevices)
-      .catch(() =>
-        setMicError(
-          "Couldn't access audio input devices - check the browser's permission prompt or site settings."
-        )
-      );
+      .catch((error) => {
+        noteIssue("input.devices", error, { report: false });
+        setMicError("Couldn't access audio input devices - check the browser's permission prompt or site settings.");
+      });
   }, [refreshInputDevices]);
 
   // Opens/closes the engine's live input for each monitored audio track.
@@ -755,7 +756,8 @@ export function Daw() {
         setTransportState("recording");
         track("recording_started", { kind: "audio" });
         refreshInputDevices();
-      } catch {
+      } catch (error) {
+        noteIssue("record.audio", error, { report: false });
         recordingChannelRef.current = null;
         setRecordingChannelId(null);
         setMicError(
@@ -816,44 +818,42 @@ export function Daw() {
 
   const handleImportMidi = useCallback(
     async (channelId: string, file: File) => {
-      const notes = await parseMidiFile(file, bpm);
-      const lastEnd = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
-      addMidiClip(channelId, endOfContent(channelId), roundUpToBar(lastEnd, bpm, beatsPerBar), notes);
+      try {
+        const notes = await parseMidiFile(file, bpm);
+        const lastEnd = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
+        addMidiClip(channelId, endOfContent(channelId), roundUpToBar(lastEnd, bpm, beatsPerBar), notes);
+        setImportError(null);
+      } catch (error) {
+        noteIssue("import.midi", error, { report: false });
+        setImportError(`Couldn't import "${file.name}" — not a readable MIDI file.`);
+      }
     },
     [bpm, beatsPerBar, endOfContent, addMidiClip]
   );
 
+  /** Imports an audio file onto a track, snapped to the nearest bar - from
+   * the file picker or a drop. A file that can't be read as audio (likelier
+   * from a drop, which has no file-type filter) is said so in the header
+   * status line. */
   const handleImportAudioAt = useCallback(
     async (channelId: string, file: File, atSeconds: number) => {
-      const decoded = await decodeAudioFile(file);
-      const bar = secondsPerBar(bpm, beatsPerBar);
-      const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-      addAudioClip(channelId, decoded, anchor, file.name, file);
-    },
-    [bpm, beatsPerBar, addAudioClip]
-  );
-
-  /** Drag-and-drop entry point: unlike the "Import audio" file picker
-   * (`accept="audio/*"`), the OS drag-and-drop API applies no file-type
-   * filter at all, so this is far more likely to actually be handed
-   * something `decodeAudioFile` can't read - caught here and surfaced in
-   * the header status line instead of an unhandled rejection. */
-  const handleDropAudioFile = useCallback(
-    async (channelId: string, file: File, atSeconds: number) => {
       try {
-        await handleImportAudioAt(channelId, file, atSeconds);
+        const decoded = await decodeAudioFile(file);
+        const bar = secondsPerBar(bpm, beatsPerBar);
+        const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
+        addAudioClip(channelId, decoded, anchor, file.name, file);
         setImportError(null);
-      } catch {
+      } catch (error) {
+        noteIssue("import.audio", error, { report: false });
         setImportError(`Couldn't import "${file.name}" — not a readable audio file.`);
       }
     },
-    [handleImportAudioAt]
+    [bpm, beatsPerBar, addAudioClip]
   );
+  const handleDropAudioFile = handleImportAudioAt;
 
   const handleImportAudioAppend = useCallback(
-    async (channelId: string, file: File) => {
-      await handleImportAudioAt(channelId, file, endOfContent(channelId));
-    },
+    (channelId: string, file: File) => handleImportAudioAt(channelId, file, endOfContent(channelId)),
     [handleImportAudioAt, endOfContent]
   );
 

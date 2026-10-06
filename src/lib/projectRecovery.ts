@@ -1,4 +1,5 @@
 import { backupProject, clearSavedProject, latestBackup, loadProject } from "./persistence";
+import { noteIssue } from "./issues";
 
 const NOTICE_KEY = "dawn-recovery-notice";
 
@@ -12,7 +13,7 @@ export async function startFreshKeepingBackup(reason: string): Promise<void> {
   } catch {
     // Nothing readable to back up - still start fresh rather than crash again.
   }
-  await clearSavedProject().catch(() => {});
+  await clearSavedProject().catch((error) => noteIssue("recovery.clear", error));
   try {
     sessionStorage.setItem(NOTICE_KEY, reason);
   } catch {

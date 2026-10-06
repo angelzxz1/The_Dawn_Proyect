@@ -31,3 +31,10 @@ describe("support and feedback", () => {
     expect(RELEASES.every((r) => r.items.length > 0)).toBe(true);
   });
 });
+
+describe("feedbackUrl with problems", () => {
+  it("adds the recent problem codes to the report", () => {
+    const url = new URL(feedbackUrl("Mozilla/5.0 (Windows NT 10.0) Chrome/120.0", false, "clip.load ×2"));
+    expect(url.searchParams.get("body") ?? url.searchParams.get("problems")).toContain("clip.load ×2");
+  });
+});

@@ -5,10 +5,11 @@ import { RELEASES } from "@/content/whatsNew";
 import { isBrave } from "@/lib/projectFiles";
 import { communityLink, feedbackUrl, supportLinks } from "@/lib/support";
 import { track } from "@/lib/telemetry";
+import { issueSummary } from "@/lib/issues";
 
 export function openFeedback(where: string) {
   track("feedback_opened", { where });
-  window.open(feedbackUrl(navigator.userAgent, isBrave()), "_blank", "noopener");
+  window.open(feedbackUrl(navigator.userAgent, isBrave(), issueSummary()), "_blank", "noopener");
 }
 
 /** The About tab's support section: what support pays for, the pages, and feedback. */

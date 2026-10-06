@@ -10,6 +10,7 @@ import { MAX_NAM_BYTES, parseNamFile } from "./namModel";
 import type { SynthParams } from "./synthParams";
 import type { DrumKitParams } from "./drumParams";
 import { factoryFileBlob, isFactoryFile } from "./tones";
+import { noteIssue } from "./issues";
 
 const files = new Map<string, Blob>();
 const decoded = new Map<string, Promise<AudioBuffer | null>>();
@@ -52,7 +53,8 @@ export function readEffectFileText(id: string): Promise<string | null> {
   if (cached) return cached;
   const blob = blobOf(id);
   if (!blob) return Promise.resolve(null);
-  const promise = blob.text().catch(() => {
+  const promise = blob.text().catch((error) => {
+    noteIssue("effectfile.read", error);
     texts.delete(id);
     return null;
   });
@@ -90,7 +92,8 @@ export function decodeEffectFileAudio(id: string, sampleRate: number): Promise<A
   const promise = blob
     .arrayBuffer()
     .then((bytes) => new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(bytes))
-    .catch(() => {
+    .catch((error) => {
+      noteIssue("effectfile.decode", error);
       decoded.delete(key);
       return null;
     });

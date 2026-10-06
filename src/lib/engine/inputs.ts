@@ -5,6 +5,7 @@
 import * as Tone from "tone";
 import type { SidechainTap } from "../sidechainModel";
 import type { TrackInput } from "../types";
+import { noteIssue } from "../issues";
 
 /** What the input manager needs from the engine. */
 export interface InputHost {
@@ -79,7 +80,8 @@ export class InputManager {
           .then((mic) => {
             if (this.monitorNodes.has(id) && !this.trackInputs.has(id)) this.plugMonitor(id, mic);
           })
-          .catch(() => {});
+          // No input (refused, unplugged): the track stays unmonitored.
+          .catch((error) => noteIssue("input.monitor", error, { report: false }));
       }
     });
   }
@@ -207,7 +209,8 @@ export class InputManager {
     if (this.trackInputNode(channelId) === undefined) {
       try {
         await this.ensureMicSource();
-      } catch {
+      } catch (error) {
+        noteIssue("input.open", error, { report: false });
         return false;
       }
     }

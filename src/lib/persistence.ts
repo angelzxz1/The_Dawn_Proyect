@@ -5,6 +5,7 @@
 // audio clip when the project is loaded back.
 
 import { normalizeProject, type SerializedProject } from "./projectSchema";
+import { noteIssue } from "./issues";
 
 export type { SerializedClip, SerializedProject } from "./projectSchema";
 
@@ -112,7 +113,9 @@ export async function loadProject(): Promise<
     let project: SerializedProject | null = null;
     try {
       project = normalizeProject(raw);
-    } catch {
+    } catch (error) {
+      // Opened as "not a project" (the studio starts fresh, keeping a backup).
+      noteIssue("load.normalize", error);
       project = null;
     }
     return { raw, project, blobs };

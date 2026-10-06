@@ -1,6 +1,7 @@
 import * as Tone from "tone";
 import { NamInstance, type NamModelInfo } from "./namEngine";
 import { namSlimSize, normalizationDb, toneStack } from "./namModel";
+import { noteIssue } from "./issues";
 
 // Loading a model parses it on the audio thread, which stalls all audio
 // for ~0.1-0.2 s. Undo/redo rebuilds every track's effects from scratch,
@@ -128,7 +129,7 @@ export class NamAmpChain extends Tone.ToneAudioNode {
       this.fileId = null;
       this.info = null;
       this.applyOutput();
-      await this.instance?.unloadModel().catch(() => {});
+      await this.instance?.unloadModel().catch((error) => noteIssue("nam.unload", error));
       return null;
     }
     if (fileId === this.fileId && this.info) return null;
@@ -142,7 +143,7 @@ export class NamAmpChain extends Tone.ToneAudioNode {
         this.fileId = fileId;
         this.info = parked.info;
         this.applyOutput();
-        if (parked.slim !== slim && parked.info.slimmable) await parked.instance.setSlimSize(slim).catch(() => {});
+        if (parked.slim !== slim && parked.info.slimmable) await parked.instance.setSlimSize(slim).catch((error) => noteIssue("nam.slim", error));
         return null;
       }
     }
@@ -197,7 +198,7 @@ export class NamAmpChain extends Tone.ToneAudioNode {
   setSize(value: number): void {
     const changed = namSlimSize(value) !== namSlimSize(this.size);
     this.size = value;
-    if (changed && this.instance && this.info?.slimmable) void this.instance.setSlimSize(namSlimSize(value)).catch(() => {});
+    if (changed && this.instance && this.info?.slimmable) void this.instance.setSlimSize(namSlimSize(value)).catch((error) => noteIssue("nam.slim", error));
   }
 
   /** Level going into the model (after Input), in dB. */

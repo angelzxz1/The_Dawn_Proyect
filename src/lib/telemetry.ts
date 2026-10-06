@@ -233,8 +233,9 @@ function environment(): string {
   return host.endsWith(".pages.dev") ? "preview" : "production";
 }
 
-/** Sends an error report (if set up and allowed). `where` is a short code for the part of Dawn. */
-export function reportError(error: unknown, where = "app") {
+/** Sends an error report (if set up and allowed). `where` is a short code
+ * for the part of Dawn; a "warning" is a problem Dawn got past (issues.ts). */
+export function reportError(error: unknown, where = "app", level: "error" | "warning" = "error") {
   if (!active() || !env.sentryDsn) return;
   const dsn = parseDsn(env.sentryDsn);
   if (!dsn) return;
@@ -250,7 +251,7 @@ export function reportError(error: unknown, where = "app") {
     event_id: eventId,
     timestamp: Date.now() / 1000,
     platform: "javascript",
-    level: "error",
+    level,
     release: `dawn@${env.version}`,
     environment: environment(),
     tags: { where: CODE.test(where) ? where : "app" },

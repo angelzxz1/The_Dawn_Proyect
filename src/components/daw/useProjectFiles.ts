@@ -34,6 +34,7 @@ import { autosaveBlobs, documentToSave, openInStore, serializeProject, type Sess
 import { projectStore, useProjectDoc } from "@/state/projectStore";
 import { LATEST_VERSION } from "@/content/whatsNew";
 import { useShortcuts } from "@/lib/shortcuts";
+import { noteIssue } from "@/lib/issues";
 
 export interface ProjectFilesEvents {
   /** Another project is about to open: stop playing. */
@@ -90,8 +91,9 @@ export function useProjectFiles(session: SessionSettings, events: ProjectFilesEv
       if (replaceAll) fullAutosaveRef.current = false;
       await writeOpenProject({ name, folder: folderRef.current, dirty });
       setSaveStatus("saved");
-    } catch {
+    } catch (error) {
       setSaveStatus("error");
+      noteIssue("autosave", error);
     }
   }, [buildProject, name, dirty]);
 
@@ -108,9 +110,15 @@ export function useProjectFiles(session: SessionSettings, events: ProjectFilesEv
     let cancelled = false;
     (async () => {
       const [result, info] = await Promise.all([
-        loadProject().catch(() => null),
-        readOpenProject().catch(() => null),
-        restorePacks().catch(() => undefined),
+        loadProject().catch((error) => {
+          noteIssue("load.workingcopy", error);
+          return null;
+        }),
+        readOpenProject().catch((error) => {
+          noteIssue("load.openinfo", error);
+          return null;
+        }),
+        restorePacks().catch((error) => noteIssue("load.packs", error)),
       ]);
       if (cancelled) return;
       if (result) {

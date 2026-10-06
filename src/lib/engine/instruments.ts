@@ -8,6 +8,7 @@ import { NullInstrument, type Instrument } from "../drumKit";
 import { DrumRack } from "../drumRack";
 import { defaultDrumKit, type DrumKitParams } from "../drumParams";
 import { SynthInstrument, defaultSynthParams } from "../synth";
+import { noteIssue } from "../issues";
 
 export function createInstrument(
   type: InstrumentType | null,
@@ -35,6 +36,9 @@ export function createInstrument(
     release: 1,
     attack: 0,
     onload: onSettled,
-    onerror: onSettled,
+    onerror: (error) => {
+      onSettled();
+      noteIssue("instrument.load", error);
+    },
   });
 }

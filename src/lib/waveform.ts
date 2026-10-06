@@ -4,6 +4,8 @@
 // it. Computed once per audio source (clips split from one recording share
 // it) and cached by the source's URL.
 
+import { noteIssue } from "./issues";
+
 /** Samples per bucket: ~1.3 ms at 48 kHz, finer than a pixel at the
  * timeline's closest zoom. */
 export const WAVE_BUCKET = 64;
@@ -133,7 +135,9 @@ export function loadWaveform(url: string): Promise<Waveform | null> {
         const data = await (await fetch(url)).arrayBuffer();
         const buffer = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(data);
         return seedWaveform(url, buffer);
-      } catch {
+      } catch (error) {
+        // The clip shows without its waveform.
+        noteIssue("waveform", error);
         return null;
       } finally {
         loading.delete(url);

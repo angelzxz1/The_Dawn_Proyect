@@ -66,16 +66,17 @@ export function describeBrowser(ua: string): string {
 /** The feedback page with the browser and version filled in: the
  * deployment's form (as query parameters a form tool can prefill from),
  * or a new GitHub issue. */
-export function feedbackUrl(ua: string, brave = false): string {
+export function feedbackUrl(ua: string, brave = false, problems = ""): string {
   const browser = `${describeBrowser(ua)}${brave ? " (Brave)" : ""}`;
   const form = https(env.feedback);
   if (form) {
     const url = new URL(form);
     url.searchParams.set("browser", browser);
     url.searchParams.set("version", env.version);
+    if (problems) url.searchParams.set("problems", problems);
     return url.toString();
   }
-  const body = `**What happened, or what would you like?**\n\n\n\n---\nDawn ${env.version} · ${browser}`;
+  const body = `**What happened, or what would you like?**\n\n\n\n---\nDawn ${env.version} · ${browser}${problems ? `\nRecent problems: ${problems}` : ""}`;
   return `${ISSUES_URL}/new?${new URLSearchParams({ title: "Feedback: ", body }).toString()}`;
 }
 

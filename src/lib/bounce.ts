@@ -21,6 +21,7 @@ import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
 import type { EffectInstance } from "./effects";
 import { downstreamOf, inputMap, routeMap, upstreamOf } from "./routing";
+import { noteIssue } from "./issues";
 
 const MIN_NOTE_DURATION = 0.05;
 /** Default extra render time so reverb/delay tails aren't cut off. */
@@ -339,8 +340,9 @@ export async function renderProject(params: BounceParams, options: RenderOptions
                   n.time,
                   n.velocity
                 );
-              } catch {
-                // note outside a synth's usable range, etc. - skip it
+              } catch (error) {
+                // A note outside a synth's usable range, etc.: skip it.
+                noteIssue("export.note", error);
               }
             });
           })()
@@ -362,8 +364,9 @@ export async function renderProject(params: BounceParams, options: RenderOptions
             player.load(clip.url).then(() => {
               try {
                 player.start(clip.offset, clip.sourceOffset, playLength);
-              } catch {
-                // clip runs past the render window or similar - skip it
+              } catch (error) {
+                // A clip running past the render window, etc.: skip it.
+                noteIssue("export.clip", error);
               }
             })
           );

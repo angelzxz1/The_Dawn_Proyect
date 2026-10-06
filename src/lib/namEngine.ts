@@ -1,4 +1,5 @@
 import type * as Tone from "tone";
+import { noteIssue } from "./issues";
 
 // Client for the NAM (Neural Amp Modeler) engine: TONE3000's WebAssembly
 // build of NeuralAmpModelerCore, vendored in public/nam/ (see its README).
@@ -126,7 +127,7 @@ export class NamInstance {
   /** Frees the instance on the audio thread and disconnects it. */
   dispose(): void {
     if (this.disposed) return;
-    void this.request({ type: "destroy" }).catch(() => {});
+    void this.request({ type: "destroy" }).catch((error) => noteIssue("nam.destroy", error));
     this.disposed = true;
     this.pending.forEach((entry) => entry.reject(new Error("The amp was removed.")));
     this.pending.clear();

@@ -1,5 +1,6 @@
 import * as Tone from "tone";
 import { loadWorklet } from "./workletLoader";
+import { noteIssue } from "./issues";
 
 // A CPU meter for the audio engine, like a DAW's: the share of each audio
 // block's real-time budget that rendering it takes. Browsers don't report
@@ -91,8 +92,9 @@ export function installCpuMeter(): Promise<void> {
       Tone.connect(start, end, 0, 0);
       Tone.connect(end, ctx.rawContext.destination);
     })
-    .catch(() => {
+    .catch((error) => {
       // No worklets: no meter (the mix keeps its normal route).
+      noteIssue("cpumeter", error);
     });
   return installed;
 }

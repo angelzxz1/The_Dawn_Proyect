@@ -6,6 +6,7 @@ import { audioEngine } from "@/lib/audioEngine";
 import { cpuReading, type CpuReading } from "@/lib/cpuMeter";
 import { loadAudioPrefs, saveAudioPrefs, type AudioPrefs } from "@/lib/audioPrefs";
 import { useShortcuts } from "@/lib/shortcuts";
+import { noteIssue } from "@/lib/issues";
 
 const ms = (seconds: number) => `${(seconds * 1000).toFixed(1)} ms`;
 
@@ -113,7 +114,8 @@ export function AudioStatus() {
       }
       update({ measuredRoundTrip: rt });
       setMeasure({ state: "done", message: `Measured ${ms(rt)}. Recordings will be lined up using it.` });
-    } catch {
+    } catch (error) {
+      noteIssue("latency.measure", error, { report: false });
       setMeasure({ state: "failed", message: "Couldn't open the audio input - check the browser's microphone permission." });
     }
   };

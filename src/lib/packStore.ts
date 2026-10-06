@@ -11,6 +11,7 @@ import { decodeEffectFileAudio, discardEffectFile, effectFileBlob, registerEffec
 import { parseNamFile } from "./namModel";
 import { packFileName, packId, packPathKind, readPack, writePack, type PackFile, type PackManifest } from "./dawnPack";
 import type { ToneEntry } from "./tones";
+import { noteIssue } from "./issues";
 
 export interface InstalledPack extends PackManifest {
   id: string;
@@ -170,7 +171,7 @@ export async function removePack(id: string): Promise<void> {
   await tx([PACKS, FILES], "readwrite", (t) => {
     pack?.files.forEach((f) => t.objectStore(FILES).delete(f.fileId));
     t.objectStore(PACKS).delete(id);
-  }).catch(() => undefined);
+  }).catch((error) => noteIssue("packs.remove", error));
   changed(installed.filter((p) => p.id !== id));
 }
 

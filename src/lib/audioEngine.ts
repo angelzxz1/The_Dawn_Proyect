@@ -36,6 +36,7 @@ import { Transport } from "./engine/transport";
 import { createInstrument } from "./engine/instruments";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "./engine/effectNodes";
 import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./engine/nodes";
+import { attempt, noteIssue } from "./issues";
 
 export type { AudioClipTiming };
 
@@ -158,14 +159,11 @@ class AudioEngine {
     this.readyListeners.forEach((l) => l());
   }
 
-  /** Wraps a sampler call so a transient loading/decoding error never throws
-   * out into a UI event handler or the transport's scheduling loop. */
+  /** Wraps an instrument call so a playback error (a sample not loaded
+   * yet, say) never throws out into a UI event handler or the transport's
+   * scheduling loop: the note is dropped, and noted (issues.ts). */
   private safe(fn: () => void): void {
-    try {
-      fn();
-    } catch {
-      // sample not loaded yet, or another transient playback error - drop the note.
-    }
+    attempt("engine.playback", fn);
   }
 
   /** Must be called from within a user gesture handler to unlock audio. */
@@ -1251,7 +1249,11 @@ class AudioEngine {
           this.applyAudioClipTiming(player, timing);
         });
       },
-      onerror: onSettled,
+      onerror: (error) => {
+        onSettled();
+        // The clip stays silent: its audio couldn't be loaded.
+        noteIssue("clip.load", error);
+      },
     });
     player.connect(gain);
     nodes.audioClips.set(clipId, { player, gain });

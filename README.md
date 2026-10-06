@@ -620,7 +620,13 @@ For audio:
   suppression and automatic gain are turned off, since they're made for
   calls and would squash an instrument.
 - **Monitor** (the headphones button) lets you hear the input live through
-  the track's effects, for example through an amp model.
+  the track's effects, for example through an amp model. It's saved with the
+  project: when it opens again, a track listening to another track monitors
+  again at your first click or key press, and one listening to the audio
+  interface does too if the browser already lets Dawn use it (opening a
+  project never asks for the microphone).
+- A take recorded from another track is stereo (or mono, when both sides
+  came out the same); the audio interface is recorded in mono.
 - Recordings are lined up with the beat automatically, using the latency the
   browser reports. If they still land early or late on your hardware, set a
   **recording offset** in the audio settings, next to the engine-load

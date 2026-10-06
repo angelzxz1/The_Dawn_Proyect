@@ -97,6 +97,7 @@ import {
 import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/lib/types";
 import { noteIssue } from "@/lib/issues";
 import { flushSync } from "react-dom";
+import { microphoneAllowed } from "@/lib/engine/inputs";
 
 type TransportState = "stopped" | "playing" | "paused" | "recording";
 
@@ -627,8 +628,42 @@ export function Daw() {
     () => [...monitoredChannelIds].filter((id) => channels.some((c) => c.id === id && c.type === "audio")),
     [monitoredChannelIds, channels]
   );
+  // Saved with the project (sorted, so the same set saves the same).
+  const monitoredTracks = useMemo(() => [...monitoredChannelIds].sort(), [monitoredChannelIds]);
+
+  // The browser lets audio start only after the page is clicked or a key
+  // pressed; monitors restored with a project wait for that.
+  const [audioUnlocked, setAudioUnlocked] = useState(() => audioEngine.isStarted);
+  useEffect(() => {
+    if (audioUnlocked) return;
+    const unlock = () => void audioEngine.ensureStarted().then(() => setAudioUnlocked(true));
+    window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("keydown", unlock, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("keydown", unlock, true);
+    };
+  }, [audioUnlocked]);
+
+  /** A project's monitors come back when it opens: a track listening to
+   * another track's audio always; one listening to the audio interface
+   * only if the browser already lets Dawn use it, so opening a project
+   * never asks for the microphone. */
+  const restoreToken = useRef(0);
+  const restoreMonitoring = useCallback((ids: string[], tracks: ChannelConfig[]) => {
+    const token = ++restoreToken.current;
+    const fromTracks = ids.filter((id) => tracks.some((c) => c.id === id && c.input));
+    const fromInterface = ids.filter((id) => !fromTracks.includes(id));
+    setMonitoredChannelIds(new Set(fromTracks));
+    if (fromInterface.length === 0) return;
+    void microphoneAllowed().then((allowed) => {
+      if (allowed && token === restoreToken.current) setMonitoredChannelIds((prev) => new Set([...prev, ...fromInterface]));
+    });
+  }, []);
+
   const openMonitorsRef = useRef(new Set<string>());
   useEffect(() => {
+    if (!audioUnlocked) return;
     const open = openMonitorsRef.current;
     monitoredAudioIds.forEach((id) => {
       if (open.has(id)) return;
@@ -655,7 +690,7 @@ export function Daw() {
       open.delete(id);
       void audioEngine.setInputMonitoring(id, false);
     });
-  }, [monitoredAudioIds]);
+  }, [monitoredAudioIds, audioUnlocked]);
   useEffect(() => {
     const open = openMonitorsRef.current;
     return () => open.forEach((id) => void audioEngine.setInputMonitoring(id, false));
@@ -1339,6 +1374,7 @@ export function Daw() {
     setSnapResolution(project.snapResolution);
     setCountInBars(project.countInBars);
     setMetronomeEnabled(project.metronomeEnabled);
+    restoreMonitoring(project.monitoredTracks, state.channels);
     setLoop(project.loop);
     setSelectedClipIds(new Set());
     setEditingClip(null);
@@ -1348,7 +1384,7 @@ export function Daw() {
     setFxChannelId(state.channels[0]?.id ?? null);
     if (state.channels[0]) setSelectedChannelId(state.channels[0].id);
     hydrateEngine(state, registeredChannelIds.current, audioEngine);
-  }, []);
+  }, [restoreMonitoring]);
   const {
     isLoading: isLoadingProject,
     saveStatus,
@@ -1369,7 +1405,7 @@ export function Daw() {
     loadDemo: handleLoadDemo,
     startNew,
   } = useProjectFiles(
-    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop },
+    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop, monitoredTracks },
     {
       beforeOpen: () => {
         audioEngine.stopAll();

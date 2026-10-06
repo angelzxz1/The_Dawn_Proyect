@@ -17,6 +17,18 @@ export interface InputHost {
   rewireTrack(id: string): void;
 }
 
+/** Whether the browser already lets the page use the microphone (so
+ * opening it won't ask). False when it would ask, or can't tell. */
+export async function microphoneAllowed(): Promise<boolean> {
+  try {
+    const status = await navigator.permissions.query({ name: "microphone" as PermissionName });
+    return status.state === "granted";
+  } catch {
+    // No Permissions API (or no "microphone" in it): don't assume.
+    return false;
+  }
+}
+
 export class InputManager {
   constructor(private readonly host: InputHost) {}
 

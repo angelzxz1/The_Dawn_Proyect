@@ -323,3 +323,18 @@ describe("groups, routing and colors", () => {
     expect(byId.m.input).toBeUndefined();
   });
 });
+
+describe("monitored tracks", () => {
+  const channels = [
+    { id: "ch-1", name: "Gtr", type: "audio", volume: 0, pan: 0, colorIndex: 0, instrument: null, muted: false, solo: false, armed: false },
+    { id: "ch-2", name: "Keys", type: "midi", volume: 0, pan: 0, colorIndex: 1, instrument: null, muted: false, solo: false, armed: false },
+  ];
+
+  it("an older project, saved before monitoring was, opens with none", () => {
+    expect(normalizeProject({ channels })?.monitoredTracks).toEqual([]);
+  });
+
+  it("keeps only audio tracks that exist, once each", () => {
+    expect(normalizeProject({ channels, monitoredTracks: ["ch-1", "ch-1", "ch-2", "ch-9", 5] })?.monitoredTracks).toEqual(["ch-1"]);
+  });
+});

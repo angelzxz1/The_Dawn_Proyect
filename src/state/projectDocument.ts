@@ -22,10 +22,10 @@ import { projectStore } from "./projectStore";
 
 /** What's saved with a project but kept by the studio rather than the
  * project store (no undo): the limiter ceiling, scale, snap, count-in,
- * metronome and the arrangement loop. */
+ * metronome, the arrangement loop and which tracks are monitoring. */
 export type SessionSettings = Pick<
   SerializedProject,
-  "masterLimiterThreshold" | "scaleSetting" | "snapResolution" | "countInBars" | "metronomeEnabled" | "loop"
+  "masterLimiterThreshold" | "scaleSetting" | "snapResolution" | "countInBars" | "metronomeEnabled" | "loop" | "monitoredTracks"
 >;
 
 /** The project as saved (clips without their session-only URLs). */

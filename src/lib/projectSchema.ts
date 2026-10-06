@@ -81,6 +81,8 @@ export interface SerializedProject {
   metronomeEnabled: boolean;
   /** The arrangement loop, in beats. */
   loop: ArrangementLoop;
+  /** Audio tracks monitoring their input (ids). */
+  monitoredTracks: string[];
 }
 
 // --- primitives ---
@@ -438,6 +440,10 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     loop: normalizeArrangementLoop(
       r.loop,
       quarterNotesPerBar(int(ts.numerator, 4, 1, 32), oneOf(ts.denominator, [1, 2, 4, 8, 16], 4))
+    ),
+    // Only audio tracks that exist, each once.
+    monitoredTracks: [...new Set(arr(r.monitoredTracks).filter((id): id is string => typeof id === "string"))].filter((id) =>
+      channels.some((c) => c.id === id && c.type === "audio")
     ),
   };
 }

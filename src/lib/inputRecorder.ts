@@ -11,15 +11,16 @@ import { WaveformBuilder, type Waveform } from "./waveform";
 // MediaRecorder, whose start time is only loosely tied to it - and the take
 // stays lossless PCM instead of compressed Opus.
 
-const PROCESSOR_NAME = "dawn-input-recorder-v1";
+const PROCESSOR_NAME = "dawn-input-recorder-v2";
 // ~43 ms at 48 kHz: small enough that the timeline's live waveform keeps up.
 const CHUNK = 2048;
 
 const PROCESSOR_CODE = `
 class DawnInputRecorder extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
-    this.chunk = new Float32Array(${CHUNK});
+    this.channels = (options.processorOptions && options.processorOptions.channels) || 1;
+    this.chunk = Array.from({ length: this.channels }, () => new Float32Array(${CHUNK}));
     this.fill = 0;
     this.chunkFrame = -1;
     this.alive = true;
@@ -32,17 +33,22 @@ class DawnInputRecorder extends AudioWorkletProcessor {
   }
   flush() {
     if (this.fill === 0) return;
-    const data = this.chunk.slice(0, this.fill);
-    this.port.postMessage({ frame: this.chunkFrame, data }, [data.buffer]);
+    const data = this.chunk.map((c) => c.slice(0, this.fill));
+    this.port.postMessage({ frame: this.chunkFrame, data }, data.map((d) => d.buffer));
     this.fill = 0;
     this.chunkFrame = -1;
   }
   process(inputs) {
     if (!this.alive) return false;
-    const input = inputs[0] && inputs[0][0];
+    const input = inputs[0] || [];
     const n = 128;
     if (this.chunkFrame < 0) this.chunkFrame = currentFrame;
-    for (let i = 0; i < n; i++) this.chunk[this.fill + i] = input ? input[i] : 0;
+    for (let c = 0; c < this.channels; c++) {
+      // A mono input feeds every channel.
+      const src = input[c] || input[0];
+      const dst = this.chunk[c];
+      for (let i = 0; i < n; i++) dst[this.fill + i] = src ? src[i] : 0;
+    }
     this.fill += n;
     if (this.fill >= ${CHUNK}) this.flush();
     return true;
@@ -51,10 +57,13 @@ class DawnInputRecorder extends AudioWorkletProcessor {
 registerProcessor("${PROCESSOR_NAME}", DawnInputRecorder);
 `;
 
-/** Recording in progress: a mono capture of `stream` from the moment it's
- * created. */
+/** A take's channels: one (mono) or two (left, right). */
+export type TakeChannels = Float32Array[];
+
+/** Recording in progress: a capture of a source, mono or stereo, from the
+ * moment it's created. */
 export class InputRecorder {
-  private readonly chunks: { frame: number; data: Float32Array }[] = [];
+  private readonly chunks: { frame: number; data: Float32Array[] }[] = [];
   private node: AudioWorkletNode | null = null;
   private source: Tone.InputNode | AudioNode | null = null;
   private done: Promise<void> | null = null;
@@ -68,24 +77,27 @@ export class InputRecorder {
 
   /** `source` should be one long-lived node per input: the browser's
    * buffering between the device and the audio graph settles per source
-   * node, so reusing it keeps a measured round trip valid for later takes. */
-  static async start(context: Tone.BaseContext, source: Tone.OutputNode | AudioNode): Promise<InputRecorder> {
+   * node, so reusing it keeps a measured round trip valid for later takes.
+   * `channels`: 2 records in stereo (another track's audio), 1 in mono
+   * (an interface input, mixed down if the device sends more). */
+  static async start(context: Tone.BaseContext, source: Tone.OutputNode | AudioNode, channels: 1 | 2 = 1): Promise<InputRecorder> {
     await loadWorklet(context, PROCESSOR_NAME, PROCESSOR_CODE);
     const rec = new InputRecorder(context);
     rec.source = source as Tone.InputNode | AudioNode;
     rec.node = context.createAudioWorkletNode(PROCESSOR_NAME, {
       numberOfInputs: 1,
       numberOfOutputs: 0,
-      channelCount: 1,
+      channelCount: channels,
       channelCountMode: "explicit",
       channelInterpretation: "speakers",
+      processorOptions: { channels },
     }) as unknown as AudioWorkletNode;
     rec.done = new Promise((resolve) => (rec.resolveDone = resolve));
-    rec.node.port.onmessage = (e: MessageEvent<{ frame: number; data: Float32Array } | { done: true }>) => {
+    rec.node.port.onmessage = (e: MessageEvent<{ frame: number; data: Float32Array[] } | { done: true }>) => {
       if ("done" in e.data) rec.resolveDone?.();
       else {
         rec.chunks.push(e.data);
-        rec.preview?.builder.add(e.data.frame - rec.preview.originFrame, e.data.data);
+        rec.preview?.builder.add(e.data.frame - rec.preview.originFrame, mixdown(e.data.data));
       }
     };
     Tone.connect(rec.source as Tone.OutputNode, rec.node);
@@ -106,7 +118,7 @@ export class InputRecorder {
   startPreview(fromSeconds: number): void {
     const originFrame = Math.round(fromSeconds * this.sampleRate);
     const builder = new WaveformBuilder(this.sampleRate);
-    for (const c of this.chunks) builder.add(c.frame - originFrame, c.data);
+    for (const c of this.chunks) builder.add(c.frame - originFrame, mixdown(c.data));
     this.preview = { builder, originFrame };
   }
 
@@ -117,8 +129,10 @@ export class InputRecorder {
 
   /** Stops capturing and resolves with the audio from context time
    * `fromSeconds` on (earlier audio is dropped; if capture began later,
-   * the gap is silence), as mono samples. */
-  async stop(fromSeconds: number): Promise<Float32Array> {
+   * the gap is silence): one channel, or two - unless both came out the
+   * same, as a mono source through a centered track does, which is kept
+   * as one. */
+  async stop(fromSeconds: number): Promise<TakeChannels> {
     if (this.node) {
       this.node.port.postMessage("stop");
       await Promise.race([this.done, new Promise((r) => setTimeout(r, 1000))]);
@@ -127,14 +141,17 @@ export class InputRecorder {
       this.node = null;
     }
     const from = Math.round(fromSeconds * this.sampleRate);
-    const end = this.chunks.reduce((m, c) => Math.max(m, c.frame + c.data.length), from);
-    const out = new Float32Array(Math.max(0, end - from));
+    const count = this.chunks[0]?.data.length ?? 1;
+    const end = this.chunks.reduce((m, c) => Math.max(m, c.frame + c.data[0].length), from);
+    const out = Array.from({ length: count }, () => new Float32Array(Math.max(0, end - from)));
     for (const c of this.chunks) {
       const at = c.frame - from;
       const skip = Math.max(0, -at);
-      if (skip < c.data.length) out.set(c.data.subarray(skip), Math.max(0, at));
+      c.data.forEach((d, ch) => {
+        if (skip < d.length) out[ch].set(d.subarray(skip), Math.max(0, at));
+      });
     }
-    return out;
+    return sameChannels(out) ? [out[0]] : out;
   }
 
   /** Abandons the capture. */
@@ -147,8 +164,26 @@ export class InputRecorder {
   }
 }
 
-/** A take as a WAV file: 24-bit, or 32-bit float for audio that may go
- * over full scale. */
-export function takeToWav(samples: Float32Array, sampleRate: number, float = false): Blob {
-  return encodeWav([samples], sampleRate, float ? 32 : 24);
+/** One channel to draw a take's waveform from: the mono one, or the
+ * stereo pair's average. */
+export function mixdown(channels: Float32Array[]): Float32Array {
+  if (channels.length === 1) return channels[0];
+  const out = new Float32Array(channels[0].length);
+  for (let i = 0; i < out.length; i++) out[i] = (channels[0][i] + channels[1][i]) / 2;
+  return out;
+}
+
+/** Whether a stereo take's two sides are the same (to within float
+ * rounding), so one is enough. */
+export function sameChannels(channels: Float32Array[]): boolean {
+  if (channels.length < 2) return true;
+  const [l, r] = channels;
+  for (let i = 0; i < l.length; i++) if (Math.abs(l[i] - r[i]) > 1e-6) return false;
+  return true;
+}
+
+/** A take as a WAV file (mono or stereo): 24-bit, or 32-bit float for
+ * audio that may go over full scale. */
+export function takeToWav(channels: TakeChannels, sampleRate: number, float = false): Blob {
+  return encodeWav(channels, sampleRate, float ? 32 : 24);
 }

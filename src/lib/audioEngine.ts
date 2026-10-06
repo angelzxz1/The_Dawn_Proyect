@@ -1481,7 +1481,11 @@ class AudioEngine {
     // From another track ("Audio From"), or the audio interface.
     const trackNode = this.inputs.trackInputNode(channelId);
     if (trackNode === null) throw new Error("The track this one takes its input from is gone.");
-    const recorder = await InputRecorder.start(Tone.getContext(), trackNode ?? (await this.inputs.ensureMicSource()));
+    // Another track's audio is stereo; the interface is recorded in mono
+    // (one input, see inputs.ts).
+    const recorder = trackNode
+      ? await InputRecorder.start(Tone.getContext(), trackNode, 2)
+      : await InputRecorder.start(Tone.getContext(), await this.inputs.ensureMicSource());
     if (!this.channels.has(channelId)) {
       recorder.cancel();
       return;
@@ -1503,10 +1507,10 @@ class AudioEngine {
     const rec = this.audioRecording;
     if (!rec) return null;
     this.audioRecording = null;
-    const samples = await rec.recorder.stop(rec.startTime + rec.latency);
+    const channels = await rec.recorder.stop(rec.startTime + rec.latency);
     // A take from another track can go over full scale (before its fader,
     // say): kept as float so nothing clips. An interface input can't.
-    return samples.length > 0 ? takeToWav(samples, rec.recorder.sampleRate, rec.fromTrack) : null;
+    return channels[0].length > 0 ? takeToWav(channels, rec.recorder.sampleRate, rec.fromTrack) : null;
   }
 
   /** Measures the real round trip: plays a few clicks straight to the
@@ -1533,7 +1537,7 @@ class AudioEngine {
       src.start(t);
     }
     await new Promise((r) => setTimeout(r, (times[times.length - 1] - ctx.currentTime + 0.6) * 1000));
-    const samples = await recorder.stop(from);
+    const [samples] = await recorder.stop(from);
     return detectRoundTrip(samples, sr, times.map((t) => Math.round((t - from) * sr)), data);
   }
 

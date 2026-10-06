@@ -96,6 +96,7 @@ import {
 } from "@/lib/timeline";
 import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/lib/types";
 import { noteIssue } from "@/lib/issues";
+import { flushSync } from "react-dom";
 
 type TransportState = "stopped" | "playing" | "paused" | "recording";
 
@@ -741,6 +742,17 @@ export function Daw() {
     else if (transportState !== "recording") void handlePlay();
   }, [transportState, handlePlay, handlePause]);
 
+  /** The page switches to recording right before the transport starts:
+   * its redraw (the transport bar, the live take on the timeline) is the
+   * heaviest of the session, and done after the start it would hold up the
+   * first beat's scheduling. */
+  const showRecording = useCallback(() => {
+    flushSync(() => {
+      setMicError(null);
+      setTransportState("recording");
+    });
+  }, []);
+
   const handleRecord = useCallback(async () => {
     if (transportState === "recording") {
       void handleStop();
@@ -751,9 +763,7 @@ export function Daw() {
     setRecordingChannelId(armedChannelId);
     if (channelTypeOf(armedChannelId) === "audio") {
       try {
-        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds);
-        setMicError(null);
-        setTransportState("recording");
+        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording);
         track("recording_started", { kind: "audio" });
         refreshInputDevices();
       } catch (error) {
@@ -766,10 +776,9 @@ export function Daw() {
       }
       return;
     }
-    setTransportState("recording");
     track("recording_started", { kind: "midi" });
-    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds);
-  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds]);
+    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording);
+  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds, showRecording]);
 
   const handleAddChannel = trackActions.add;
 

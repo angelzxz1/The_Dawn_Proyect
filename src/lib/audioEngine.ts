@@ -1352,9 +1352,10 @@ class AudioEngine {
    * clips still play back). `countInBeats` > 0 plays that many audible
    * clicks first and only starts the transport/recording once they finish,
    * like a real DAW's pre-roll. */
-  async startRecording(channelId: string, countInBeats = 0, fromSeconds = 0): Promise<void> {
+  async startRecording(channelId: string, countInBeats = 0, fromSeconds = 0, beforeStart?: () => void): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
+    beforeStart?.();
     const startTime = this.transport.startRecording(countInBeats, fromSeconds);
     this.recording = new MidiTake(channelId, fromSeconds, startTime, () => this.transport.seconds - this.midiRecordShift(channelId) - fromSeconds);
   }
@@ -1473,9 +1474,11 @@ class AudioEngine {
    * arms a channel to capture the input as an audio clip, starting the
    * transport from the top like MIDI recording does. The input is captured
    * sample-accurately (see inputRecorder.ts) from before the count-in, so
-   * the take can be lined up exactly.
+   * the take can be lined up exactly. `beforeStart` runs just before the
+   * transport starts (the page shows it's recording then, so its redraw
+   * doesn't land on the first beat).
    */
-  async startAudioRecording(channelId: string, countInBeats = 0, fromSeconds = 0): Promise<void> {
+  async startAudioRecording(channelId: string, countInBeats = 0, fromSeconds = 0, beforeStart?: () => void): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
     // From another track ("Audio From"), or the audio interface.
@@ -1490,6 +1493,7 @@ class AudioEngine {
       recorder.cancel();
       return;
     }
+    beforeStart?.();
     const startTime = this.transport.startRecording(countInBeats, fromSeconds);
     // A track's audio reaches its tap a known time after the beat (its
     // delay compensation and effects); the interface's comes back after the

@@ -22,7 +22,7 @@ export type AmpRectifier = (typeof AMP_RECTIFIERS)[number];
 export const AMP_RECTIFIER_LABELS: Record<AmpRectifier, string> = { tube: "Tube", diode: "Diode" };
 
 /** Default knob positions (0-10): where the reference voicing was fitted. */
-export const AMP_DEFAULTS = { gain: 7, bass: 6, mid: 4, treble: 6, presence: 5, master: 5 };
+export const AMP_DEFAULTS = { gain: 7, bass: 7.2, mid: 1.7, treble: 5, presence: 2.5, master: 5 };
 
 export function ampMode(v: number | undefined): AmpMode {
   return AMP_MODES[Math.min(AMP_MODES.length - 1, Math.max(0, Math.round(v ?? 2)))];
@@ -36,28 +36,28 @@ type Voicing = Omit<AmpSettings, "gain" | "bass" | "mid" | "treble" | "presence"
 
 /** Fitted against the reference capture (see the header). */
 const MODERN: Voicing = {
-  stageGains: [30, 25, 12, 8],
-  shelfHz: [300, 300, 300, 300],
-  shelfKeep: [0.4, 0.5, 0.5, 0.6],
-  couplingHz: [20, 120, 40, 30],
-  millerHz: [12000, 9000, 8000, 7000],
-  inputHz: 100,
-  asymmetry: 2,
-  bias: 0.4,
+  stageGains: [23.3, 9.91, 17.1, 6.83],
+  shelfHz: [762, 762, 762, 762],
+  shelfKeep: [0.876, 0.876, 0.876, 0.876],
+  couplingHz: [20, 441, 40, 30],
+  millerHz: [10005, 8004, 7004, 6003],
+  inputHz: 396,
+  asymmetry: 1.98,
+  bias: 0.569,
   bright: 6,
-  stack: { c1: 250e-12, c2: 20e-9, c3: 20e-9, r1: 250e3, r2: 1e6, r3: 25e3, r4: 56e3 },
-  stackGain: 3,
-  powerDrive: 6,
+  stack: { c1: 0.46e-9, c2: 20e-9, c3: 20e-9, r1: 250000, r2: 1000000, r3: 25000, r4: 54753 },
+  stackGain: 2.02,
+  powerDrive: 3.67,
   presenceHz: 3500,
   presenceDb: 9,
   depthHz: 90,
-  depthDb: 4,
+  depthDb: 6.86,
   lowHz: 40,
   highHz: 12000,
 };
 
 /** The output trim that puts the Modern voicing at the reference's level. */
-const MODERN_TRIM = 0;
+const MODERN_TRIM = -6.41;
 
 function voicing(mode: AmpMode): { v: Voicing; trim: number } {
   const m = MODERN;
@@ -101,7 +101,7 @@ function voicing(mode: AmpMode): { v: Voicing; trim: number } {
 
 /** Supply sag per rectifier: the tube rectifier sags and blooms, the
  * diodes stay stiff and tight. */
-const SAG: Record<AmpRectifier, number> = { tube: 0.75, diode: 0.2 };
+const SAG: Record<AmpRectifier, number> = { tube: 0.95, diode: 0.5 };
 
 const knob = (v: number | undefined, fallback: number) => Math.min(1, Math.max(0, (v ?? fallback) / 10));
 

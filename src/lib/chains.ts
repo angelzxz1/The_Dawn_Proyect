@@ -58,7 +58,7 @@ export const EFFECT_CHAINS: EffectChain[] = [
     description: "A tight gate, the Furnace's Modern channel and a closed 4x12, low end and fizz trimmed.",
     steps: [
       { type: "gate", preset: "factory:gate:guitar-hiss", params: { threshold: -50, release: 0.08 } },
-      { type: "tubeAmp", preset: "factory:tubeAmp:modern-rhythm" },
+      { type: "tubeAmp", preset: "factory:tubeAmp:modern-rhythm", params: { output: -6 } },
       { type: "irLoader", preset: "factory:irLoader:tight-guitar-cab", file: cab("factory-ir:4x12-closed") },
       { type: "paramEq", params: { b1On: 1, b1Shape: 2, b1Freq: 80, b1Q: 0.71, b1Slope: 24, b4On: 1, b4Shape: 4, b4Freq: 10000, b4Q: 0.71 } },
     ],

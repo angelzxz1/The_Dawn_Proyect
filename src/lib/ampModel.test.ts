@@ -50,7 +50,7 @@ describe("Furnace params", () => {
     const base = rms(defaults(), chord);
     expect(Number.isFinite(base)).toBe(true);
     for (const mode of [0, 1]) expect(Math.abs(rms({ ...defaults(), mode }, chord) - base)).toBeLessThan(8);
-    for (const id of ["modern-lead", "vintage-crunch", "raw-edge"]) {
+    for (const id of ["modern-lead", "tube-rectifier-bloom", "vintage-crunch", "raw-edge"]) {
       const preset = findPreset(`factory:tubeAmp:${id}`);
       expect(preset).toBeTruthy();
       expect(Math.abs(rms({ ...defaults(), ...preset!.params }, chord) - base)).toBeLessThan(10);

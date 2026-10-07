@@ -22,7 +22,7 @@ export type AmpRectifier = (typeof AMP_RECTIFIERS)[number];
 export const AMP_RECTIFIER_LABELS: Record<AmpRectifier, string> = { tube: "Tube", diode: "Diode" };
 
 /** Default knob positions (0-10): where the reference voicing was fitted. */
-export const AMP_DEFAULTS = { gain: 7, bass: 7.2, mid: 1.7, treble: 5, presence: 2.5, master: 5 };
+export const AMP_DEFAULTS = { gain: 7, bass: 6.1, mid: 4.9, treble: 4, presence: 6.6, master: 5 };
 
 export function ampMode(v: number | undefined): AmpMode {
   return AMP_MODES[Math.min(AMP_MODES.length - 1, Math.max(0, Math.round(v ?? 2)))];
@@ -36,28 +36,28 @@ type Voicing = Omit<AmpSettings, "gain" | "bass" | "mid" | "treble" | "presence"
 
 /** Fitted against the reference capture (see the header). */
 const MODERN: Voicing = {
-  stageGains: [23.3, 9.91, 17.1, 6.83],
-  shelfHz: [762, 762, 762, 762],
-  shelfKeep: [0.876, 0.876, 0.876, 0.876],
-  couplingHz: [20, 441, 40, 30],
-  millerHz: [10005, 8004, 7004, 6003],
-  inputHz: 396,
-  asymmetry: 1.98,
-  bias: 0.569,
-  bright: 6,
-  stack: { c1: 0.46e-9, c2: 20e-9, c3: 20e-9, r1: 250000, r2: 1000000, r3: 25000, r4: 54753 },
-  stackGain: 2.02,
-  powerDrive: 3.67,
-  presenceHz: 3500,
+  stageGains: [20.3, 8.31, 31.6, 7.29],
+  shelfHz: [473, 473, 473, 473],
+  shelfKeep: [0.793, 0.793, 0.793, 0.793],
+  couplingHz: [20, 349, 40, 30],
+  millerHz: [17470, 13976, 12229, 10482],
+  inputHz: 363,
+  asymmetry: 2.58,
+  bias: 0.347,
+  bright: 3.44,
+  stack: { c1: 0.839e-9, c2: 20e-9, c3: 22.1e-9, r1: 250000, r2: 1000000, r3: 25000, r4: 53282 },
+  stackGain: 1.78,
+  powerDrive: 2.69,
+  presenceHz: 4691,
   presenceDb: 9,
-  depthHz: 90,
-  depthDb: 6.86,
+  depthHz: 88,
+  depthDb: 9,
   lowHz: 40,
-  highHz: 12000,
+  highHz: 17042,
 };
 
 /** The output trim that puts the Modern voicing at the reference's level. */
-const MODERN_TRIM = -6.41;
+const MODERN_TRIM = -5.07;
 
 function voicing(mode: AmpMode): { v: Voicing; trim: number } {
   const m = MODERN;
@@ -77,7 +77,7 @@ function voicing(mode: AmpMode): { v: Voicing; trim: number } {
         depthDb: m.depthDb * 0.6,
         presenceDb: m.presenceDb * 0.8,
       },
-      trim: MODERN_TRIM + 2,
+      trim: MODERN_TRIM - 1.6,
     };
   }
   // Raw: three clipping stages, brighter and more open.
@@ -95,19 +95,24 @@ function voicing(mode: AmpMode): { v: Voicing; trim: number } {
       stack: { ...m.stack, r4: m.stack.r4 * 0.7 },
       depthDb: m.depthDb * 0.5,
     },
-    trim: MODERN_TRIM + 4,
+    trim: MODERN_TRIM + 0.2,
   };
 }
 
 /** Supply sag per rectifier: the tube rectifier sags and blooms, the
  * diodes stay stiff and tight. */
-const SAG: Record<AmpRectifier, number> = { tube: 0.95, diode: 0.5 };
+/** The tube rectifier's softer supply also drives the power amp harder
+ * into compression (with the level matched back) and loosens the low end a
+ * little. */
+const TUBE = { drive: 1.6, trim: -3.3, input: 0.85 };
+const SAG: Record<AmpRectifier, number> = { tube: 1.5, diode: 0.89 };
 
 const knob = (v: number | undefined, fallback: number) => Math.min(1, Math.max(0, (v ?? fallback) / 10));
 
 /** The kernel settings for a Furnace's params. */
 export function ampSettingsFromParams(params: Record<string, number>): AmpSettings {
   const { v, trim } = voicing(ampMode(params.mode));
+  const tube = ampRectifier(params.rectifier) === "tube";
   return {
     ...v,
     gain: knob(params.gain, AMP_DEFAULTS.gain),
@@ -116,8 +121,10 @@ export function ampSettingsFromParams(params: Record<string, number>): AmpSettin
     treble: knob(params.treble, AMP_DEFAULTS.treble),
     presence: knob(params.presence, AMP_DEFAULTS.presence),
     master: knob(params.master, AMP_DEFAULTS.master),
-    output: (params.output ?? 0) + trim,
+    output: (params.output ?? 0) + trim + (tube ? TUBE.trim : 0),
     sag: SAG[ampRectifier(params.rectifier)],
+    powerDrive: v.powerDrive * (tube ? TUBE.drive : 1),
+    inputHz: v.inputHz * (tube ? TUBE.input : 1),
   };
 }
 

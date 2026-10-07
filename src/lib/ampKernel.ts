@@ -70,7 +70,8 @@ export interface AmpSettings {
   presenceDb: number;
   depthHz: number;
   depthDb: number;
-  /** Supply sag: 0 none (diode rectifier) to 1 (tube rectifier). */
+  /** Supply sag: 0 none; around 1 a stiff (diode) supply, 1.5 a tube
+   * rectifier's. */
   sag: number;
   /** Output transformer band (Hz). */
   lowHz: number;

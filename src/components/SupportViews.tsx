@@ -2,7 +2,7 @@
 
 import { Heart, MessageSquare, X } from "lucide-react";
 import { RELEASES } from "@/content/whatsNew";
-import { isBrave } from "@/lib/projectFiles";
+import { isBrave } from "@/project/projectFiles";
 import { communityLink, feedbackUrl, supportLinks } from "@/lib/support";
 import { track } from "@/lib/telemetry";
 import { issueSummary } from "@/lib/issues";

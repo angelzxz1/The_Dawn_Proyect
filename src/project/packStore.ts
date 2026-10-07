@@ -6,12 +6,12 @@
 import { addPackPresets, removePackPresets, userPresets } from "../effects/presets";
 import { addPackSynthPresets, removePackSynthPresets, userSynthPresets } from "../instruments/synth/synthPresets";
 import { addPackKits, ownDrumKits, removePackKits } from "../instruments/drum-rack/drumKits";
-import { parsePackGrooves, removePackGrooves, setPackGrooves } from "./grooves";
+import { parsePackGrooves, removePackGrooves, setPackGrooves } from "../lib/grooves";
 import { decodeEffectFileAudio, discardEffectFile, effectFileBlob, registerEffectFile } from "../effects/effectFiles";
 import { parseNamFile } from "../effects/nam-amp/namModel";
 import { packFileName, packId, packPathKind, readPack, writePack, type PackFile, type PackManifest } from "./dawnPack";
-import type { ToneEntry } from "./tones";
-import { noteIssue } from "./issues";
+import type { ToneEntry } from "../lib/tones";
+import { noteIssue } from "../lib/issues";
 
 export interface InstalledPack extends PackManifest {
   id: string;

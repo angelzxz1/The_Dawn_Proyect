@@ -896,7 +896,7 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 
 ### Audio engine
 
-- **Tone.js runs the core.** `src/lib/audioEngine.ts` owns the transport,
+- **Tone.js runs the core.** `src/engine/audioEngine.ts` owns the transport,
   each track's signal chain (instrument → effects → volume/pan → sends), the
   buses and the master.
 - **Scheduling.** Clips are scheduled on the Tone transport. MIDI you play
@@ -982,9 +982,15 @@ npm start       # serve out/ locally
 - `src/components/`:
   - `Daw.tsx`, which holds the app's state;
   - the arrangement, transport, piano roll and FX rack.
-- `src/lib/`:
-  - the audio engine, mixing, routing and latency;
-  - the project schema, persistence, project files, MIDI and WAV I/O.
+- `src/engine/`: the audio engine (`audioEngine.ts`): transport, track
+  strips, inputs and recording, mixing and routing, delay compensation,
+  the metronome, and `engineSync.ts`, which makes it match the project.
+- `src/project/`: the project's shape and schema, saving and loading
+  (autosave, project files, recovery), packs, templates and the demo song.
+- `src/export/`: rendering the mix offline (`bounce.ts`), WAV and MP3
+  encoding, and MIDI files.
+- `src/lib/`: small helpers shared across the app (types, colors, scales,
+  shortcuts, telemetry...).
 
 ### Stack
 

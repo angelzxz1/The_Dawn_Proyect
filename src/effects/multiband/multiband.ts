@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { MB_MAX_BANDS, MB_SOURCE, mbSettingsFromParams } from "./multibandModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Multiband Compressor effect: multibandModel.ts's kernel in an
 // AudioWorklet (no added latency). It reports each band's gain and level

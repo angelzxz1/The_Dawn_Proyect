@@ -7,7 +7,7 @@ import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { MultibandGraph, mbBandColor } from "./MultibandGraph";
 import { formatHz } from "@/effects/parametric-eq/ParamEqGraph";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import type { MultibandMeters } from "./multiband";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
 import {

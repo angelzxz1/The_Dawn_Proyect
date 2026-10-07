@@ -1,10 +1,10 @@
 import * as Tone from "tone";
-import { PREFERRED_SAMPLE_RATE } from "./engine/context";
+import { PREFERRED_SAMPLE_RATE } from "./context";
 
 export { PREFERRED_SAMPLE_RATE };
 
 
-import type { NoteEvent, InstrumentType, ChannelType, SynthParams, AutomationLane } from "./types";
+import type { NoteEvent, InstrumentType, ChannelType, SynthParams, AutomationLane } from "../lib/types";
 import { DrumRack, type DrumLiveState } from "../instruments/drum-rack/drumRack";
 import { padNote, type DrumKitParams } from "../instruments/drum-rack/drumParams";
 import { SynthInstrument, setSynthTempo, type SynthLiveState } from "../instruments/synth/synth";
@@ -16,7 +16,7 @@ import { LookaheadLimiter, type LimiterLevels } from "../effects/limiter/lookahe
 import { measureNativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, type CompensationPlan } from "./latency";
 import { InputRecorder, takeToWav } from "./inputRecorder";
-import type { Waveform } from "./waveform";
+import type { Waveform } from "../lib/waveform";
 import { installCpuMeter } from "./cpuMeter";
 import { decodeEffectFileAudio, readEffectFileText } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
@@ -29,14 +29,14 @@ import type { SidechainRouting } from "../effects/sidechain/sidechainModel";
 import { canKeyFrom, tapLatency, type RoutingSnapshot } from "../effects/sidechain/sidechainRouting";
 import type { RouteNode } from "./routing";
 import { planMix, type MixGraph, type MixHost, type MixInput, type MixTrack } from "./mixGraph";
-import { interpolateAutomation } from "./engine/automation";
-import { InputManager } from "./engine/inputs";
-import { MidiTake } from "./engine/midiTake";
-import { Transport } from "./engine/transport";
+import { interpolateAutomation } from "./automation";
+import { InputManager } from "./inputs";
+import { MidiTake } from "./midiTake";
+import { Transport } from "./transport";
 import { createInstrument } from "../instruments/nodes";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
-import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./engine/nodes";
-import { attempt, noteIssue } from "./issues";
+import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./nodes";
+import { attempt, noteIssue } from "../lib/issues";
 
 export type { AudioClipTiming };
 
@@ -56,7 +56,7 @@ class AudioEngine {
   private started = false;
   private startPromise: Promise<void> | null = null;
   private recording: MidiTake | null = null;
-  /** Tone's transport and the metronome (engine/transport.ts). */
+  /** Tone's transport and the metronome (transport.ts). */
   private transport = new Transport(() => this.ensureClickOut());
   private pendingLoads = 0;
   private readyListeners = new Set<() => void>();
@@ -1421,7 +1421,7 @@ class AudioEngine {
     return this.recording !== null || this.audioRecording !== null;
   }
 
-  // --- Inputs and monitoring (engine/inputs.ts) ---
+  // --- Inputs and monitoring (inputs.ts) ---
 
   private inputs = new InputManager({
     hasTrack: (id) => this.channels.has(id),

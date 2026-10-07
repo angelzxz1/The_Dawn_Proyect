@@ -1,7 +1,7 @@
 import * as Tone from "tone";
 import { AMP_LATENCY, AMP_SOURCE } from "./ampKernel";
 import { ampSettingsFromParams } from "./ampModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Furnace amp effect: ampKernel.ts in an AudioWorklet. Mono like a
 // real amp (a stereo input is summed); the output feeds both sides.

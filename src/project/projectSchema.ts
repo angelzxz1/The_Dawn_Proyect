@@ -12,13 +12,13 @@
 import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectInstance, type EffectType } from "../effects/registry";
 import { SIDECHAIN_TAPS, type SidechainTap } from "../effects/sidechain/sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "../effects/filter/filterModel";
-import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
-import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./timeline";
-import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
+import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "../lib/scales";
+import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "../lib/timeline";
+import { normalizeArrangementLoop, type ArrangementLoop } from "../lib/arrangementLoop";
 import { normalizeSynthParams } from "../instruments/synth/synthParams";
 import { normalizeDrumKit } from "../instruments/drum-rack/drumParams";
-import { HEX_COLOR } from "./colors";
-import { MASTER_OUTPUT, normalizeGroups } from "./routing";
+import { HEX_COLOR } from "../lib/colors";
+import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
 import type {
   AutomationLane,
   AutomationPoint,
@@ -28,7 +28,7 @@ import type {
   NoteEvent,
   TimeSignature,
   TrackInput,
-} from "./types";
+} from "../lib/types";
 
 /** Bump whenever the saved format changes, and teach `normalizeProject`
  * how to read the older shape. */

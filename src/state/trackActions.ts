@@ -5,10 +5,10 @@
 // one undo step where it's an edit. What the view does around it - which
 // track is selected, which FX rack is open - stays with the view.
 
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import type { TrackColorPick } from "@/lib/colors";
 import { defaultDrumKit, type DrumKitParams } from "@/instruments/drum-rack/drumParams";
-import { groupTracks, moveTrack, setTrackGroup, ungroup } from "@/lib/routing";
+import { groupTracks, moveTrack, setTrackGroup, ungroup } from "@/engine/routing";
 import { defaultSynthParams } from "@/instruments/synth/synth";
 import type { SynthParams } from "@/instruments/synth/synthParams";
 import { track } from "@/lib/telemetry";

@@ -1,5 +1,5 @@
 import { backupProject, clearSavedProject, latestBackup, loadProject } from "./persistence";
-import { noteIssue } from "./issues";
+import { noteIssue } from "../lib/issues";
 
 const NOTICE_KEY = "dawn-recovery-notice";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { detectPitch, noteFor, type NoteReading } from "./tunerModel";
 
 /** Readings per second. */

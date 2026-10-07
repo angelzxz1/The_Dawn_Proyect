@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { paramSpecs } from "@/effects/registry";
 import type { MbdMeters } from "./mbDynamics";
 import { MBD_BAND_LABELS, MBD_MIN_DB, formatMbdRatio, mbdBandFromParams, mbdKey, type MbdBand, type MbdField } from "./mbDynamicsModel";

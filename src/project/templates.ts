@@ -7,12 +7,12 @@
 import { chainById } from "../effects/chains";
 import { FACTORY_KITS } from "../instruments/drum-rack/drumKits";
 import { defaultParams, type EffectInstance, type EffectType } from "../effects/registry";
-import { grooveBeats, grooveById, grooveNotes } from "./grooves";
+import { grooveBeats, grooveById, grooveNotes } from "../lib/grooves";
 import { midiToNoteName } from "../instruments/piano/piano";
 import { findPreset, paramsFromPreset } from "../effects/presets";
 import { normalizeProject, type SerializedProject } from "./projectSchema";
 import { FACTORY_SYNTH_PRESETS } from "../instruments/synth/synthPresets";
-import type { ChannelConfig, NoteEvent } from "./types";
+import type { ChannelConfig, NoteEvent } from "../lib/types";
 
 export type TemplateId = "guitar-demo" | "beat" | "voice-guitar" | "empty";
 

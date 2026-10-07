@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   output: "export",
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
-    // Whether there's a demo song to offer (src/lib/demoSong.ts).
+    // Whether there's a demo song to offer (src/project/demoSong.ts).
     NEXT_PUBLIC_HAS_DEMO_SONG: existsSync("public/demo/demo-song.dawnproject") ? "1" : "",
   },
 };

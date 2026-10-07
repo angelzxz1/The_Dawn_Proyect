@@ -9,7 +9,7 @@ import {
   oversampleFromParam,
   softClipCurve,
 } from "./saturatorModel";
-import { nativeLatencies } from "../../lib/nativeLatency";
+import { nativeLatencies } from "../../engine/nativeLatency";
 
 // The Saturator (the "distortion" effect type):
 //

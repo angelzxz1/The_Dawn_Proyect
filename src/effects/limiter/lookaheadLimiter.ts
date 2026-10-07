@@ -1,5 +1,5 @@
 import * as Tone from "tone";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // A true brick-wall limiter. The native DynamicsCompressorNode can't be one:
 // its level detector is smoothed, so fast transients get through several dB

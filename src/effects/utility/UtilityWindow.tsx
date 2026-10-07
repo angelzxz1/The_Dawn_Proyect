@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
 import { PluginToggle, PluginWindow } from "@/effects/ui/PluginChrome";
 import { Segmented } from "@/effects/ui/PluginSegmented";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { paramSpecs } from "@/effects/registry";
 import type { UtilityMeters } from "./utility";
 import { UTILITY_CHANNEL_LABELS, UTILITY_CHANNEL_MODES } from "./utilityModel";

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { EffectFileSlot, type EffectFileSlotLabels } from "@/effects/ui/EffectFileSlot";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { decodeEffectFileAudio, hasEffectFile } from "@/effects/effectFiles";
 import type { EffectFileRef } from "@/effects/registry";
 

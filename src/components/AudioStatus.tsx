@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Cpu, Timer } from "lucide-react";
-import { audioEngine } from "@/lib/audioEngine";
-import { cpuReading, type CpuReading } from "@/lib/cpuMeter";
-import { loadAudioPrefs, saveAudioPrefs, type AudioPrefs } from "@/lib/audioPrefs";
+import { audioEngine } from "@/engine/audioEngine";
+import { cpuReading, type CpuReading } from "@/engine/cpuMeter";
+import { loadAudioPrefs, saveAudioPrefs, type AudioPrefs } from "@/engine/audioPrefs";
 import { useShortcuts } from "@/lib/shortcuts";
 import { noteIssue } from "@/lib/issues";
 

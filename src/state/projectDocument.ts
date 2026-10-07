@@ -2,9 +2,9 @@
 // write (the song, its last undo steps, the audio and effect files they
 // use), and making a loaded document the open project.
 
-import { bumpEffectIdCounter } from "@/lib/audioEngine";
+import { bumpEffectIdCounter } from "@/engine/audioEngine";
 import { referencedEffectFiles, registerEffectFile, effectFileBlob } from "@/effects/effectFiles";
-import type { ProjectState } from "@/lib/project";
+import type { ProjectState } from "@/project/project";
 import {
   MAX_SAVED_HISTORY,
   deserializeClips,
@@ -14,8 +14,8 @@ import {
   type ProjectDocument,
   type SavedHistory,
   type SerializedSnapshot,
-} from "@/lib/projectFiles";
-import { PROJECT_VERSION, type SerializedProject } from "@/lib/projectSchema";
+} from "@/project/projectFiles";
+import { PROJECT_VERSION, type SerializedProject } from "@/project/projectSchema";
 import { audioBlobs } from "./audioBlobs";
 import { bumpIdFrom } from "./ids";
 import { projectStore } from "./projectStore";

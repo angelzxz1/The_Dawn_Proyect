@@ -5,7 +5,7 @@ import { Headphones } from "lucide-react";
 import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
 import { PluginToggle } from "@/effects/ui/PluginChrome";
 import { Segmented } from "@/effects/ui/PluginSegmented";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { paramSpecs, type EffectType } from "@/effects/registry";
 import {
   DEFAULT_SIDECHAIN,

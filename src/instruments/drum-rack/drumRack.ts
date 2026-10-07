@@ -3,7 +3,7 @@ import type { Instrument } from "../instrument";
 import { DRUM_SOURCE } from "./drumKernel";
 import { decodeEffectFileAudio } from "../../effects/effectFiles";
 import { PAD_COUNT, compileDrumKit, padNote, type DrumKitParams } from "./drumParams";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Drum Rack instrument: drumKernel.ts in an AudioWorklet. Hits are
 // sent as timestamped events (so scheduled hits land on their sample);

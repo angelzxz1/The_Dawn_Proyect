@@ -6,7 +6,7 @@ import { PluginKnob } from "@/effects/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { ParamEqGraph, eqBandColor } from "./ParamEqGraph";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
 import {
   EQ_PLACEMENTS,

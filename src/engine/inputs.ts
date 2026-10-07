@@ -3,9 +3,9 @@
 // monitor - its input heard live through its effects.
 
 import * as Tone from "tone";
-import type { SidechainTap } from "../../effects/sidechain/sidechainModel";
-import type { TrackInput } from "../types";
-import { noteIssue } from "../issues";
+import type { SidechainTap } from "../effects/sidechain/sidechainModel";
+import type { TrackInput } from "../lib/types";
+import { noteIssue } from "../lib/issues";
 
 /** What the input manager needs from the engine. */
 export interface InputHost {

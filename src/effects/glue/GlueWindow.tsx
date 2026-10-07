@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
 import { PluginToggle, PluginWindow } from "@/effects/ui/PluginChrome";
 import { SidechainPanel, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
 import type { SidechainRouting } from "@/effects/sidechain/sidechainModel";
 

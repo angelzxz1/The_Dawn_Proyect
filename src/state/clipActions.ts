@@ -5,11 +5,11 @@
 // Which clips are selected is the view's: actions that change it take the
 // selection and return the new one.
 
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import type { DecodedAudioClip } from "@/lib/audioFile";
 import { copyClip, getCopiedClip } from "@/lib/clipboard";
 import { grooveBeats, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
-import { audioClipTiming, midiTimeline } from "@/lib/engineSync";
+import { audioClipTiming, midiTimeline } from "@/engine/engineSync";
 import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, NoteEvent } from "@/lib/types";
 import { audioBlobs } from "./audioBlobs";
 import { newClipId } from "./ids";

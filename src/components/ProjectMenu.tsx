@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, FilePlus2, FolderOpen, History, Package, Save, Upload } from "lucide-react";
-import type { RecentProject } from "@/lib/projectFiles";
+import type { RecentProject } from "@/project/projectFiles";
 import { useShortcuts } from "@/lib/shortcuts";
 
 /** The project's name (with a dot while there are unsaved changes) and

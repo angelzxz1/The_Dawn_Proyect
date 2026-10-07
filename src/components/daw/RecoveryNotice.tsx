@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Download, X } from "lucide-react";
-import { clearRecoveryNotice, downloadLatestBackup, readRecoveryNotice } from "@/lib/projectRecovery";
+import { clearRecoveryNotice, downloadLatestBackup, readRecoveryNotice } from "@/project/projectRecovery";
 
 /** Shown when the last saved project couldn't be opened and the studio
  * started fresh: the old project is kept as a backup in this browser,

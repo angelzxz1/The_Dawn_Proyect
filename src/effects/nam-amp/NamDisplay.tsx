@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { filterResponseDb } from "@/effects/filter/filterModel";
 import { toneStackStages } from "./namModel";
 import type { NamModelState } from "./NamFileSlot";

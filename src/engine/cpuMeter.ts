@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { loadWorklet } from "./workletLoader";
-import { noteIssue } from "./issues";
+import { noteIssue } from "../lib/issues";
 
 // A CPU meter for the audio engine, like a DAW's: the share of each audio
 // block's real-time budget that rendering it takes. Browsers don't report

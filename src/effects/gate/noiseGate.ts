@@ -1,7 +1,7 @@
 import * as Tone from "tone";
 import { GATE_KERNEL_SOURCE, type GateKernelSettings } from "./gateModel";
 import { keySettingsFromParams } from "../sidechain/sidechainModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Noise Gate effect: runs gateModel.ts's kernel in an AudioWorklet
 // (sample-accurate, no added latency) and reports levels for the plugin

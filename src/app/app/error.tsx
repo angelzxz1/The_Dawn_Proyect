@@ -31,7 +31,7 @@ export default function StudioError({
     try {
       // Loaded on demand so this fallback stays tiny and can't be broken by
       // the same code that just crashed.
-      const { startFreshKeepingBackup } = await import("@/lib/projectRecovery");
+      const { startFreshKeepingBackup } = await import("@/project/projectRecovery");
       await startFreshKeepingBackup(`The studio crashed: ${error.message || "unknown error"}.`);
     } catch {
       setResetting(false);

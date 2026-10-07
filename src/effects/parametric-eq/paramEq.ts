@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { EQ_SOURCE, eqBandsFromParams } from "./paramEqModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Parametric EQ effect: paramEqModel.ts's kernel in an AudioWorklet
 // (no added latency), with spectrum analyzers tapping the signal before

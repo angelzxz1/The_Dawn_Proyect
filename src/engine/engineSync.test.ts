@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { hydrateEngine, syncEngine, type EngineApi } from "./engineSync";
 import type { EffectInstance, EffectType } from "../effects/registry";
-import type { ProjectState } from "./project";
-import type { AudioClipInstance, ChannelConfig, ChannelType, InstrumentType, MidiClipInstance, NoteEvent } from "./types";
+import type { ProjectState } from "../project/project";
+import type { AudioClipInstance, ChannelConfig, ChannelType, InstrumentType, MidiClipInstance, NoteEvent } from "../lib/types";
 
 // A stand-in for the audio engine that keeps what the real one would hold
 // (tracks, chains in order with their params, sends, clips, buses, master)

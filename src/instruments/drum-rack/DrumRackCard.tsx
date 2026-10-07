@@ -1,7 +1,7 @@
 "use client";
 
 import { Maximize2 } from "lucide-react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import type { DrumKitParams } from "./drumParams";
 import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import { padColor } from "./DrumRackWindow";

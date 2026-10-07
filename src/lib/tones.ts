@@ -5,7 +5,7 @@
 // there needs an entry in src/content/licenses.json (a test checks).
 
 import { cabImpulse, factoryCab, FACTORY_CABS } from "../effects/ir-loader/cabIrs";
-import { encodeWav } from "./wav";
+import { encodeWav } from "../export/wav";
 import { noteIssue } from "./issues";
 
 export interface ToneEntry {

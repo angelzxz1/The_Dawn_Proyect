@@ -9,7 +9,7 @@
 // else with the steps around it.
 
 import { useSyncExternalStore } from "react";
-import type { ProjectState } from "@/lib/project";
+import type { ProjectState } from "@/project/project";
 import { audioBlobs } from "./audioBlobs";
 import { createChannel } from "./ids";
 

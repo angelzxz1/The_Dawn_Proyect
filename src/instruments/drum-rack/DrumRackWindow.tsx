@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ClipboardPaste, Copy, FileAudio, RotateCcw, Save, Trash2, Upload, Waves, X } from "lucide-react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { loadDrumSample } from "./drumRack";
 import {
   CHOKE_GROUPS,

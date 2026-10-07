@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { COMPRESSOR_SOURCE, compressorSettingsFromParams } from "./compressorModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Compressor effect: compressorModel.ts's kernel in an AudioWorklet (no
 // added latency). Its second input is the sidechain; the engine connects a

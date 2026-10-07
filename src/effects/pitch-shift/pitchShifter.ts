@@ -1,5 +1,5 @@
 import * as Tone from "tone";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // A delay-line pitch shifter running as an AudioWorklet. Tone.PitchShift
 // drives its delay lines with a scaled oscillator LFO whose speed formula

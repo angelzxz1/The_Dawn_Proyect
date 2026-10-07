@@ -8,7 +8,7 @@ import { DRUM_PADS, drumLabelForNote } from "@/instruments/drum-rack/drums";
 import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import type { InstrumentType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { copyNotes, getCopiedNotes } from "@/lib/clipboard";
 import { ScaleSelector } from "./ScaleSelector";
 import { useShortcuts } from "@/lib/shortcuts";

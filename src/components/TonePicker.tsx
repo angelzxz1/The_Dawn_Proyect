@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ExternalLink, Feather, Loader2 } from "lucide-react";
 import type { EffectFileRef } from "@/effects/registry";
 import { bundledTones, FACTORY_CAB_TONES, fetchToneFile, type ToneEntry } from "@/lib/tones";
-import { packTones } from "@/lib/packStore";
+import { packTones } from "@/project/packStore";
 
 /** "Browse tones" for the IR Loader and NAM Amp: Dawn's own cabinets and
  * any bundled captures/IRs, each with a description and its creator's

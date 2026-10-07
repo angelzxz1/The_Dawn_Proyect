@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { MBD_SOURCE, mbdSettingsFromParams, type MbdBand } from "./mbDynamicsModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Multiband Dynamics effect: mbDynamicsModel.ts's kernel in an
 // AudioWorklet (no added latency). Its second input is the sidechain.

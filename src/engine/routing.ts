@@ -17,7 +17,7 @@
 // input that would close one is ignored, and choices that would aren't
 // offered.
 
-import type { ChannelConfig, TrackInput } from "./types";
+import type { ChannelConfig, TrackInput } from "../lib/types";
 
 /** The parts of a track that decide its routing. */
 export type RouteNode = Pick<ChannelConfig, "id" | "type" | "groupId" | "output" | "input">;

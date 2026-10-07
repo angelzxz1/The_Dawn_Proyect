@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { GLUE_OS_LATENCY, GLUE_SOURCE, glueSettingsFromParams } from "./glueModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Glue Compressor effect: glueModel.ts's kernel in an AudioWorklet.
 // Its second input is the sidechain (see sidechainRouting.ts).

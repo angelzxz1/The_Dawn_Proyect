@@ -19,7 +19,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { getCopiedClip } from "@/lib/clipboard";
 import type { ChannelConfig, ClipInstance } from "@/lib/types";
 import type { ContextMenuItem } from "../ContextMenu";

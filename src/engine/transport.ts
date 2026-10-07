@@ -3,7 +3,7 @@
 // loop all go through here so the clicks always match the music.
 
 import * as Tone from "tone";
-import { Metronome } from "../metronome";
+import { Metronome } from "./metronome";
 
 /** How far ahead of the audio clock (s) Play and Record start the
  * transport: past the scheduling window (context.ts), with room for the

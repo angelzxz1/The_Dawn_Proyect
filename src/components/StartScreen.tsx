@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mic2, Play, X } from "lucide-react";
-import { demoSongAvailable } from "@/lib/demoSong";
-import type { RecentProject } from "@/lib/projectFiles";
-import { PROJECT_TEMPLATES, type ProjectTemplate, type TemplateId } from "@/lib/templates";
+import { demoSongAvailable } from "@/project/demoSong";
+import type { RecentProject } from "@/project/projectFiles";
+import { PROJECT_TEMPLATES, type ProjectTemplate, type TemplateId } from "@/project/templates";
 import { useShortcuts } from "@/lib/shortcuts";
 
 const ICONS: Record<TemplateId, typeof Guitar> = {

@@ -2,10 +2,10 @@
 // made of, and where they can be tapped.
 
 import * as Tone from "tone";
-import type { NoteEvent, InstrumentType, ChannelType } from "../types";
-import { type Instrument } from "../../instruments/instrument";
-import { type EffectType } from "../../effects/registry";
-import type { SidechainRouting } from "../../effects/sidechain/sidechainModel";
+import type { NoteEvent, InstrumentType, ChannelType } from "../lib/types";
+import { type Instrument } from "../instruments/instrument";
+import { type EffectType } from "../effects/registry";
+import type { SidechainRouting } from "../effects/sidechain/sidechainModel";
 
 /** Longest delay compensation can add to one path (s). */
 export const MAX_COMPENSATION = 2;

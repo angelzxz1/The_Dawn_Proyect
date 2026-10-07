@@ -4,7 +4,7 @@
 // audio engine and the project together, as one undo step where it's an
 // edit (a knob turn records its step when the drag starts).
 
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import type { EffectChain } from "@/effects/chains";
 import { discardEffectFile, importAudioEffectFile, importNamModelFile } from "@/effects/effectFiles";
 import type { EffectFileRef, EffectInstance, EffectType } from "@/effects/registry";

@@ -7,21 +7,21 @@
 import * as Tone from "tone";
 import { createInstrument } from "../instruments/nodes";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
-import { MAX_COMPENSATION } from "./engine/nodes";
+import { MAX_COMPENSATION } from "../engine/nodes";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
 import { SynthInstrument } from "../instruments/synth/synth";
 import { DrumRack } from "../instruments/drum-rack/drumRack";
-import { notesWithinClip } from "./project";
-import { workletsReady } from "./workletLoader";
-import { chainLatency, nodeLatency } from "./latency";
-import { audibleTracks, planMix } from "./mixGraph";
+import { notesWithinClip } from "../project/project";
+import { workletsReady } from "../engine/workletLoader";
+import { chainLatency, nodeLatency } from "../engine/latency";
+import { audibleTracks, planMix } from "../engine/mixGraph";
 import type { SidechainTap } from "../effects/sidechain/sidechainModel";
 import { encodeWav } from "./wav";
-import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
+import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "../lib/types";
 import type { EffectInstance } from "../effects/registry";
-import { downstreamOf, inputMap, routeMap, upstreamOf } from "./routing";
-import { noteIssue } from "./issues";
+import { downstreamOf, inputMap, routeMap, upstreamOf } from "../engine/routing";
+import { noteIssue } from "../lib/issues";
 
 const MIN_NOTE_DURATION = 0.05;
 /** Default extra render time so reverb/delay tails aren't cut off. */

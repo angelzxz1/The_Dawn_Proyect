@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { UTILITY_SOURCE, utilitySettingsFromParams } from "./utilityModel";
-import { loadWorklet } from "../../lib/workletLoader";
+import { loadWorklet } from "../../engine/workletLoader";
 
 // The Utility effect: utilityModel.ts's kernel in an AudioWorklet (no
 // latency). It reports output meters, L/R correlation, and recent samples

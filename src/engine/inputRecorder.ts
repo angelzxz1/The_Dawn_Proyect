@@ -1,7 +1,7 @@
 import * as Tone from "tone";
 import { loadWorklet } from "./workletLoader";
-import { encodeWav } from "./wav";
-import { WaveformBuilder, type Waveform } from "./waveform";
+import { encodeWav } from "../export/wav";
+import { WaveformBuilder, type Waveform } from "../lib/waveform";
 
 // Captures the audio input sample-accurately, inside the audio graph: an
 // AudioWorklet that copies every frame it's given and stamps each chunk

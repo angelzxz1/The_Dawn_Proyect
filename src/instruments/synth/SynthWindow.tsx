@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Save, Search, Trash2, Upload, X } from "lucide-react";
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { newEffectFileId, registerEffectFile } from "@/effects/effectFiles";
 import type { SynthLiveState } from "./synth";
 import {

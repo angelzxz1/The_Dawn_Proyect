@@ -5,7 +5,7 @@
 
 import { zipSync } from "fflate";
 import { audibleChannels, renderProject, type BounceParams, type RenderedAudio } from "./bounce";
-import { routeMap, upstreamOf } from "./routing";
+import { routeMap, upstreamOf } from "../engine/routing";
 import { encodeWav } from "./wav";
 import { encodeMp3 } from "./mp3";
 import { normalizePeak, safeFileName, stemFileNames, type ExportSettings } from "./exportFormats";

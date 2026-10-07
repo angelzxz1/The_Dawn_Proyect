@@ -5,10 +5,10 @@
 // another project (a folder, a file, a recent one, the demo, a template).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchDemoSong } from "@/lib/demoSong";
-import { restorePacks } from "@/lib/packStore";
-import { loadProject, saveProject } from "@/lib/persistence";
-import type { ProjectState } from "@/lib/project";
+import { fetchDemoSong } from "@/project/demoSong";
+import { restorePacks } from "@/project/packStore";
+import { loadProject, saveProject } from "@/project/persistence";
+import type { ProjectState } from "@/project/project";
 import {
   BUNDLE_EXTENSION,
   createProjectFolder,
@@ -26,9 +26,9 @@ import {
   type ProjectDocument,
   type ProjectFolder,
   type RecentProject,
-} from "@/lib/projectFiles";
-import { startFreshKeepingBackup } from "@/lib/projectRecovery";
-import type { SerializedProject } from "@/lib/projectSchema";
+} from "@/project/projectFiles";
+import { startFreshKeepingBackup } from "@/project/projectRecovery";
+import type { SerializedProject } from "@/project/projectSchema";
 import { track } from "@/lib/telemetry";
 import { autosaveBlobs, documentToSave, openInStore, serializeProject, type SessionSettings } from "@/state/projectDocument";
 import { projectStore, useProjectDoc } from "@/state/projectStore";

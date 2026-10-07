@@ -2,10 +2,10 @@
 
 import { useRef, useState, useSyncExternalStore } from "react";
 import { Download, Loader2, Package, Trash2, Upload, X } from "lucide-react";
-import { PACK_EXTENSION } from "@/lib/dawnPack";
-import { buildMyPresetsPack, installedPacks, subscribePacks, type InstalledPack } from "@/lib/packStore";
-import { downloadBlob } from "@/lib/exportProject";
-import { safeFileName } from "@/lib/exportFormats";
+import { PACK_EXTENSION } from "@/project/dawnPack";
+import { buildMyPresetsPack, installedPacks, subscribePacks, type InstalledPack } from "@/project/packStore";
+import { downloadBlob } from "@/export/exportProject";
+import { safeFileName } from "@/export/exportFormats";
 import { useShortcuts } from "@/lib/shortcuts";
 
 const EMPTY: InstalledPack[] = [];

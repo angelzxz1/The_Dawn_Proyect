@@ -8,7 +8,7 @@ import { IrFileSlot, useImpulseResponse } from "./IrFileSlot";
 import { paramSpecs, type EffectFileRef, type ParamSpec } from "@/effects/registry";
 import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
-import { TonePicker } from "@/components/TonePicker";
+import { TonePicker } from "@/studio/rack/TonePicker";
 
 interface IrLoaderWindowProps {
   channelName: string;

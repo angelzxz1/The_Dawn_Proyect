@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ClipBlock } from "./ClipBlock";
-import { RecordingClip } from "./RecordingClip";
+import { ClipBlock } from "@/studio/timeline/ClipBlock";
+import { RecordingClip } from "@/studio/timeline/RecordingClip";
 import type { ClipInstance } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
-import { GROOVE_DRAG_MIME } from "@/lib/grooves";
+import { GROOVE_DRAG_MIME } from "@/library/grooves";
 
 interface TrackLaneProps {
   clips: ClipInstance[];

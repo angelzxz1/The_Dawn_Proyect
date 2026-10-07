@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { DesktopOnly } from "@/components/DesktopOnly";
+import { DesktopOnly } from "@/studio/shell/DesktopOnly";
 
 const loading = <div className="flex flex-1 items-center justify-center text-sm text-muted">loading the studio…</div>;
 
@@ -9,7 +9,7 @@ const loading = <div className="flex flex-1 items-center justify-center text-sm 
 // like per-channel colors from module-level counters), so it's rendered
 // client-only rather than prerendered - avoids hydration mismatches for
 // state that isn't meant to be deterministic across a server/client boundary.
-const Daw = dynamic(() => import("@/components/Daw").then((mod) => mod.Daw), {
+const Daw = dynamic(() => import("@/studio/Daw").then((mod) => mod.Daw), {
   ssr: false,
   loading: () => loading,
 });

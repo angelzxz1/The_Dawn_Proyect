@@ -9,7 +9,7 @@ import { paramSpecs, type EffectFileRef, type ParamSpec } from "@/effects/regist
 import { normalizationDb } from "./namModel";
 import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
-import { TonePicker } from "@/components/TonePicker";
+import { TonePicker } from "@/studio/rack/TonePicker";
 
 interface NamAmpWindowProps {
   hostId: string;

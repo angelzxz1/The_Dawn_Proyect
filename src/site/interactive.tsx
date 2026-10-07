@@ -6,7 +6,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { FAQ_CATEGORIES, FAQS, type Faq } from "@/content/faq";
-import { APP_PATH, supportLink } from "@/lib/siteLinks";
+import { APP_PATH, supportLink } from "./siteLinks";
 import { CheckIcon } from "./ui";
 
 function PlusIcon({ open }: { open: boolean }) {

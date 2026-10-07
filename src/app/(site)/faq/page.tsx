@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FaqBrowser } from "@/components/site/interactive";
-import { Container, CtaBand, Eyebrow, h1Class, h2Class, leadClass, primaryButton, secondaryButton } from "@/components/site/ui";
-import { ISSUES_URL, supportLink } from "@/lib/siteLinks";
+import { FaqBrowser } from "@/site/interactive";
+import { Container, CtaBand, Eyebrow, h1Class, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
+import { ISSUES_URL, supportLink } from "@/site/siteLinks";
 
 export const metadata: Metadata = {
   title: "FAQ",

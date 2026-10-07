@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronRight, Play, Plus, Square } from "lucide-react";
-import { allGrooveGenres, allGrooves, GROOVE_DRAG_MIME, GROOVE_GENRES, SECTION_LABELS, subscribeGrooves, type Groove } from "@/lib/grooves";
+import { allGrooveGenres, allGrooves, GROOVE_DRAG_MIME, GROOVE_GENRES, SECTION_LABELS, subscribeGrooves, type Groove } from "@/library/grooves";
 
 interface GrooveBrowserProps {
   /** Plays the groove once (resolves when it has finished or was replaced). */

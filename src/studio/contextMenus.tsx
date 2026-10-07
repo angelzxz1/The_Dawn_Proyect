@@ -22,7 +22,7 @@ import {
 import { audioEngine } from "@/engine/audioEngine";
 import { getCopiedClip } from "@/lib/clipboard";
 import type { ChannelConfig, ClipInstance } from "@/lib/types";
-import type { ContextMenuItem } from "../ContextMenu";
+import type { ContextMenuItem } from "@/studio/shell/ContextMenu";
 
 export type ContextMenuState =
   | { kind: "clip"; channelId: string; clipId: string; x: number; y: number }

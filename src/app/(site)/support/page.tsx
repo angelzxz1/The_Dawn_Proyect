@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PERKS, TIERS } from "@/content/tiers";
-import { PackCover } from "@/components/site/illustrations";
-import { Tiers } from "@/components/site/interactive";
-import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/components/site/ui";
-import { ISSUES_URL, REPO_URL, supportLink } from "@/lib/siteLinks";
+import { PackCover } from "@/site/illustrations";
+import { Tiers } from "@/site/interactive";
+import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
+import { ISSUES_URL, REPO_URL, supportLink } from "@/site/siteLinks";
 
 export const metadata: Metadata = {
   title: "Support",

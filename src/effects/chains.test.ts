@@ -5,7 +5,7 @@ import { factoryCab } from "./ir-loader/cabIrs";
 import { CREDITS } from "../lib/credits";
 import { paramSpecs } from "./registry";
 import { findPreset } from "./presets";
-import { parseToneManifest } from "../lib/tones";
+import { parseToneManifest } from "../library/tones";
 
 describe("effect chains", () => {
   it("use presets, settings and cabinets that exist", () => {

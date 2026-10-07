@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { LicenseTabBody } from "@/components/AboutWindow";
-import { LegalPage } from "@/components/site/LegalPage";
+import { LicenseTabBody } from "@/studio/dialogs/AboutWindow";
+import { LegalPage } from "@/site/LegalPage";
 
 export const metadata: Metadata = {
   title: "License",

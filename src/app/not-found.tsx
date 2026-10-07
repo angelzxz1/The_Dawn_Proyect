@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { SiteFooter, SiteHeader } from "@/components/site/SiteChrome";
-import { Container, Eyebrow, OpenDawn, Sun, h1Class, leadClass, secondaryButton } from "@/components/site/ui";
-import { siteFontVariables } from "@/lib/siteFonts";
+import { SiteFooter, SiteHeader } from "@/site/SiteChrome";
+import { Container, Eyebrow, OpenDawn, Sun, h1Class, leadClass, secondaryButton } from "@/site/ui";
+import { siteFontVariables } from "@/site/siteFonts";
 
 export const metadata: Metadata = {
   title: "Page not found",

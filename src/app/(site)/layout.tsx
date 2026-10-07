@@ -1,5 +1,5 @@
-import { SiteFooter, SiteHeader } from "@/components/site/SiteChrome";
-import { siteFontVariables } from "@/lib/siteFonts";
+import { SiteFooter, SiteHeader } from "@/site/SiteChrome";
+import { siteFontVariables } from "@/site/siteFonts";
 
 /** The website around the studio: landing, features, guides, FAQ, support
  * and the legal pages. The studio itself is at /app. */

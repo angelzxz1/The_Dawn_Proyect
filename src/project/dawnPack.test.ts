@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
 import { packFileName, packId, packPathKind, readPack, writePack, type PackContents } from "./dawnPack";
-import { parsePackGrooves } from "../lib/grooves";
+import { parsePackGrooves } from "../library/grooves";
 
 const manifest = { format: "dawnpack" as const, schema: 1, name: "Classic Rock Tones", version: "1.0", author: "Angel", license: "Supporters" };
 

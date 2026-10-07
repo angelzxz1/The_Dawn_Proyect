@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
-import { APP_PATH } from "@/lib/siteLinks";
+import { APP_PATH } from "./siteLinks";
 
 export function Container({ className = "", children, ...rest }: ComponentProps<"div">) {
   return (

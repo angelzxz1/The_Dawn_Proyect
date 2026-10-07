@@ -965,7 +965,17 @@ npm run build   # static site in out/ (see docs/deploy.md)
 npm start       # serve out/ locally
 ```
 
-- `src/app/`: the Next.js App Router entry (the whole app is one client page).
+- `src/app/`: the Next.js App Router entry: the website's pages and the
+  app itself (`/app`, one client page).
+- `src/studio/`: the DAW screen. `Daw.tsx` puts it together; the rest is
+  grouped by area: `transport/`, `timeline/` (ruler, clips, playhead),
+  `tracks/` (track headers and lanes, meters, the master and bus row),
+  `rack/` (the FX rack, effect windows, effect and groove browsers),
+  `notes/` (piano roll, on-screen keyboard, note input), `dialogs/`
+  (export, project menu, start screen, packs, about and support) and
+  `shell/` (tour, updates, the phone notice, the context menu).
+- `src/state/`: the project store and its actions (tracks, clips, effects,
+  buses), with undo and redo.
 - `src/effects/`: every audio effect, one folder each (`compressor/`,
   `delay/`, `furnace/`, `nam-amp/`...). A folder holds the effect's DSP
   model and kernel, its audio node, its rack card, window and graphs, and
@@ -979,16 +989,18 @@ npm start       # serve out/ locally
   `drum-rack/`, `piano/`), holding their DSP, presets or kits, windows and
   rack cards. `instrument.ts` is the interface the engine plays them
   through; `nodes.ts` builds whichever one a track uses.
-- `src/components/`:
-  - `Daw.tsx`, which holds the app's state;
-  - the arrangement, transport, piano roll and FX rack.
 - `src/engine/`: the audio engine (`audioEngine.ts`): transport, track
   strips, inputs and recording, mixing and routing, delay compensation,
   the metronome, and `engineSync.ts`, which makes it match the project.
 - `src/project/`: the project's shape and schema, saving and loading
   (autosave, project files, recovery), packs, templates and the demo song.
 - `src/export/`: rendering the mix offline (`bounce.ts`), WAV and MP3
-  encoding, and MIDI files.
+  encoding, and MIDI files; `src/workers/` runs the MP3 encoder.
+- `src/library/`: the groove library and the bundled tones.
+- `src/site/`: the website's shared parts (header and footer, legal pages,
+  the privacy policy the app shows too, fonts, links).
+- `src/content/`: text and data the site and app show (FAQ, licenses,
+  what's new).
 - `src/lib/`: small helpers shared across the app (types, colors, scales,
   shortcuts, telemetry...).
 

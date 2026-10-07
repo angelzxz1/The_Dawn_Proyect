@@ -1,4 +1,4 @@
-import type { Tier } from "@/components/site/interactive";
+import type { Tier } from "@/site/interactive";
 
 // The supporter memberships, as shown on the landing and Support pages.
 // Keep these in step with the Patreon tiers.

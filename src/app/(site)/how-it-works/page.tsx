@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { InputLevel, LatencyBar, RecordedClip, StatusChips, Well } from "@/components/site/illustrations";
-import { SetupGuides, Walkthrough, type WalkStep } from "@/components/site/interactive";
-import { CheckIcon, Container, CtaBand, Eyebrow, JumpLinks, PageIntro, SectionHead, h2Class, leadClass } from "@/components/site/ui";
+import { InputLevel, LatencyBar, RecordedClip, StatusChips, Well } from "@/site/illustrations";
+import { SetupGuides, Walkthrough, type WalkStep } from "@/site/interactive";
+import { CheckIcon, Container, CtaBand, Eyebrow, JumpLinks, PageIntro, SectionHead, h2Class, leadClass } from "@/site/ui";
 import { PROJECT_TEMPLATES } from "@/project/templates";
 
 export const metadata: Metadata = {

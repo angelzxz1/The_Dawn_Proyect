@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { CreditsTabBody } from "@/components/AboutWindow";
-import { LegalPage } from "@/components/site/LegalPage";
+import { CreditsTabBody } from "@/studio/dialogs/AboutWindow";
+import { LegalPage } from "@/site/LegalPage";
 
 export const metadata: Metadata = {
   title: "Credits",

@@ -7,7 +7,7 @@
 import { chainById } from "../effects/chains";
 import { FACTORY_KITS } from "../instruments/drum-rack/drumKits";
 import { defaultParams, type EffectInstance, type EffectType } from "../effects/registry";
-import { grooveBeats, grooveById, grooveNotes } from "../lib/grooves";
+import { grooveBeats, grooveById, grooveNotes } from "../library/grooves";
 import { midiToNoteName } from "../instruments/piano/piano";
 import { findPreset, paramsFromPreset } from "../effects/presets";
 import { normalizeProject, type SerializedProject } from "./projectSchema";

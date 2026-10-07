@@ -3,8 +3,8 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { Check, Copy, Share2 } from "lucide-react";
-import { siteFontVariables } from "@/lib/siteFonts";
-import { Sun } from "./site/ui";
+import { siteFontVariables } from "@/site/siteFonts";
+import { Sun } from "@/site/ui";
 
 // Phones and touch-only tablets: no fine pointer (mouse or trackpad) at all.
 // Touchscreen laptops and iPads with a trackpad have one, so they get the studio.

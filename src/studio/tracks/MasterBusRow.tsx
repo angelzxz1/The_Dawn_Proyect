@@ -5,8 +5,8 @@ import { Sliders } from "lucide-react";
 import { MASTER_COLOR, trackColorOf } from "@/lib/colors";
 import { busActions } from "@/state/busActions";
 import { projectSetter, projectStore, useProjectValue } from "@/state/projectStore";
-import { Meter } from "../Meter";
-import { ValueBar } from "../ValueBar";
+import { Meter } from "./Meter";
+import { ValueBar } from "./ValueBar";
 
 const setMasterName = projectSetter("masterName");
 const setMasterVolume = projectSetter("masterVolume");

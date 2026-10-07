@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
-import { ValueBar } from "./ValueBar";
+import { ValueBar } from "@/studio/tracks/ValueBar";
 import { EQThreeRackCard } from "@/effects/eq-three/EQThreeRackCard";
 import { CompressorRackCard } from "@/effects/compressor/CompressorRackCard";
 import { DelayRackCard } from "@/effects/delay/DelayRackCard";

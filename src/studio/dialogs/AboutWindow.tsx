@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { CREDIT_KINDS, creditsOfKind } from "@/lib/credits";
-import { PrivacyPolicy } from "./PrivacyPolicy";
+import { PrivacyPolicy } from "@/site/PrivacyPolicy";
 import { SupportSection, WhatsNew } from "./SupportViews";
 import { useShortcuts } from "@/lib/shortcuts";
 

@@ -125,7 +125,7 @@ the stack, the browser string and the release, and at most ten are sent per
 visit. People can switch both off in **About → Privacy**, and nothing is
 sent when the browser sends Do Not Track or Global Privacy Control. If you
 change what's collected, update the privacy policy
-(`src/components/PrivacyPolicy.tsx`) and its date.
+(`src/site/PrivacyPolicy.tsx`) and its date.
 
 ## Support, community and feedback links
 

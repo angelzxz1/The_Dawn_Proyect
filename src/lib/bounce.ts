@@ -273,8 +273,11 @@ export async function renderProject(params: BounceParams, options: RenderOptions
 
     rendered.forEach((channel) => {
       // Its output is connected once every track exists (below).
-      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2, mute: !audible.has(channel) });
-      const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(strip);
+      const strip = new Tone.Channel({ volume: channel.volume, pan: channel.pan, channelCount: 2 });
+      // Muted ahead of the fader (as in playback), so volume automation
+      // can't bring an unheard strip back.
+      const muteGain = new Tone.Gain(audible.has(channel) ? 1 : 0).connect(strip);
+      const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(muteGain);
       const sendTap = new Tone.Delay(0, MAX_COMPENSATION);
       strip.connect(sendTap);
       const sends: string[] = [];

@@ -314,7 +314,13 @@ class AudioEngine {
       setDelay(n.pdc, plan.channel.get(id) ?? 0);
       setDelay(n.ownDelay, plan.own.get(id) ?? 0);
       setDelay(n.sendTap, plan.send.get(id) ?? 0);
-      n.channel.mute = !mix.audible.has(id);
+      const audible = mix.audible.has(id);
+      if (audible !== n.audible) {
+        n.audible = audible;
+        // A few ms ramp, so muting mid-note doesn't click.
+        n.muteGain.gain.cancelScheduledValues(Tone.now());
+        n.muteGain.gain.setTargetAtTime(audible ? 1 : 0, Tone.now(), 0.003);
+      }
       const out = mix.outputs.get(id) ?? { kind: "direct" };
       const route = out.kind === "track" ? `to:${out.id}` : out.kind;
       if (route !== n.route) {
@@ -449,7 +455,8 @@ class AudioEngine {
     // (each equal-power mono-to-stereo pan stage costs ~3dB on its own).
     const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }).connect(meter);
     // Its dry route to the master is set by updateCompensation.
-    const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(channel);
+    const muteGain = new Tone.Gain(1).connect(channel);
+    const pdc = new Tone.Delay(0, MAX_COMPENSATION).connect(muteGain);
     const taps: SidechainTaps = { preFx: new Tone.Gain(), postFx: new Tone.Gain(), postFader: new Tone.Gain() };
     const head = new Tone.Gain();
     taps.preFx.connect(head);
@@ -483,6 +490,8 @@ class AudioEngine {
       audioClips: new Map(),
       sends: new Map(),
       userMuted: false,
+      muteGain,
+      audible: true,
       pdc,
       routeIn,
       ownDelay,
@@ -508,6 +517,7 @@ class AudioEngine {
     nodes.sends.forEach((gain) => gain.dispose());
     nodes.effects.forEach((e) => e.node.dispose());
     nodes.pdc.dispose();
+    nodes.muteGain.dispose();
     nodes.routeIn.dispose();
     nodes.ownDelay.dispose();
     nodes.sendTap.dispose();

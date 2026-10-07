@@ -76,9 +76,15 @@ export interface ChannelNodes extends EffectsHost {
    * bus's input - independent of the dry signal, which always keeps going
    * to master regardless of any sends. */
   sends: Map<string, Tone.Gain>;
-  /** The user's own mute button state, tracked separately from
-   * `channel.mute` - see the comment on `setMute`/`setSolo` for why. */
+  /** The user's own mute button state (solo can silence a track too). */
   userMuted: boolean;
+  /** Mutes the strip (the user's mute, or another track's solo), between
+   * the delay compensation and the fader. Kept apart from the fader
+   * because Tone.Channel's own mute is just its volume at -Infinity, which
+   * any volume change (the fader, automation) would undo. */
+  muteGain: Tone.Gain;
+  /** Whether `muteGain` is open. */
+  audible: boolean;
   /** Delay compensation: between the effects chain and the strip (see
    * latency.ts). */
   pdc: Tone.Delay;

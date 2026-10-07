@@ -7,10 +7,10 @@
 
 import { audioEngine } from "@/lib/audioEngine";
 import type { TrackColorPick } from "@/lib/colors";
-import { defaultDrumKit, type DrumKitParams } from "@/lib/drumParams";
+import { defaultDrumKit, type DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import { groupTracks, moveTrack, setTrackGroup, ungroup } from "@/lib/routing";
-import { defaultSynthParams } from "@/lib/synth";
-import type { SynthParams } from "@/lib/synthParams";
+import { defaultSynthParams } from "@/instruments/synth/synth";
+import type { SynthParams } from "@/instruments/synth/synthParams";
 import { track } from "@/lib/telemetry";
 import { automationTargetKey } from "@/lib/automationTargets";
 import type { AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/lib/types";

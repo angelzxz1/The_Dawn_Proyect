@@ -7,7 +7,7 @@ import {
   KEYBOARD_LOW_MIDI,
   isBlackKey,
   midiToNoteName,
-} from "@/lib/piano";
+} from "@/instruments/piano/piano";
 import { isNoteInScale, type ScaleSetting } from "@/lib/scales";
 import { useShortcuts } from "@/lib/shortcuts";
 

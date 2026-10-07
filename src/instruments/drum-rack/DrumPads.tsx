@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef } from "react";
-import { PAD_KEYS, PAD_KEY_ORDER, defaultKitPads, type DrumKitParams } from "@/lib/drumParams";
-import { drumPads } from "@/lib/drums";
+import { PAD_KEYS, PAD_KEY_ORDER, defaultKitPads, type DrumKitParams } from "./drumParams";
+import { drumPads } from "./drums";
 import { padColor } from "./DrumRackWindow";
 import { useShortcuts } from "@/lib/shortcuts";
 

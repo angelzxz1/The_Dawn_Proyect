@@ -11,8 +11,8 @@ import { EFFECT_TYPES, FILE_EFFECT_TYPES, paramSpecs, type EffectInstance } from
 import { PROJECT_VERSION, normalizeProject, type SerializedProject } from "./projectSchema";
 import { SCALE_NAMES, SCALE_ROOTS } from "./scales";
 import { SNAP_RESOLUTIONS } from "./timeline";
-import { WAVETABLE_IDS } from "./wavetableModel";
-import { defaultSynthParams } from "./synth";
+import { WAVETABLE_IDS } from "../instruments/synth/wavetableModel";
+import { defaultSynthParams } from "../instruments/synth/synth";
 
 const FIXTURE_DIR = join(__dirname, "__fixtures__", "saved-projects");
 const fixtures = readdirSync(FIXTURE_DIR)

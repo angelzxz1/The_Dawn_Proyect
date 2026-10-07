@@ -1,6 +1,6 @@
 "use client";
 
-import { isBlackKey } from "@/lib/piano";
+import { isBlackKey } from "@/instruments/piano/piano";
 import { PITCH_REFERENCE_MIDI, intervalLabel, splitShift } from "./pitchInterval";
 
 interface PitchShiftKeyboardProps {

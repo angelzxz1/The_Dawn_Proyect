@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadUserWavetable, type SynthLiveState } from "@/lib/synth";
-import { DEST_INDEX, fromNorm, DEST_SPECS, type ModDest, type SynthEnvParams, type SynthFilterParams, type SynthOscParams } from "@/lib/synthParams";
-import { envLayout, envPath, envPosition, filterResponseDb, lfoShapeValue, warpedCycle } from "@/lib/synthViz";
-import { factoryWavetable, previewFrames, type WavetableData } from "@/lib/wavetableModel";
+import { loadUserWavetable, type SynthLiveState } from "./synth";
+import { DEST_INDEX, fromNorm, DEST_SPECS, type ModDest, type SynthEnvParams, type SynthFilterParams, type SynthOscParams } from "./synthParams";
+import { envLayout, envPath, envPosition, filterResponseDb, lfoShapeValue, warpedCycle } from "./synthViz";
+import { factoryWavetable, previewFrames, type WavetableData } from "./wavetableModel";
 import { SOURCE_COLORS, SYN, useSynth } from "./SynthUi";
 
 /** Sizes a canvas for the screen's pixel density; returns its 2D context. */

@@ -3,7 +3,7 @@
 
 import * as Tone from "tone";
 import type { NoteEvent, InstrumentType, ChannelType } from "../types";
-import { type Instrument } from "../drumKit";
+import { type Instrument } from "../../instruments/instrument";
 import { type EffectType } from "../../effects/registry";
 import type { SidechainRouting } from "../../effects/sidechain/sidechainModel";
 

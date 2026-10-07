@@ -1,10 +1,10 @@
 import * as Tone from "tone";
-import type { Instrument } from "./drumKit";
-import { decodeEffectFileAudio } from "../effects/effectFiles";
+import type { Instrument } from "../instrument";
+import { decodeEffectFileAudio } from "../../effects/effectFiles";
 import { SYNTH_SOURCE } from "./synthKernel";
 import { compileSynth, initSynthParams, type SynthOscParams, type SynthParams } from "./synthParams";
 import { factoryWavetable, subWavetable, wavetableFromAudio, type WavetableData } from "./wavetableModel";
-import { loadWorklet } from "./workletLoader";
+import { loadWorklet } from "../../lib/workletLoader";
 
 // The synth instrument ("Daybreak"): synthKernel.ts in an AudioWorklet.
 // Notes go to the worklet as timestamped events, so scheduled notes start

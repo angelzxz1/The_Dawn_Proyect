@@ -4,7 +4,7 @@
 // the steep top-end rolloff - turned into a short minimum-phase IR, which
 // like a close-miked cab puts nearly all its energy in the first moments.
 
-import { fft } from "../../lib/wavetableModel";
+import { fft } from "../../instruments/synth/wavetableModel";
 
 export interface CabPeak {
   hz: number;

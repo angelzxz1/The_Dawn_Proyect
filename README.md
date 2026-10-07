@@ -975,12 +975,15 @@ npm start       # serve out/ locally
   - `presets.ts`, `chains.ts`, `effectFiles.ts`;
   - `ui/`: the plugin UI they share (knobs, window chrome, preset menu);
   - `sidechain/`: sidechain routing and its panel.
+- `src/instruments/`: the instruments, one folder each (`synth/`,
+  `drum-rack/`, `piano/`), holding their DSP, presets or kits, windows and
+  rack cards. `instrument.ts` is the interface the engine plays them
+  through; `nodes.ts` builds whichever one a track uses.
 - `src/components/`:
   - `Daw.tsx`, which holds the app's state;
-  - the arrangement, transport, piano roll, FX rack and instruments' UI.
+  - the arrangement, transport, piano roll and FX rack.
 - `src/lib/`:
   - the audio engine, mixing, routing and latency;
-  - the instruments' DSP;
   - the project schema, persistence, project files, MIDI and WAV I/O.
 
 ### Stack

@@ -16,8 +16,8 @@ import {
   type ModDest,
   type ModSource,
   type SynthParams,
-} from "@/lib/synthParams";
-import type { SynthLiveState } from "@/lib/synth";
+} from "./synthParams";
+import type { SynthLiveState } from "./synth";
 import { useShortcuts } from "@/lib/shortcuts";
 
 // Daybreak's look: night-blue panels, a dawn gradient for what's alive,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FACTORY_KITS } from "./drumKits";
+import { FACTORY_KITS } from "../instruments/drum-rack/drumKits";
 import { GROOVE_GENRES, GROOVE_SECTIONS, GROOVES, grooveBeats, grooveHits, grooveKit, grooveNotes, stepsPerBar } from "./grooves";
 
 describe("groove library", () => {

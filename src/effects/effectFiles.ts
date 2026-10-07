@@ -7,8 +7,8 @@
 
 import type { EffectFileRef, EffectInstance } from "./registry";
 import { MAX_NAM_BYTES, parseNamFile } from "./nam-amp/namModel";
-import type { SynthParams } from "../lib/synthParams";
-import type { DrumKitParams } from "../lib/drumParams";
+import type { SynthParams } from "../instruments/synth/synthParams";
+import type { DrumKitParams } from "../instruments/drum-rack/drumParams";
 import { factoryFileBlob, isFactoryFile } from "../lib/tones";
 import { noteIssue } from "../lib/issues";
 

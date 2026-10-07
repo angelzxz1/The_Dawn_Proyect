@@ -1,4 +1,4 @@
-import { midiToNoteName } from "../../lib/piano";
+import { midiToNoteName } from "../../instruments/piano/piano";
 
 /** The Pitch Shift window treats C4 as the note being shifted. */
 export const PITCH_REFERENCE_MIDI = 60;

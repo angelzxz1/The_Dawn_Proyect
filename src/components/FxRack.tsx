@@ -27,9 +27,9 @@ import { PresetMenu, type PresetChange } from "@/effects/ui/PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import { SIDECHAIN_TAPS, SIDECHAIN_TAP_LABELS, type SidechainTap } from "@/effects/sidechain/sidechainModel";
 import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/effects/registry";
-import { SynthRackCard } from "./SynthRackCard";
-import { DrumRackCard } from "./DrumRackCard";
-import type { DrumKitParams } from "@/lib/drumParams";
+import { SynthRackCard } from "@/instruments/synth/SynthRackCard";
+import { DrumRackCard } from "@/instruments/drum-rack/DrumRackCard";
+import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 

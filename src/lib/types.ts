@@ -74,8 +74,8 @@ export interface ChannelConfig {
   automationLanes?: AutomationLane[];
 }
 
-import type { SynthParams } from "./synthParams";
-import type { DrumKitParams } from "./drumParams";
+import type { SynthParams } from "../instruments/synth/synthParams";
+import type { DrumKitParams } from "../instruments/drum-rack/drumParams";
 import type { SidechainTap } from "../effects/sidechain/sidechainModel";
 
 /** An audio track's input taken from another track. */

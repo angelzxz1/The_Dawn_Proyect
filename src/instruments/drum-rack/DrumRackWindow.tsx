@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ClipboardPaste, Copy, FileAudio, RotateCcw, Save, Trash2, Upload, Waves, X } from "lucide-react";
 import { audioEngine } from "@/lib/audioEngine";
-import { loadDrumSample } from "@/lib/drumRack";
+import { loadDrumSample } from "./drumRack";
 import {
   CHOKE_GROUPS,
   DRUM_MODELS,
@@ -17,8 +17,8 @@ import {
   type DrumKitParams,
   type DrumModel,
   type DrumPadParams,
-} from "@/lib/drumParams";
-import { allDrumKits, deleteDrumKit, saveDrumKit, serverDrumKits, subscribeDrumKits, type DrumKitPreset } from "@/lib/drumKits";
+} from "./drumParams";
+import { allDrumKits, deleteDrumKit, saveDrumKit, serverDrumKits, subscribeDrumKits, type DrumKitPreset } from "./drumKits";
 import { newEffectFileId, registerEffectFile } from "@/effects/effectFiles";
 import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import { PluginKnob } from "@/effects/ui/PluginKnob";

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlignHorizontalJustifyStart, Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
-import { isBlackKey, midiToNoteName } from "@/lib/piano";
+import { isBlackKey, midiToNoteName } from "@/instruments/piano/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
-import { DRUM_PADS, drumLabelForNote } from "@/lib/drums";
-import type { DrumKitParams } from "@/lib/drumParams";
+import { DRUM_PADS, drumLabelForNote } from "@/instruments/drum-rack/drums";
+import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import type { InstrumentType, NoteEvent } from "@/lib/types";
 import type { TrackColor } from "@/lib/colors";
 import { audioEngine } from "@/lib/audioEngine";

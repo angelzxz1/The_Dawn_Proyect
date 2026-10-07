@@ -4,9 +4,9 @@
 // D1, closed hat on F#1...), so a groove plays right on any kit. Dropped on
 // a track, a groove becomes an ordinary MIDI clip at the project's tempo.
 
-import { FACTORY_KITS } from "./drumKits";
-import { padNote } from "./drumParams";
-import { midiToNoteName } from "./piano";
+import { FACTORY_KITS } from "../instruments/drum-rack/drumKits";
+import { padNote } from "../instruments/drum-rack/drumParams";
+import { midiToNoteName } from "../instruments/piano/piano";
 import type { NoteEvent } from "./types";
 
 /** The parts a pattern plays, and the pad each sits on. */

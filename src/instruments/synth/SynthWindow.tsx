@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Save, Search, Trash2, Upload, X } from "lucide-react";
 import { audioEngine } from "@/lib/audioEngine";
 import { newEffectFileId, registerEffectFile } from "@/effects/effectFiles";
-import type { SynthLiveState } from "@/lib/synth";
+import type { SynthLiveState } from "./synth";
 import {
   DEST_SPECS,
   FILTER_LABELS,
@@ -35,7 +35,7 @@ import {
   type ModSource,
   type SynthOscParams,
   type SynthParams,
-} from "@/lib/synthParams";
+} from "./synthParams";
 import {
   PRESET_CATEGORIES,
   allSynthPresets,
@@ -46,8 +46,8 @@ import {
   subscribeSynthPresets,
   type PresetCategory,
   type SynthPreset,
-} from "@/lib/synthPresets";
-import { WAVETABLE_IDS, WAVETABLE_INFO } from "@/lib/wavetableModel";
+} from "./synthPresets";
+import { WAVETABLE_IDS, WAVETABLE_INFO } from "./wavetableModel";
 import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import type { TrackColor } from "@/lib/colors";
 import { EnvelopeEditor, FilterView, LfoView, Scope, WavetableView } from "./SynthDisplays";

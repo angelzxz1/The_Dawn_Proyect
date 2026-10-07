@@ -5,9 +5,9 @@ export { PREFERRED_SAMPLE_RATE };
 
 
 import type { NoteEvent, InstrumentType, ChannelType, SynthParams, AutomationLane } from "./types";
-import { DrumRack, type DrumLiveState } from "./drumRack";
-import { padNote, type DrumKitParams } from "./drumParams";
-import { SynthInstrument, setSynthTempo, type SynthLiveState } from "./synth";
+import { DrumRack, type DrumLiveState } from "../instruments/drum-rack/drumRack";
+import { padNote, type DrumKitParams } from "../instruments/drum-rack/drumParams";
+import { SynthInstrument, setSynthTempo, type SynthLiveState } from "../instruments/synth/synth";
 import { type EffectType, defaultParams } from "../effects/registry";
 import { CompressorChain, type CompressorMeterReading } from "../effects/compressor/compressor";
 import { GlueChain, type GlueMeterReading } from "../effects/glue/glue";
@@ -33,7 +33,7 @@ import { interpolateAutomation } from "./engine/automation";
 import { InputManager } from "./engine/inputs";
 import { MidiTake } from "./engine/midiTake";
 import { Transport } from "./engine/transport";
-import { createInstrument } from "./engine/instruments";
+import { createInstrument } from "../instruments/nodes";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
 import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./engine/nodes";
 import { attempt, noteIssue } from "./issues";

@@ -15,8 +15,8 @@ import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "../effects/fi
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./timeline";
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
-import { normalizeSynthParams } from "./synthParams";
-import { normalizeDrumKit } from "./drumParams";
+import { normalizeSynthParams } from "../instruments/synth/synthParams";
+import { normalizeDrumKit } from "../instruments/drum-rack/drumParams";
 import { HEX_COLOR } from "./colors";
 import { MASTER_OUTPUT, normalizeGroups } from "./routing";
 import type {

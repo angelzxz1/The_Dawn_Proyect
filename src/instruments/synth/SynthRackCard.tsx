@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef } from "react";
 import { Maximize2 } from "lucide-react";
 import { PluginKnob } from "@/effects/ui/PluginKnob";
 import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
-import type { SynthParams } from "@/lib/synthParams";
-import { warpedCycle } from "@/lib/synthViz";
-import { WAVETABLE_INFO, factoryWavetable, previewFrames } from "@/lib/wavetableModel";
+import type { SynthParams } from "./synthParams";
+import { warpedCycle } from "./synthViz";
+import { WAVETABLE_INFO, factoryWavetable, previewFrames } from "./wavetableModel";
 
 /** The synth in the FX rack: its preset, the waves it plays, and the four
  * macros (turn them here; set up what they move in the window). */

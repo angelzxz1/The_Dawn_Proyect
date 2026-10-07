@@ -4,8 +4,8 @@
 // pack" for backups and sharing. See dawnPack.ts for the format.
 
 import { addPackPresets, removePackPresets, userPresets } from "../effects/presets";
-import { addPackSynthPresets, removePackSynthPresets, userSynthPresets } from "./synthPresets";
-import { addPackKits, ownDrumKits, removePackKits } from "./drumKits";
+import { addPackSynthPresets, removePackSynthPresets, userSynthPresets } from "../instruments/synth/synthPresets";
+import { addPackKits, ownDrumKits, removePackKits } from "../instruments/drum-rack/drumKits";
 import { parsePackGrooves, removePackGrooves, setPackGrooves } from "./grooves";
 import { decodeEffectFileAudio, discardEffectFile, effectFileBlob, registerEffectFile } from "../effects/effectFiles";
 import { parseNamFile } from "../effects/nam-amp/namModel";

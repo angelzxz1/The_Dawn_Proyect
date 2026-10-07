@@ -1,9 +1,9 @@
 import * as Tone from "tone";
-import type { Instrument } from "./drumKit";
+import type { Instrument } from "../instrument";
 import { DRUM_SOURCE } from "./drumKernel";
-import { decodeEffectFileAudio } from "../effects/effectFiles";
+import { decodeEffectFileAudio } from "../../effects/effectFiles";
 import { PAD_COUNT, compileDrumKit, padNote, type DrumKitParams } from "./drumParams";
-import { loadWorklet } from "./workletLoader";
+import { loadWorklet } from "../../lib/workletLoader";
 
 // The Drum Rack instrument: drumKernel.ts in an AudioWorklet. Hits are
 // sent as timestamped events (so scheduled hits land on their sample);

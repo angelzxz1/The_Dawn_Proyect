@@ -5,13 +5,13 @@
 // (stems), which exportProject.ts turns into WAV or MP3 files.
 
 import * as Tone from "tone";
-import { createInstrument } from "./engine/instruments";
+import { createInstrument } from "../instruments/nodes";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
 import { MAX_COMPENSATION } from "./engine/nodes";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
-import { SynthInstrument } from "./synth";
-import { DrumRack } from "./drumRack";
+import { SynthInstrument } from "../instruments/synth/synth";
+import { DrumRack } from "../instruments/drum-rack/drumRack";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
 import { chainLatency, nodeLatency } from "./latency";

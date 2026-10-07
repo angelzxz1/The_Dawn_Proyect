@@ -9,7 +9,6 @@
 // (compressorCurve.ts). Makeup, dry/wet and output are smoothed so moving
 // them never clicks. No lookahead, so no added latency.
 
-import { autoMakeupDb } from "../registry";
 import { KEY_FILTER_SOURCE, keySettingsFromParams, type KeySettings } from "../sidechain/sidechainModel";
 
 export interface CompressorSettings extends KeySettings {
@@ -155,3 +154,14 @@ class CompressorKernel {
   }
 }
 `;
+
+/** A standard "half the average gain reduction" heuristic for automatic
+ * makeup gain: at signal levels well above threshold, a compressor at this
+ * ratio reduces gain by `-threshold * (1 - 1/ratio)` dB, and this recovers
+ * roughly half of that. Shared by the audio engine (to actually apply it)
+ * and the Compressor UI (to display the live "AUTO +N dB" readout) so both
+ * always agree without the UI having to poll the engine. */
+export function autoMakeupDb(threshold: number, ratio: number): number {
+  const reduction = -threshold * (1 - 1 / ratio);
+  return Math.max(0, Math.min(24, reduction / 2));
+}

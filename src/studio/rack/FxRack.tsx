@@ -1,32 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, SlashSquare, Waves } from "lucide-react";
 import { ValueBar } from "@/studio/tracks/ValueBar";
-import { EQThreeRackCard } from "@/effects/eq-three/EQThreeRackCard";
-import { CompressorRackCard } from "@/effects/compressor/CompressorRackCard";
-import { DelayRackCard } from "@/effects/delay/DelayRackCard";
-import { ReverbRackCard } from "@/effects/reverb/ReverbRackCard";
-import { LimiterRackCard } from "@/effects/limiter/LimiterRackCard";
-import { FilterRackCard } from "@/effects/filter/FilterRackCard";
-import { ChorusRackCard } from "@/effects/chorus/ChorusRackCard";
-import { PitchShiftRackCard } from "@/effects/pitch-shift/PitchShiftRackCard";
-import { SaturatorRackCard } from "@/effects/saturator/SaturatorRackCard";
-import { IrLoaderRackCard } from "@/effects/ir-loader/IrLoaderRackCard";
-import { NamAmpRackCard } from "@/effects/nam-amp/NamAmpRackCard";
-import { GateRackCard } from "@/effects/gate/GateRackCard";
-import { ParamEqRackCard } from "@/effects/parametric-eq/ParamEqRackCard";
-import { MultibandRackCard } from "@/effects/multiband/MultibandRackCard";
-import { UtilityRackCard } from "@/effects/utility/UtilityRackCard";
-import { TunerRackCard } from "@/effects/tuner/TunerRackCard";
-import { GlueRackCard } from "@/effects/glue/GlueRackCard";
-import { FurnaceRackCard } from "@/effects/furnace/FurnaceRackCard";
-import { MbDynamicsRackCard } from "@/effects/multiband-dynamics/MbDynamicsRackCard";
 import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
 import { PresetMenu, type PresetChange } from "@/effects/ui/PresetMenu";
 import { sidechainSourceName, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import { SIDECHAIN_TAPS, SIDECHAIN_TAP_LABELS, type SidechainTap } from "@/effects/sidechain/sidechainModel";
-import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/effects/registry";
+import type { EffectInstance, EffectType } from "@/effects/registry";
+import { EFFECT_UI } from "@/effects/ui/registry";
 import { SynthRackCard } from "@/instruments/synth/SynthRackCard";
 import { DrumRackCard } from "@/instruments/drum-rack/DrumRackCard";
 import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
@@ -93,30 +75,6 @@ interface FxRackProps {
   outputValue?: string;
   onOutputChange?: (value: string) => void;
 }
-
-/** Effect types with a custom rack card + full window, instead of the
- * generic ValueBar-driven card. */
-const CUSTOM_UI_TYPES: EffectType[] = [
-  "eq3",
-  "compressor",
-  "delay",
-  "reverb",
-  "limiter",
-  "filter",
-  "chorus",
-  "pitchShift",
-  "distortion",
-  "irLoader",
-  "namAmp",
-  "tubeAmp",
-  "gate",
-  "paramEq",
-  "multiband",
-  "utility",
-  "tuner",
-  "glue",
-  "mbDynamics",
-];
 
 const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
 
@@ -336,16 +294,8 @@ export function FxRack({
         {effects.map((fx, i) => (
           <div key={fx.id} className="flex items-stretch">
             <div
-              className={`flex shrink-0 ${
-                fx.type === "eq3"
-                  ? "w-64 rounded-xl"
-                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp" || fx.type === "tubeAmp" || fx.type === "gate" || fx.type === "utility" || fx.type === "tuner" || fx.type === "glue"
-                    ? "w-72 rounded-xl"
-                    : fx.type === "reverb" || fx.type === "paramEq" || fx.type === "multiband" || fx.type === "mbDynamics"
-                      ? "w-80 rounded-xl"
-                      : "w-40 rounded border border-border bg-surface-raised"
-              } ${fx.bypass ? "opacity-50" : ""}`}
-              style={CUSTOM_UI_TYPES.includes(fx.type) ? { background: "#1B1C22", border: "1px solid #2E2F37" } : undefined}
+              className={`flex shrink-0 rounded-xl ${EFFECT_UI[fx.type].cardWidth} ${fx.bypass ? "opacity-50" : ""}`}
+              style={{ background: "#1B1C22", border: "1px solid #2E2F37" }}
             >
               <div
                 draggable
@@ -358,260 +308,29 @@ export function FxRack({
               >
                 <GripVertical size={10} className="text-muted" />
               </div>
-              <div className={`flex min-w-0 flex-1 flex-col ${CUSTOM_UI_TYPES.includes(fx.type) ? "p-2.5 pl-1.5" : "p-2 pl-1"}`}>
+              <div className="flex min-w-0 flex-1 flex-col p-2.5 pl-1.5">
                 <div className="flex min-h-0 flex-1 flex-col">
-                {fx.type === "eq3" ? (
-                  <EQThreeRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "compressor" ? (
-                  <CompressorRackCard
-                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "delay" ? (
-                  <DelayRackCard
-                    params={fx.params}
-                    bpm={bpm}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "distortion" ? (
-                  <SaturatorRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "pitchShift" ? (
-                  <PitchShiftRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "chorus" ? (
-                  <ChorusRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "filter" ? (
-                  <FilterRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "limiter" ? (
-                  <LimiterRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "paramEq" ? (
-                  <ParamEqRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "utility" ? (
-                  <UtilityRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "mbDynamics" ? (
-                  <MbDynamicsRackCard
-                    hostId={hostId}
-                    effectId={fx.id}
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "tubeAmp" ? (
-                  <FurnaceRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "glue" ? (
-                  <GlueRackCard
-                    hostId={hostId}
-                    effectId={fx.id}
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "tuner" ? (
-                  <TunerRackCard
-                    hostId={hostId}
-                    effectId={fx.id}
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "multiband" ? (
-                  <MultibandRackCard
-                    hostId={hostId}
-                    effectId={fx.id}
-                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "gate" ? (
-                  <GateRackCard
-                    sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : fx.type === "namAmp" ? (
-                  <NamAmpRackCard
-                    params={fx.params}
-                    file={fx.file}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                    onLoadFile={(file) => onLoadEffectFile?.(fx.id, file) ?? Promise.resolve("Can't load files here.")}
-                    onClearFile={() => onClearEffectFile?.(fx.id)}
-                  />
-                ) : fx.type === "irLoader" ? (
-                  <IrLoaderRackCard
-                    params={fx.params}
-                    file={fx.file}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                    onLoadFile={(file) => onLoadEffectFile?.(fx.id, file) ?? Promise.resolve("Can't load files here.")}
-                    onClearFile={() => onClearEffectFile?.(fx.id)}
-                  />
-                ) : fx.type === "reverb" ? (
-                  <ReverbRackCard
-                    params={fx.params}
-                    bypass={!!fx.bypass}
-                    onBypassToggle={() => onBypassToggle(fx.id)}
-                    onRemove={() => onRemoveEffect(fx.id)}
-                    onExpand={() => onOpenEffectWindow?.(fx.id)}
-                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                    onParamDragStart={onParamDragStart}
-                  />
-                ) : (
-                  <>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span className="truncate text-[11px] font-semibold">{EFFECT_LABELS[fx.type]}</span>
-                      <div className="flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          title={fx.bypass ? "Enable effect" : "Bypass effect"}
-                          onClick={() => onBypassToggle(fx.id)}
-                          className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface ${
-                            fx.bypass ? "text-muted" : "text-accent"
-                          }`}
-                        >
-                          <Power size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          title="Remove effect"
-                          onClick={() => onRemoveEffect(fx.id)}
-                          className="flex h-5 w-5 items-center justify-center rounded text-record hover:bg-surface"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex flex-1 flex-wrap content-start gap-2">
-                      {paramSpecs(fx.type).map((spec) => (
-                        <ValueBar
-                          key={spec.key}
-                          label={spec.label}
-                          value={fx.params[spec.key]}
-                          min={spec.min}
-                          max={spec.max}
-                          defaultValue={spec.default}
-                          onChange={(v) => onParamChange(fx.id, spec.key, v)}
-                          onDragStart={onParamDragStart}
-                          formatValue={spec.format}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
+                {(() => {
+                  const { RackCard } = EFFECT_UI[fx.type];
+                  return (
+                    <RackCard
+                      hostId={hostId}
+                      effectId={fx.id}
+                      params={fx.params}
+                      bypass={!!fx.bypass}
+                      bpm={bpm}
+                      file={fx.file}
+                      sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
+                      onBypassToggle={() => onBypassToggle(fx.id)}
+                      onRemove={() => onRemoveEffect(fx.id)}
+                      onExpand={() => onOpenEffectWindow?.(fx.id)}
+                      onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                      onParamDragStart={onParamDragStart}
+                      onLoadFile={(file) => onLoadEffectFile?.(fx.id, file) ?? Promise.resolve("Can't load files here.")}
+                      onClearFile={() => onClearEffectFile?.(fx.id)}
+                    />
+                  );
+                })()}
                 </div>
                 {onPresetChange && (
                   <div className="mt-1.5">

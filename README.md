@@ -979,12 +979,21 @@ npm start       # serve out/ locally
 - `src/effects/`: every audio effect, one folder each (`compressor/`,
   `delay/`, `furnace/`, `nam-amp/`...). A folder holds the effect's DSP
   model and kernel, its audio node, its rack card, window and graphs, and
-  their tests. Alongside them:
-  - `registry.ts`: the effect types, groups, labels and parameters;
-  - `nodes.ts`: builds any effect's node and applies its parameters;
-  - `presets.ts`, `chains.ts`, `effectFiles.ts`;
-  - `ui/`: the plugin UI they share (knobs, window chrome, preset menu);
-  - `sidechain/`: sidechain routing and its panel.
+  their tests, plus three small files that describe it to the rest of the
+  app:
+  - `index.ts`: what it is (its saved key, name, browser group,
+    parameters, and whether it takes a sidechain or a file);
+  - `audio.ts`: how its audio node is built and a parameter applied;
+  - `ui.ts`: its rack card, window and card width.
+
+  They're collected by `registry.ts` (effect types, groups, labels and
+  parameters), `nodes.ts` (builds any effect's node) and `ui/registry.ts`
+  (cards and windows). To add an effect, give it a folder with those three
+  files and add one line to each of the three collectors; leaving one out
+  is a type error. Alongside them: `types.ts` and `format.ts` (shared
+  shapes and value formatting), `presets.ts`, `chains.ts`, `effectFiles.ts`,
+  `ui/` (the plugin UI they share: knobs, window chrome, preset menu) and
+  `sidechain/`.
 - `src/instruments/`: the instruments, one folder each (`synth/`,
   `drum-rack/`, `piano/`), holding their DSP, presets or kits, windows and
   rack cards. `instrument.ts` is the interface the engine plays them

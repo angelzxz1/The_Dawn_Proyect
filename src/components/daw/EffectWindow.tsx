@@ -12,6 +12,7 @@ import { EQThreeWindow } from "../EQThreeWindow";
 import { FilterWindow } from "../FilterWindow";
 import { GateWindow } from "../GateWindow";
 import { GlueWindow } from "../GlueWindow";
+import { FurnaceWindow } from "../FurnaceWindow";
 import { IrLoaderWindow } from "../IrLoaderWindow";
 import { LimiterWindow } from "../LimiterWindow";
 import { MbDynamicsWindow } from "../MbDynamicsWindow";
@@ -89,6 +90,21 @@ export function EffectWindow({
             sidechain={effect.sidechain}
             sidechainSources={sidechainSources}
             onSidechainChange={(routing) => effectActions.setSidechain(hostId, effect.id, routing)}
+          />
+        )}
+        {effect.type === "tubeAmp" && (
+          <FurnaceWindow
+            channelName={hostName}
+            params={effect.params}
+            bypass={!!effect.bypass}
+            onBypassToggle={() =>
+              effectActions.toggleBypass(hostId, effect.id)
+            }
+            onClose={onClose}
+            onParamChange={(key, v) =>
+              effectActions.setParam(hostId, effect.id, key, v)
+            }
+            onParamDragStart={startEdit}
           />
         )}
         {effect.type === "glue" && (

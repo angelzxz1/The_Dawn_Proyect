@@ -12,6 +12,7 @@ import { LookaheadLimiter } from "../lookaheadLimiter";
 import { PitchShifter } from "../pitchShifter";
 import { convolverChannels, effectiveHighCut, effectiveLowCut, irNormalizationGain } from "../irModel";
 import { NamAmpChain } from "../namAmp";
+import { AmpSimChain } from "../ampSim";
 import { NoiseGate } from "../noiseGate";
 import { ParamEqChain } from "../paramEq";
 import { MultibandChain } from "../multiband";
@@ -837,6 +838,8 @@ export function createEffectNode(type: EffectType, savedParams: Record<string, n
       return new TunerChain(params);
     case "glue":
       return new GlueChain(params);
+    case "tubeAmp":
+      return new AmpSimChain(params);
     case "mbDynamics":
       return new MbDynamicsChain(params);
   }
@@ -961,6 +964,9 @@ export function applyEffectParam(
       break;
     case "utility":
       (node as UtilityChain).setParam(key, value);
+      break;
+    case "tubeAmp":
+      (node as AmpSimChain).setParam(key, value);
       break;
     case "glue":
       (node as GlueChain).setParam(key, value);

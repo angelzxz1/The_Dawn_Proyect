@@ -260,6 +260,16 @@ export const FACTORY_PRESETS: EffectPreset[] = [
     ["Dark Cab", { lowCut: 70, highCut: 4500 }],
     ["Ambient Blend", { wet: 0.3 }],
   ]),
+  // Mode 0-2 = Raw, Vintage, Modern; rectifier 0 = Tube, 1 = Diode.
+  ...factory("tubeAmp", [
+    ["Modern Rhythm", {}],
+    ["Modern Lead", { gain: 8.5, mid: 5.5, presence: 6, output: 1 }],
+    ["Tube Rectifier Bloom", { rectifier: 0, gain: 7.5 }],
+    ["Vintage Crunch", { mode: 1, gain: 5, bass: 5, mid: 6, treble: 6 }],
+    ["Vintage Lead", { mode: 1, gain: 8, mid: 6.5, presence: 6 }],
+    ["Raw Edge", { mode: 0, gain: 3, bass: 5, mid: 5, treble: 6.5 }],
+    ["Raw Crunch", { mode: 0, gain: 6, mid: 5 }],
+  ]),
   ...factory("namAmp", [
     ["Flat", {}],
     ["Scooped", { bass: 7, middle: 3, treble: 7 }],

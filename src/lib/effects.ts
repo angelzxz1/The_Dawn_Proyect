@@ -12,6 +12,7 @@ import {
 } from "./paramEqModel";
 import type { PresetRef } from "./presets";
 import { COLOR_MODES, COLOR_MODE_LABELS, DISTORTION_SHAPES, SHAPE_LABELS, distortionShapeFromParam } from "./distortionModel";
+import { AMP_DEFAULTS, AMP_MODES, AMP_MODE_LABELS, AMP_RECTIFIER_LABELS, ampMode, ampRectifier } from "./ampModel";
 import { GLUE_ATTACKS_MS, GLUE_AUTO_RELEASE, GLUE_RATIOS, formatGlueAttack, formatGlueRelease, glueRatio } from "./glueModel";
 import { MBD_BANDS, MBD_BAND_LABELS, MBD_FIELD_DEFAULTS, MBD_MIN_DB, formatMbdRatio, mbdKey } from "./mbDynamicsModel";
 import { SC_HPF_OFF, SC_LPF_OFF, type SidechainRouting } from "./sidechainModel";
@@ -38,6 +39,7 @@ export type EffectType =
   | "pitchShift"
   | "irLoader"
   | "namAmp"
+  | "tubeAmp"
   | "gate"
   | "paramEq"
   | "multiband"
@@ -58,6 +60,7 @@ export const EFFECT_TYPES: EffectType[] = [
   "pitchShift",
   "irLoader",
   "namAmp",
+  "tubeAmp",
   "gate",
   "paramEq",
   "multiband",
@@ -75,7 +78,7 @@ export const EFFECT_GROUPS: { name: string; types: EffectType[] }[] = [
   { name: "Modulation", types: ["chorus", "pitchShift"] },
   { name: "Distortion", types: ["distortion"] },
   { name: "Reverb & Delay", types: ["reverb", "delay"] },
-  { name: "Amp & Cab", types: ["namAmp", "irLoader"] },
+  { name: "Amp & Cab", types: ["tubeAmp", "namAmp", "irLoader"] },
   { name: "Utilities", types: ["utility", "tuner"] },
 ];
 
@@ -91,6 +94,7 @@ export const EFFECT_LABELS: Record<EffectType, string> = {
   pitchShift: "Pitch Shift",
   irLoader: "IR Loader",
   namAmp: "NAM Amp",
+  tubeAmp: "Furnace",
   gate: "Noise Gate",
   paramEq: "Parametric EQ",
   multiband: "Multiband Compressor",
@@ -157,6 +161,7 @@ const secSpaced = (v: number) => `${v.toFixed(2)} s`;
 const dbSpaced = (v: number) => `${v.toFixed(1)} dB`;
 const dbSigned = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
 const hzSpaced =(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`);
+const tenths = (v: number) => v.toFixed(1);
 
 /** The sidechain's own settings, shared by every dynamics effect. They
  * shape what the detector hears, whether or not another track is keying
@@ -302,6 +307,19 @@ const PARAM_SPECS: Record<EffectType, ParamSpec[]> = {
     { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
     { key: "normalize", label: "Normalize", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "On" : "Off") },
     { key: "size", label: "Size", min: 0, max: 1, default: 1, format: (v) => (v >= 0.5 ? "Full" : "Lite") },
+  ],
+  // The Furnace amp (see ampModel.ts): 0-10 knobs, three channel modes
+  // and the rectifier switch.
+  tubeAmp: [
+    { key: "gain", label: "Gain", min: 0, max: 10, default: AMP_DEFAULTS.gain, format: tenths },
+    { key: "bass", label: "Bass", min: 0, max: 10, default: AMP_DEFAULTS.bass, format: tenths },
+    { key: "mid", label: "Middle", min: 0, max: 10, default: AMP_DEFAULTS.mid, format: tenths },
+    { key: "treble", label: "Treble", min: 0, max: 10, default: AMP_DEFAULTS.treble, format: tenths },
+    { key: "presence", label: "Presence", min: 0, max: 10, default: AMP_DEFAULTS.presence, format: tenths },
+    { key: "master", label: "Master", min: 0, max: 10, default: AMP_DEFAULTS.master, format: tenths },
+    { key: "output", label: "Output", min: -24, max: 24, default: 0, format: dbSigned },
+    { key: "mode", label: "Mode", min: 0, max: AMP_MODES.length - 1, default: AMP_MODES.length - 1, format: (v) => AMP_MODE_LABELS[ampMode(v)], automatable: false },
+    { key: "rectifier", label: "Rectifier", min: 0, max: 1, default: 1, format: (v) => AMP_RECTIFIER_LABELS[ampRectifier(v)], automatable: false },
   ],
   // Range at -80 dB means fully closed (silence).
   gate: [

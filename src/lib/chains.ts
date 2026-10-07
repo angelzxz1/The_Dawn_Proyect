@@ -1,7 +1,8 @@
 // Ready-made effect chains: several devices added to a track at once, set
 // up for one job (a guitar amp tone, a bass DI, a vocal). They're built from
 // factory presets and Dawn's own cabinets, so they work with nothing to
-// download; the Saturator plays the amp until you load a NAM capture.
+// download: the Furnace or the Saturator plays the amp until you load a
+// NAM capture.
 
 import type { EffectFileRef, EffectType } from "./effects";
 import { factoryCab } from "./cabIrs";
@@ -54,12 +55,12 @@ export const EFFECT_CHAINS: EffectChain[] = [
   {
     id: "high-gain-guitar",
     name: "High-Gain Guitar",
-    description: "A tight gate, heavy saturation and a closed 4x12, with the mud scooped out.",
+    description: "A tight gate, the Furnace's Modern channel and a closed 4x12, low end and fizz trimmed.",
     steps: [
       { type: "gate", preset: "factory:gate:guitar-hiss", params: { threshold: -50, release: 0.08 } },
-      { type: "distortion", params: { distortion: 0.85, shape: 0, tone: 7000, output: -9, colorOn: 1, colorMode: 0, colorFreq: 900, colorQ: 0.8, colorDepth: 6, colorBase: -6 } },
+      { type: "tubeAmp", preset: "factory:tubeAmp:modern-rhythm" },
       { type: "irLoader", preset: "factory:irLoader:tight-guitar-cab", file: cab("factory-ir:4x12-closed") },
-      { type: "paramEq", params: { b1On: 1, b1Shape: 2, b1Freq: 100, b1Q: 0.71, b1Slope: 24, b2On: 1, b2Shape: 0, b2Freq: 400, b2Gain: -3, b2Q: 1.2, b3On: 1, b3Shape: 0, b3Freq: 2500, b3Gain: 2, b3Q: 1, b4On: 1, b4Shape: 4, b4Freq: 9000, b4Q: 0.71 } },
+      { type: "paramEq", params: { b1On: 1, b1Shape: 2, b1Freq: 80, b1Q: 0.71, b1Slope: 24, b4On: 1, b4Shape: 4, b4Freq: 10000, b4Q: 0.71 } },
     ],
   },
   {

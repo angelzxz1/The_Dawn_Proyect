@@ -413,6 +413,7 @@ automated and saved as a preset, and most come with factory presets.
 
 | Effect | What it does |
 | --- | --- |
+| **Furnace** | Dawn's own high-gain tube amp, modeled stage by stage: four triode stages, a real bass/middle/treble tone stack after the distortion, presence and master into a push-pull power amp, with 0-10 knobs (gain, bass, middle, treble, presence, master) and output. **Raw**, **Vintage** and **Modern** channel modes, and a **Tube** or **Diode** rectifier (tube sags and blooms, diode stays tight). Modern's voicing was fitted against measurements of a real rectifier head; pair it with a 4x12 cabinet in the IR Loader. |
 | **NAM Amp** | Loads [Neural Amp Modeler](https://www.neuralampmodeler.com/) `.nam` amp captures, with input, a bass/middle/treble tone stack, output and normalize. |
 | **IR Loader** | Loads an impulse response (a speaker cabinet, a room) from an audio file, or one of Dawn's six built-in cabinets (four guitar, two bass), with low and high cut, dry/wet and normalize. It draws the IR's frequency response. |
 | **Utility** | Gain, stereo width, balance, mono, bass mono, per-channel phase invert, channel select (stereo, left, right or swapped), a DC filter and mute. |
@@ -729,8 +730,8 @@ Double-click a MIDI clip to open it.
 - **Chains** (at the top of the Effects browser) add a whole ready-made chain
   to the selected track in one click: **Clean Guitar**, **Crunch Guitar**,
   **High-Gain Guitar**, **Bass**, **Acoustic Guitar** and **Vocal**. The
-  guitar chains use the Saturator as the amp; swap in a **NAM Amp** with your
-  favorite capture for an even more real tone.
+  High-Gain chain uses the Furnace amp and the clean and crunch chains the
+  Saturator; swap in a **NAM Amp** with your favorite capture any time.
 
 ### Sidechain
 
@@ -917,6 +918,17 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   worked out every 32 samples and smoothed in between.
 - **NAM Amp** runs Neural Amp Modeler's C++ core compiled to WebAssembly
   (`public/nam`), in a worklet.
+- **The Furnace amp** (`ampKernel.ts`) runs at 4x the sample rate (64-tap
+  polyphase filters each way, 16 samples of latency) so its distortion
+  doesn't alias. Each triode stage has a cathode-bypass shelf, an asymmetric
+  soft clip whose bias shifts when driven hard, and coupling and Miller
+  filters. The tone stack isn't a stock EQ: the circuit is solved (nodal
+  analysis) whenever a knob moves, its exact third-order response fitted and
+  turned into a digital filter. The default voicing's constants were fitted
+  by optimization against measurements of a NAM capture of a real amp (gain
+  and harmonics per frequency and level, the clipping curve, and the
+  spectrum and dynamics on real guitar DI); the capture itself isn't used or
+  shipped.
 - **Latency compensation.** Each effect reports its latency: lookahead,
   oversampling filters, amp models. The engine delays the faster tracks so
   every track reaches the master at the same time. Sidechain keys are delayed

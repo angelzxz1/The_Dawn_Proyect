@@ -20,6 +20,7 @@ import { MultibandRackCard } from "./MultibandRackCard";
 import { UtilityRackCard } from "./UtilityRackCard";
 import { TunerRackCard } from "./TunerRackCard";
 import { GlueRackCard } from "./GlueRackCard";
+import { FurnaceRackCard } from "./FurnaceRackCard";
 import { MbDynamicsRackCard } from "./MbDynamicsRackCard";
 import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
 import { PresetMenu, type PresetChange } from "./PresetMenu";
@@ -107,6 +108,7 @@ const CUSTOM_UI_TYPES: EffectType[] = [
   "distortion",
   "irLoader",
   "namAmp",
+  "tubeAmp",
   "gate",
   "paramEq",
   "multiband",
@@ -337,7 +339,7 @@ export function FxRack({
               className={`flex shrink-0 ${
                 fx.type === "eq3"
                   ? "w-64 rounded-xl"
-                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp" || fx.type === "gate" || fx.type === "utility" || fx.type === "tuner" || fx.type === "glue"
+                  : fx.type === "compressor" || fx.type === "delay" || fx.type === "limiter" || fx.type === "filter" || fx.type === "chorus" || fx.type === "pitchShift" || fx.type === "distortion" || fx.type === "irLoader" || fx.type === "namAmp" || fx.type === "tubeAmp" || fx.type === "gate" || fx.type === "utility" || fx.type === "tuner" || fx.type === "glue"
                     ? "w-72 rounded-xl"
                     : fx.type === "reverb" || fx.type === "paramEq" || fx.type === "multiband" || fx.type === "mbDynamics"
                       ? "w-80 rounded-xl"
@@ -467,6 +469,16 @@ export function FxRack({
                     params={fx.params}
                     bypass={!!fx.bypass}
                     sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
+                    onBypassToggle={() => onBypassToggle(fx.id)}
+                    onRemove={() => onRemoveEffect(fx.id)}
+                    onExpand={() => onOpenEffectWindow?.(fx.id)}
+                    onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                    onParamDragStart={onParamDragStart}
+                  />
+                ) : fx.type === "tubeAmp" ? (
+                  <FurnaceRackCard
+                    params={fx.params}
+                    bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}
                     onRemove={() => onRemoveEffect(fx.id)}
                     onExpand={() => onOpenEffectWindow?.(fx.id)}

@@ -11,8 +11,8 @@
 
 import { planCompensation, type CompensationPlan } from "./latency";
 import { inputMap, MASTER_OUTPUT, routeMap, soloAudible, type RouteNode } from "./routing";
-import { keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "./sidechainRouting";
-import type { SidechainRouting, SidechainTap } from "./sidechainModel";
+import { keyDelay, resolveSidechains, type RoutingSnapshot, type SidechainRequest } from "../effects/sidechain/sidechainRouting";
+import type { SidechainRouting, SidechainTap } from "../effects/sidechain/sidechainModel";
 import type { TrackInput } from "./types";
 
 export interface MixTrack extends RouteNode {

@@ -37,8 +37,8 @@ import { ScaleSelector } from "./ScaleSelector";
 import { ContextMenu } from "./ContextMenu";
 import { FxRack } from "./FxRack";
 import { SynthWindow } from "./SynthWindow";
-import type { SidechainSource } from "./SidechainPanel";
-import { SIDECHAIN_TAP_LABELS } from "@/lib/sidechainModel";
+import type { SidechainSource } from "@/effects/sidechain/SidechainPanel";
+import { SIDECHAIN_TAP_LABELS } from "@/effects/sidechain/sidechainModel";
 import { AudioStatus } from "./AudioStatus";
 import { EffectBrowser } from "./EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "./AutomationLane";
@@ -75,7 +75,7 @@ import { shouldAskAfterExport, supportLinks } from "@/lib/support";
 import type { ProjectTemplate } from "@/lib/templates";
 import { grooveById, grooveHits, grooveKit, type Groove } from "@/lib/grooves";
 import { loadAudioPrefs } from "@/lib/audioPrefs";
-import { type EffectType } from "@/lib/effects";
+import { type EffectType } from "@/effects/registry";
 import type { ScaleSetting } from "@/lib/scales";
 import {
   DEFAULT_PX_PER_SECOND,

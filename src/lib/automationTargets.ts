@@ -2,7 +2,7 @@
 // volume, its pan, or any automatable parameter of its effects), with the
 // range and format each is edited in.
 
-import { EFFECT_LABELS, automatableParamSpecs, paramSpecs, type EffectInstance } from "./effects";
+import { EFFECT_LABELS, automatableParamSpecs, paramSpecs, type EffectInstance } from "../effects/registry";
 import type { AutomationTarget, ChannelConfig } from "./types";
 
 /** A stable string key for an automation target, so two targets can be

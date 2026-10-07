@@ -1,7 +1,7 @@
 import * as Tone from "tone";
 import type { Instrument } from "./drumKit";
 import { DRUM_SOURCE } from "./drumKernel";
-import { decodeEffectFileAudio } from "./effectFiles";
+import { decodeEffectFileAudio } from "../effects/effectFiles";
 import { PAD_COUNT, compileDrumKit, padNote, type DrumKitParams } from "./drumParams";
 import { loadWorklet } from "./workletLoader";
 

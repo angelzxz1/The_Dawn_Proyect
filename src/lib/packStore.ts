@@ -3,12 +3,12 @@
 // so removing it takes exactly those away), and "Save my presets as a
 // pack" for backups and sharing. See dawnPack.ts for the format.
 
-import { addPackPresets, removePackPresets, userPresets } from "./presets";
+import { addPackPresets, removePackPresets, userPresets } from "../effects/presets";
 import { addPackSynthPresets, removePackSynthPresets, userSynthPresets } from "./synthPresets";
 import { addPackKits, ownDrumKits, removePackKits } from "./drumKits";
 import { parsePackGrooves, removePackGrooves, setPackGrooves } from "./grooves";
-import { decodeEffectFileAudio, discardEffectFile, effectFileBlob, registerEffectFile } from "./effectFiles";
-import { parseNamFile } from "./namModel";
+import { decodeEffectFileAudio, discardEffectFile, effectFileBlob, registerEffectFile } from "../effects/effectFiles";
+import { parseNamFile } from "../effects/nam-amp/namModel";
 import { packFileName, packId, packPathKind, readPack, writePack, type PackFile, type PackManifest } from "./dawnPack";
 import type { ToneEntry } from "./tones";
 import { noteIssue } from "./issues";

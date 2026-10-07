@@ -9,9 +9,9 @@
 // valid (an effect type that no longer exists, a clip on a deleted track)
 // are dropped.
 
-import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectInstance, type EffectType } from "./effects";
-import { SIDECHAIN_TAPS, type SidechainTap } from "./sidechainModel";
-import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "./filterModel";
+import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectInstance, type EffectType } from "../effects/registry";
+import { SIDECHAIN_TAPS, type SidechainTap } from "../effects/sidechain/sidechainModel";
+import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "../effects/filter/filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./timeline";
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";

@@ -1,0 +1,95 @@
+"use client";
+
+import { Maximize2, Power, X } from "lucide-react";
+import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginIcon } from "@/effects/ui/PluginIcon";
+import { DISTORTION_KNOBS, saturatorParam, saturatorSpec } from "./SaturatorWindow";
+import { SHAPE_LABELS, distortionShapeFromParam } from "./saturatorModel";
+import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+
+interface SaturatorRackCardProps {
+  params: Record<string, number>;
+  bypass: boolean;
+  onBypassToggle: () => void;
+  onRemove: () => void;
+  onExpand: () => void;
+  onParamChange: (key: string, value: number) => void;
+  onParamDragStart?: () => void;
+}
+
+/** The compact card shown inline in the FX rack - all five knobs, with the
+ * shape in the header; the graph and the shape/oversampling selectors live
+ * in the full SaturatorWindow, opened via expand. */
+export function SaturatorRackCard({
+  params,
+  bypass,
+  onBypassToggle,
+  onRemove,
+  onExpand,
+  onParamChange,
+  onParamDragStart,
+}: SaturatorRackCardProps) {
+  const shape = distortionShapeFromParam(saturatorParam(params, "shape"));
+
+  return (
+    <div className="flex h-full flex-col gap-2.5">
+      <div className="flex items-center justify-between">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <PluginIcon size={15} />
+          <h2 className={`${fraunces.className} text-[13px] font-semibold text-[#F4EDE2]`}>Saturator</h2>
+          <span className={`${spaceGrotesk.className} truncate text-[10px] font-semibold uppercase tracking-wider text-muted`}>
+            {SHAPE_LABELS[shape]}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="Expand"
+            onClick={onExpand}
+            className="flex h-5 w-5 items-center justify-center rounded text-muted hover:bg-black/20"
+          >
+            <Maximize2 size={11} />
+          </button>
+          <button
+            type="button"
+            title={bypass ? "Enable effect" : "Bypass effect"}
+            onClick={onBypassToggle}
+            className="flex h-5 w-5 items-center justify-center rounded"
+            style={{ background: "#23242B", border: "1px solid #2E2F37" }}
+          >
+            <Power size={11} color={bypass ? "#5A5B64" : "#E6AD5E"} />
+          </button>
+          <button
+            type="button"
+            title="Remove effect"
+            onClick={onRemove}
+            className="flex h-5 w-5 items-center justify-center rounded text-record hover:bg-black/20"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      </div>
+
+      <div className={`${spaceGrotesk.className} grid grid-cols-3 gap-x-1 gap-y-2`}>
+        {DISTORTION_KNOBS.map(({ key, mode }) => {
+          const spec = saturatorSpec(key);
+          return (
+            <PluginKnob
+              key={key}
+              label={spec.label}
+              value={saturatorParam(params, key)}
+              min={spec.min}
+              max={spec.max}
+              defaultValue={spec.default}
+              mode={mode}
+              size={34}
+              onChange={(v) => onParamChange(key, v)}
+              onDragStart={onParamDragStart}
+              formatValue={spec.format}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}

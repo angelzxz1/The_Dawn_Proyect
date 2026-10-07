@@ -966,13 +966,21 @@ npm start       # serve out/ locally
 ```
 
 - `src/app/`: the Next.js App Router entry (the whole app is one client page).
+- `src/effects/`: every audio effect, one folder each (`compressor/`,
+  `delay/`, `furnace/`, `nam-amp/`...). A folder holds the effect's DSP
+  model and kernel, its audio node, its rack card, window and graphs, and
+  their tests. Alongside them:
+  - `registry.ts`: the effect types, groups, labels and parameters;
+  - `nodes.ts`: builds any effect's node and applies its parameters;
+  - `presets.ts`, `chains.ts`, `effectFiles.ts`;
+  - `ui/`: the plugin UI they share (knobs, window chrome, preset menu);
+  - `sidechain/`: sidechain routing and its panel.
 - `src/components/`:
   - `Daw.tsx`, which holds the app's state;
-  - the arrangement, transport, piano roll and FX rack;
-  - each plugin's rack card, window and graphs.
+  - the arrangement, transport, piano roll, FX rack and instruments' UI.
 - `src/lib/`:
-  - the audio engine and each effect's engine node;
-  - DSP models (`*Model.ts`) with their tests;
+  - the audio engine, mixing, routing and latency;
+  - the instruments' DSP;
   - the project schema, persistence, project files, MIDI and WAV I/O.
 
 ### Stack

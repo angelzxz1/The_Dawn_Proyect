@@ -4,28 +4,28 @@
 // type has its own. Every change goes through effectActions, whichever host
 // (a track, a bus or the master) the effect is on.
 
-import { CompressorWindow } from "../CompressorWindow";
-import { ChorusWindow } from "../ChorusWindow";
-import { DelayWindow } from "../DelayWindow";
-import { DistortionWindow } from "../DistortionWindow";
-import { EQThreeWindow } from "../EQThreeWindow";
-import { FilterWindow } from "../FilterWindow";
-import { GateWindow } from "../GateWindow";
-import { GlueWindow } from "../GlueWindow";
-import { FurnaceWindow } from "../FurnaceWindow";
-import { IrLoaderWindow } from "../IrLoaderWindow";
-import { LimiterWindow } from "../LimiterWindow";
-import { MbDynamicsWindow } from "../MbDynamicsWindow";
-import { MultibandWindow } from "../MultibandWindow";
-import { NamAmpWindow } from "../NamAmpWindow";
-import { ParamEqWindow } from "../ParamEqWindow";
-import { PitchShiftWindow } from "../PitchShiftWindow";
-import { EffectPresetContext } from "../PresetMenu";
-import { ReverbWindow } from "../ReverbWindow";
-import type { SidechainSource } from "../SidechainPanel";
-import { TunerWindow } from "../TunerWindow";
-import { UtilityWindow } from "../UtilityWindow";
-import type { EffectInstance } from "@/lib/effects";
+import { CompressorWindow } from "@/effects/compressor/CompressorWindow";
+import { ChorusWindow } from "@/effects/chorus/ChorusWindow";
+import { DelayWindow } from "@/effects/delay/DelayWindow";
+import { SaturatorWindow } from "@/effects/saturator/SaturatorWindow";
+import { EQThreeWindow } from "@/effects/eq-three/EQThreeWindow";
+import { FilterWindow } from "@/effects/filter/FilterWindow";
+import { GateWindow } from "@/effects/gate/GateWindow";
+import { GlueWindow } from "@/effects/glue/GlueWindow";
+import { FurnaceWindow } from "@/effects/furnace/FurnaceWindow";
+import { IrLoaderWindow } from "@/effects/ir-loader/IrLoaderWindow";
+import { LimiterWindow } from "@/effects/limiter/LimiterWindow";
+import { MbDynamicsWindow } from "@/effects/multiband-dynamics/MbDynamicsWindow";
+import { MultibandWindow } from "@/effects/multiband/MultibandWindow";
+import { NamAmpWindow } from "@/effects/nam-amp/NamAmpWindow";
+import { ParamEqWindow } from "@/effects/parametric-eq/ParamEqWindow";
+import { PitchShiftWindow } from "@/effects/pitch-shift/PitchShiftWindow";
+import { EffectPresetContext } from "@/effects/ui/PresetMenu";
+import { ReverbWindow } from "@/effects/reverb/ReverbWindow";
+import type { SidechainSource } from "@/effects/sidechain/SidechainPanel";
+import { TunerWindow } from "@/effects/tuner/TunerWindow";
+import { UtilityWindow } from "@/effects/utility/UtilityWindow";
+import type { EffectInstance } from "@/effects/registry";
 import { track } from "@/lib/telemetry";
 import { effectActions } from "@/state/effectActions";
 import { projectStore } from "@/state/projectStore";
@@ -293,7 +293,7 @@ export function EffectWindow({
         )}
 
         {effect.type === "distortion" && (
-          <DistortionWindow
+          <SaturatorWindow
             channelName={hostName}
             params={effect.params}
             bypass={!!effect.bypass}

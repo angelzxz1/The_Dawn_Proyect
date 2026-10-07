@@ -3,7 +3,7 @@
 // use), and making a loaded document the open project.
 
 import { bumpEffectIdCounter } from "@/lib/audioEngine";
-import { referencedEffectFiles, registerEffectFile, effectFileBlob } from "@/lib/effectFiles";
+import { referencedEffectFiles, registerEffectFile, effectFileBlob } from "@/effects/effectFiles";
 import type { ProjectState } from "@/lib/project";
 import {
   MAX_SAVED_HISTORY,

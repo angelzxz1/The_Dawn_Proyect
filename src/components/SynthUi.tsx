@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { FINE_FACTOR } from "@/lib/knobInput";
-import { useKnobWheel } from "./useKnobWheel";
+import { useKnobWheel } from "@/effects/ui/useKnobWheel";
 import {
   BIPOLAR_SOURCES,
   DEST_INDEX,

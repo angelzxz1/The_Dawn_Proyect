@@ -10,7 +10,7 @@ import type {
   NoteEvent,
   TimeSignature,
 } from "./types";
-import type { EffectInstance } from "./effects";
+import type { EffectInstance } from "../effects/registry";
 
 export interface ProjectState {
   channels: ChannelConfig[];

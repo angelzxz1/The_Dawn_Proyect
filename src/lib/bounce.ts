@@ -6,20 +6,20 @@
 
 import * as Tone from "tone";
 import { createInstrument } from "./engine/instruments";
-import { applyEffectParam, createEffectNode, IrLoaderChain } from "./engine/effectNodes";
+import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
 import { MAX_COMPENSATION } from "./engine/nodes";
-import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "./effectFiles";
-import { NamAmpChain } from "./namAmp";
+import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "../effects/effectFiles";
+import { NamAmpChain } from "../effects/nam-amp/namAmp";
 import { SynthInstrument } from "./synth";
 import { DrumRack } from "./drumRack";
 import { notesWithinClip } from "./project";
 import { workletsReady } from "./workletLoader";
 import { chainLatency, nodeLatency } from "./latency";
 import { audibleTracks, planMix } from "./mixGraph";
-import type { SidechainTap } from "./sidechainModel";
+import type { SidechainTap } from "../effects/sidechain/sidechainModel";
 import { encodeWav } from "./wav";
 import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "./types";
-import type { EffectInstance } from "./effects";
+import type { EffectInstance } from "../effects/registry";
 import { downstreamOf, inputMap, routeMap, upstreamOf } from "./routing";
 import { noteIssue } from "./issues";
 

@@ -4,8 +4,8 @@
 import * as Tone from "tone";
 import type { NoteEvent, InstrumentType, ChannelType } from "../types";
 import { type Instrument } from "../drumKit";
-import { type EffectType } from "../effects";
-import type { SidechainRouting } from "../sidechainModel";
+import { type EffectType } from "../../effects/registry";
+import type { SidechainRouting } from "../../effects/sidechain/sidechainModel";
 
 /** Longest delay compensation can add to one path (s). */
 export const MAX_COMPENSATION = 2;

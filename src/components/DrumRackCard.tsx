@@ -3,7 +3,7 @@
 import { Maximize2 } from "lucide-react";
 import { audioEngine } from "@/lib/audioEngine";
 import type { DrumKitParams } from "@/lib/drumParams";
-import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import { padColor } from "./DrumRackWindow";
 
 /** The Drum Rack in the FX rack: its kit and 16 mini pads to try. */

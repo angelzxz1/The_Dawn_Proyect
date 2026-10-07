@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Save, Search, Trash2, Upload, X } from "lucide-react";
 import { audioEngine } from "@/lib/audioEngine";
-import { newEffectFileId, registerEffectFile } from "@/lib/effectFiles";
+import { newEffectFileId, registerEffectFile } from "@/effects/effectFiles";
 import type { SynthLiveState } from "@/lib/synth";
 import {
   DEST_SPECS,
@@ -48,7 +48,7 @@ import {
   type SynthPreset,
 } from "@/lib/synthPresets";
 import { WAVETABLE_IDS, WAVETABLE_INFO } from "@/lib/wavetableModel";
-import { fraunces, spaceGrotesk } from "@/lib/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
 import type { TrackColor } from "@/lib/colors";
 import { EnvelopeEditor, FilterView, LfoView, Scope, WavetableView } from "./SynthDisplays";
 import {

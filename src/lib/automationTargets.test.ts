@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { automationCurrentValue, automationRange, automationTargetKey, automationTargetOptions } from "./automationTargets";
-import { defaultParams, type EffectInstance } from "./effects";
+import { defaultParams, type EffectInstance } from "../effects/registry";
 import type { ChannelConfig } from "./types";
 
 describe("automation targets", () => {

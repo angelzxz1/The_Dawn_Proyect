@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hydrateEngine, syncEngine, type EngineApi } from "./engineSync";
-import type { EffectInstance, EffectType } from "./effects";
+import type { EffectInstance, EffectType } from "../effects/registry";
 import type { ProjectState } from "./project";
 import type { AudioClipInstance, ChannelConfig, ChannelType, InstrumentType, MidiClipInstance, NoteEvent } from "./types";
 

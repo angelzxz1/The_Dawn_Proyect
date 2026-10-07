@@ -5,14 +5,14 @@
 // edit (a knob turn records its step when the drag starts).
 
 import { audioEngine } from "@/lib/audioEngine";
-import type { EffectChain } from "@/lib/chains";
-import { discardEffectFile, importAudioEffectFile, importNamModelFile } from "@/lib/effectFiles";
-import type { EffectFileRef, EffectInstance, EffectType } from "@/lib/effects";
-import { MAX_IR_SECONDS } from "@/lib/irModel";
-import { findPreset, paramsFromPreset } from "@/lib/presets";
-import type { SidechainRouting } from "@/lib/sidechainModel";
+import type { EffectChain } from "@/effects/chains";
+import { discardEffectFile, importAudioEffectFile, importNamModelFile } from "@/effects/effectFiles";
+import type { EffectFileRef, EffectInstance, EffectType } from "@/effects/registry";
+import { MAX_IR_SECONDS } from "@/effects/ir-loader/irModel";
+import { findPreset, paramsFromPreset } from "@/effects/presets";
+import type { SidechainRouting } from "@/effects/sidechain/sidechainModel";
 import { track } from "@/lib/telemetry";
-import type { PresetChange } from "@/components/PresetMenu";
+import type { PresetChange } from "@/effects/ui/PresetMenu";
 import { projectStore } from "./projectStore";
 
 /** A track's, a bus's or the master's effects, as the project has them. */

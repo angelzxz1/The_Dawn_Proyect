@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ExternalLink, Feather, Loader2 } from "lucide-react";
-import type { EffectFileRef } from "@/lib/effects";
+import type { EffectFileRef } from "@/effects/registry";
 import { bundledTones, FACTORY_CAB_TONES, fetchToneFile, type ToneEntry } from "@/lib/tones";
 import { packTones } from "@/lib/packStore";
 

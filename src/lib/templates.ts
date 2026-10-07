@@ -4,12 +4,12 @@
 // that's opened. Each makes sound within a click or two (press Play, or
 // arm and record).
 
-import { chainById } from "./chains";
+import { chainById } from "../effects/chains";
 import { FACTORY_KITS } from "./drumKits";
-import { defaultParams, type EffectInstance, type EffectType } from "./effects";
+import { defaultParams, type EffectInstance, type EffectType } from "../effects/registry";
 import { grooveBeats, grooveById, grooveNotes } from "./grooves";
 import { midiToNoteName } from "./piano";
-import { findPreset, paramsFromPreset } from "./presets";
+import { findPreset, paramsFromPreset } from "../effects/presets";
 import { normalizeProject, type SerializedProject } from "./projectSchema";
 import { FACTORY_SYNTH_PRESETS } from "./synthPresets";
 import type { ChannelConfig, NoteEvent } from "./types";

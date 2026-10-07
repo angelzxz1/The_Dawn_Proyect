@@ -4,7 +4,7 @@
 // shipped as static files and fetched only when picked. Every file listed
 // there needs an entry in src/content/licenses.json (a test checks).
 
-import { cabImpulse, factoryCab, FACTORY_CABS } from "./cabIrs";
+import { cabImpulse, factoryCab, FACTORY_CABS } from "../effects/ir-loader/cabIrs";
 import { encodeWav } from "./wav";
 import { noteIssue } from "./issues";
 

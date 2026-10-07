@@ -9,7 +9,7 @@
 
 import type { audioEngine } from "./audioEngine";
 import type { AudioClipTiming } from "./engine/nodes";
-import type { EffectInstance } from "./effects";
+import type { EffectInstance } from "../effects/registry";
 import { notesWithinClip, type ProjectState } from "./project";
 import { quarterNotesPerBar } from "./timeline";
 import type { AudioClipInstance, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent } from "./types";

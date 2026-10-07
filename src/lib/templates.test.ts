@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeProject } from "./projectSchema";
-import { findPreset } from "./presets";
+import { findPreset } from "../effects/presets";
 import { PROJECT_TEMPLATES } from "./templates";
 
 describe("project templates", () => {

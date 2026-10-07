@@ -3,7 +3,7 @@
 // monitor - its input heard live through its effects.
 
 import * as Tone from "tone";
-import type { SidechainTap } from "../sidechainModel";
+import type { SidechainTap } from "../../effects/sidechain/sidechainModel";
 import type { TrackInput } from "../types";
 import { noteIssue } from "../issues";
 

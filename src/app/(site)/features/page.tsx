@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { AlignedTake, ChainChips, DeviceCard, ExportList, FileTree, PianoRoll, Routing, StatusChips, Well } from "@/components/site/illustrations";
 import { EffectsGrid, type EffectInfo } from "@/components/site/interactive";
 import { CheckList, Container, CtaBand, JumpLinks, PageIntro, SectionHead, secondaryButton } from "@/components/site/ui";
-import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/lib/effects";
+import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/effects/registry";
 import Link from "next/link";
 
 export const metadata: Metadata = {

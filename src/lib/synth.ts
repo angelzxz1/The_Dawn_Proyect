@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import type { Instrument } from "./drumKit";
-import { decodeEffectFileAudio } from "./effectFiles";
+import { decodeEffectFileAudio } from "../effects/effectFiles";
 import { SYNTH_SOURCE } from "./synthKernel";
 import { compileSynth, initSynthParams, type SynthOscParams, type SynthParams } from "./synthParams";
 import { factoryWavetable, subWavetable, wavetableFromAudio, type WavetableData } from "./wavetableModel";

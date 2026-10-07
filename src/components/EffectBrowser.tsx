@@ -2,10 +2,10 @@
 
 import { useState, type ReactNode } from "react";
 import { ChevronRight, Drum, Link2, Search, Sliders, X } from "lucide-react";
-import { EFFECT_CHAINS, type EffectChain } from "@/lib/chains";
-import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/lib/effects";
-import { presetsFor, type EffectPreset } from "@/lib/presets";
-import { useUserPresets } from "./PresetMenu";
+import { EFFECT_CHAINS, type EffectChain } from "@/effects/chains";
+import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/effects/registry";
+import { presetsFor, type EffectPreset } from "@/effects/presets";
+import { useUserPresets } from "@/effects/ui/PresetMenu";
 
 /** The MIME type used to carry an effect type through HTML5 drag-and-drop
  * from this sidebar to the FX rack - shared with FxRack.tsx. */

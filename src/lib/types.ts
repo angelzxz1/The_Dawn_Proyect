@@ -76,7 +76,7 @@ export interface ChannelConfig {
 
 import type { SynthParams } from "./synthParams";
 import type { DrumKitParams } from "./drumParams";
-import type { SidechainTap } from "./sidechainModel";
+import type { SidechainTap } from "../effects/sidechain/sidechainModel";
 
 /** An audio track's input taken from another track. */
 export interface TrackInput {

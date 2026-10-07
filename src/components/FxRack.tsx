@@ -3,30 +3,30 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, Power, SlashSquare, Waves, X } from "lucide-react";
 import { ValueBar } from "./ValueBar";
-import { EQThreeRackCard } from "./EQThreeRackCard";
-import { CompressorRackCard } from "./CompressorRackCard";
-import { DelayRackCard } from "./DelayRackCard";
-import { ReverbRackCard } from "./ReverbRackCard";
-import { LimiterRackCard } from "./LimiterRackCard";
-import { FilterRackCard } from "./FilterRackCard";
-import { ChorusRackCard } from "./ChorusRackCard";
-import { PitchShiftRackCard } from "./PitchShiftRackCard";
-import { DistortionRackCard } from "./DistortionRackCard";
-import { IrLoaderRackCard } from "./IrLoaderRackCard";
-import { NamAmpRackCard } from "./NamAmpRackCard";
-import { GateRackCard } from "./GateRackCard";
-import { ParamEqRackCard } from "./ParamEqRackCard";
-import { MultibandRackCard } from "./MultibandRackCard";
-import { UtilityRackCard } from "./UtilityRackCard";
-import { TunerRackCard } from "./TunerRackCard";
-import { GlueRackCard } from "./GlueRackCard";
-import { FurnaceRackCard } from "./FurnaceRackCard";
-import { MbDynamicsRackCard } from "./MbDynamicsRackCard";
+import { EQThreeRackCard } from "@/effects/eq-three/EQThreeRackCard";
+import { CompressorRackCard } from "@/effects/compressor/CompressorRackCard";
+import { DelayRackCard } from "@/effects/delay/DelayRackCard";
+import { ReverbRackCard } from "@/effects/reverb/ReverbRackCard";
+import { LimiterRackCard } from "@/effects/limiter/LimiterRackCard";
+import { FilterRackCard } from "@/effects/filter/FilterRackCard";
+import { ChorusRackCard } from "@/effects/chorus/ChorusRackCard";
+import { PitchShiftRackCard } from "@/effects/pitch-shift/PitchShiftRackCard";
+import { SaturatorRackCard } from "@/effects/saturator/SaturatorRackCard";
+import { IrLoaderRackCard } from "@/effects/ir-loader/IrLoaderRackCard";
+import { NamAmpRackCard } from "@/effects/nam-amp/NamAmpRackCard";
+import { GateRackCard } from "@/effects/gate/GateRackCard";
+import { ParamEqRackCard } from "@/effects/parametric-eq/ParamEqRackCard";
+import { MultibandRackCard } from "@/effects/multiband/MultibandRackCard";
+import { UtilityRackCard } from "@/effects/utility/UtilityRackCard";
+import { TunerRackCard } from "@/effects/tuner/TunerRackCard";
+import { GlueRackCard } from "@/effects/glue/GlueRackCard";
+import { FurnaceRackCard } from "@/effects/furnace/FurnaceRackCard";
+import { MbDynamicsRackCard } from "@/effects/multiband-dynamics/MbDynamicsRackCard";
 import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
-import { PresetMenu, type PresetChange } from "./PresetMenu";
-import { sidechainSourceName, type SidechainSource } from "./SidechainPanel";
-import { SIDECHAIN_TAPS, SIDECHAIN_TAP_LABELS, type SidechainTap } from "@/lib/sidechainModel";
-import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/lib/effects";
+import { PresetMenu, type PresetChange } from "@/effects/ui/PresetMenu";
+import { sidechainSourceName, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
+import { SIDECHAIN_TAPS, SIDECHAIN_TAP_LABELS, type SidechainTap } from "@/effects/sidechain/sidechainModel";
+import { EFFECT_LABELS, paramSpecs, type EffectInstance, type EffectType } from "@/effects/registry";
 import { SynthRackCard } from "./SynthRackCard";
 import { DrumRackCard } from "./DrumRackCard";
 import type { DrumKitParams } from "@/lib/drumParams";
@@ -393,7 +393,7 @@ export function FxRack({
                     onParamDragStart={onParamDragStart}
                   />
                 ) : fx.type === "distortion" ? (
-                  <DistortionRackCard
+                  <SaturatorRackCard
                     params={fx.params}
                     bypass={!!fx.bypass}
                     onBypassToggle={() => onBypassToggle(fx.id)}

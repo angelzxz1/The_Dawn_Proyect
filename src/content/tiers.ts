@@ -2,6 +2,12 @@ import type { Tier } from "@/site/interactive";
 
 // The supporter memberships, as shown on the landing and Support pages.
 // Keep these in step with the Patreon tiers.
+//
+// `join` is the tier's own Patreon checkout link, so its button goes straight
+// to joining that tier: open your Patreon page in a private window, click the
+// tier's Join button, and copy the address of the checkout page (it has
+// `?rid=` and the tier's number in it). Without one, the button opens the
+// Patreon page (NEXT_PUBLIC_PATREON_URL).
 
 export const TIERS: Tier[] = [
   { name: "Follower", price: 0, blurb: "Follow along for free.", cta: "Follow for free", perks: ["Public posts and release notes", "The monthly newsletter"] },

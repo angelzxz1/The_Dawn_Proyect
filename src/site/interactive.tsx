@@ -292,10 +292,15 @@ export interface Tier {
   blurb: string;
   cta: string;
   perks: string[];
+  /** The tier's own Patreon checkout link (see content/tiers.ts); without
+   * one, the button opens the Patreon page. */
+  join?: string;
 }
 
 function TierButton({ tier, highlight }: { tier: Tier; highlight: boolean }) {
-  const href = supportLink("patreon");
+  const page = supportLink("patreon");
+  // A tier's own link only once Patreon is set up for this deployment.
+  const href = page && tier.join && /^https:\/\/(www\.)?patreon\.com\//.test(tier.join) ? tier.join : page;
   const className = `mt-auto flex min-h-12 items-center justify-center rounded-[10px] border text-[15px] font-semibold no-underline ${
     highlight ? "border-accent bg-accent text-background hover:bg-accent-strong" : "border-border bg-background text-foreground hover:border-border-strong"
   }`;

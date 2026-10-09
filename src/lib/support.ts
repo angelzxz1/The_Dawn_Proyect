@@ -16,6 +16,7 @@ const env = {
   kofi: process.env.NEXT_PUBLIC_KOFI_URL ?? "",
   discord: process.env.NEXT_PUBLIC_DISCORD_URL ?? "",
   feedback: process.env.NEXT_PUBLIC_FEEDBACK_URL ?? "",
+  contact: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "",
   version: process.env.NEXT_PUBLIC_APP_VERSION ?? "dev",
 };
 
@@ -44,6 +45,12 @@ export function membershipPlatforms(): string[] {
 export function communityLink(): SupportLink | null {
   const url = https(env.discord);
   return url ? { id: "discord", label: "Discord", url, hint: "Share demos, get help, suggest features" } : null;
+}
+
+/** The address people can write to (tone creators, press), or "" until
+ * this deployment sets one. */
+export function contactEmail(): string {
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i.test(env.contact) ? env.contact : "";
 }
 
 export const ISSUES_URL = "https://github.com/angelzxz1/The_Dawn_Proyect/issues";

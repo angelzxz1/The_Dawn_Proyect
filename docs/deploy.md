@@ -146,6 +146,7 @@ Discord buttons only appear once theirs are set. Keep the tiers and prices in
 | `NEXT_PUBLIC_DISCORD_URL` | The Discord invite |
 | `NEXT_PUBLIC_DEMO_VIDEO_URL` | The 60-second demo video (YouTube or similar). The landing page's "Watch the demo" button and video card only show once it's set. |
 | `NEXT_PUBLIC_FEEDBACK_URL` | A feedback form (Tally, Google Forms…). Dawn adds `browser` and `version` query parameters, which Tally can use as hidden fields. Without it, **Feedback** opens a new GitHub issue with the same details filled in. |
+| `NEXT_PUBLIC_CONTACT_EMAIL` | An address people can write to, for example `hello@thedawnproject.app`. The Support page's **Share your tones** opens an email to it (creators send files and permission that way); without it, that card goes to the Discord, or else GitHub. |
 
 After an export, Dawn thanks the person and offers the first support page,
 at most once per visit and never in the way of the download.

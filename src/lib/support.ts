@@ -31,6 +31,16 @@ export function supportLinks(): SupportLink[] {
   return all.filter((l) => l.url);
 }
 
+/** Where memberships are run, for "Memberships run on ...": the membership
+ * pages that are set, or Patreon until one is (its button reads "opening
+ * soon" meanwhile). Ko-fi is for one-time tips, so it isn't one. */
+export function membershipPlatforms(): string[] {
+  const names = supportLinks()
+    .filter((l) => l.id === "patreon" || l.id === "github")
+    .map((l) => l.label);
+  return names.length ? names : ["Patreon"];
+}
+
 export function communityLink(): SupportLink | null {
   const url = https(env.discord);
   return url ? { id: "discord", label: "Discord", url, hint: "Share demos, get help, suggest features" } : null;

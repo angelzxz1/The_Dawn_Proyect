@@ -1,6 +1,8 @@
 // The website's questions and answers: all of them on /faq, a few on the
 // landing page. Keep answers true to what Dawn does today.
 
+import { membershipPlatforms } from "@/lib/support";
+
 export const FAQ_CATEGORIES = ["General", "Recording & guitar", "Projects & privacy", "Browsers & devices", "Support & money"] as const;
 export type FaqCategory = (typeof FAQ_CATEGORIES)[number];
 
@@ -31,7 +33,7 @@ export const FAQS: Faq[] = [
   { id: "vst", category: "Browsers & devices", q: "Can I use my VST plugins?", a: "Not in the browser. That's what the 18 built-in effects, the NAM Amp and the IR Loader are for. You can always export stems and finish in your main DAW." },
   { id: "chromebook", category: "Browsers & devices", q: "Does it work on a Chromebook?", a: "It should, in Chrome. Performance depends on the model; if you try it, tell us how it went in the Discord." },
   { id: "supporters", category: "Support & money", q: "What do supporters get?", a: "A monthly sound pack, early access to new features, a vote on what gets built next, and your name in the credits. See the Support page for each tier." },
-  { id: "cancel", category: "Support & money", q: "Can I cancel at any time?", a: "Yes. Memberships are managed on Patreon or GitHub Sponsors, and you can cancel there whenever you like." },
+  { id: "cancel", category: "Support & money", q: "Can I cancel at any time?", a: `Yes. Memberships are managed on ${membershipPlatforms().join(" or ")}, and you can cancel there whenever you like.` },
   { id: "one-time", category: "Support & money", q: "Can I support once instead of monthly?", a: "Yes. You can leave a one-time tip on Ko-fi." },
   { id: "bugs", category: "Support & money", q: "How do I report a bug or suggest a feature?", a: "Post in #bug-reports or #feature-ideas on the Discord, or open an issue on GitHub. Include your browser and audio interface." },
 ];

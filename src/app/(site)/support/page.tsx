@@ -5,6 +5,7 @@ import { PackCover } from "@/site/illustrations";
 import { Tiers } from "@/site/interactive";
 import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
 import { ISSUES_URL, REPO_URL, supportLink } from "@/site/siteLinks";
+import { membershipPlatforms } from "@/lib/support";
 
 export const metadata: Metadata = {
   title: "Support",
@@ -88,7 +89,7 @@ export default function SupportPage() {
         <Container className="flex flex-col gap-6">
           <SectionHead id="tiers-h" eyebrow="Memberships" title="Pick what feels right." />
           <Tiers tiers={TIERS} variant="billing" />
-          <p className="text-[14px] text-muted">Memberships run on Patreon and GitHub Sponsors. Cancel any time. Prices in USD; taxes may apply.</p>
+          <p className="text-[14px] text-muted">Memberships run on {membershipPlatforms().join(" and ")}. Cancel any time. Prices in USD; taxes may apply.</p>
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full min-w-[640px] border-collapse text-left">
               <caption className="px-4 pt-4 text-left font-display text-[20px] font-semibold text-foreground">Compare tiers</caption>

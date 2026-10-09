@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LATEST_VERSION, RELEASES } from "../content/whatsNew";
 import pkg from "../../package.json";
-import { describeBrowser, feedbackUrl, supportLinks } from "./support";
+import { describeBrowser, feedbackUrl, membershipPlatforms, supportLinks } from "./support";
 
 const CHROME_WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 const EDGE_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0";
@@ -24,6 +24,7 @@ describe("support and feedback", () => {
 
   it("shows no support buttons until a page is configured", () => {
     expect(supportLinks()).toEqual([]);
+    expect(membershipPlatforms()).toEqual(["Patreon"]);
   });
 
   it("has release notes for the current version", () => {

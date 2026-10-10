@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { PAD_KEYS, PAD_KEY_ORDER, defaultKitPads, type DrumKitParams } from "./drumParams";
 import { drumPads } from "./drums";
 import { padColor } from "./DrumRackWindow";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 interface DrumPadsProps {
   /** The armed track's kit (names and colors). */

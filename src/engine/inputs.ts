@@ -4,8 +4,8 @@
 
 import * as Tone from "tone";
 import type { SidechainTap } from "../effects/sidechain/sidechainModel";
-import type { TrackInput } from "../lib/types";
-import { noteIssue } from "../lib/issues";
+import type { TrackInput } from "../project/types";
+import { noteIssue } from "../services/issues";
 
 /** What the input manager needs from the engine. */
 export interface InputHost {

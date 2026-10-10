@@ -1,10 +1,10 @@
 "use client";
 
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { RackCardHeader } from "@/effects/ui/PluginChrome";
 import { SidechainBadge } from "@/effects/sidechain/SidechainPanel";
 import { GLUE_STEPPED, GlueNeedle, glueSpec, glueValue } from "./GlueWindow";
-import { spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { spaceGrotesk } from "@/ui/pluginFonts";
 
 const CARD_KNOBS = ["threshold", "ratio", "attack", "release"];
 

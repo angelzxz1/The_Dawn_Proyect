@@ -29,12 +29,12 @@ import {
 } from "@/project/projectFiles";
 import { startFreshKeepingBackup } from "@/project/projectRecovery";
 import type { SerializedProject } from "@/project/projectSchema";
-import { track } from "@/lib/telemetry";
+import { track } from "@/services/telemetry";
 import { autosaveBlobs, documentToSave, openInStore, serializeProject, type SessionSettings } from "@/state/projectDocument";
 import { projectStore, useProjectDoc } from "@/state/projectStore";
 import { LATEST_VERSION } from "@/content/whatsNew";
-import { useShortcuts } from "@/lib/shortcuts";
-import { noteIssue } from "@/lib/issues";
+import { useShortcuts } from "@/ui/shortcuts";
+import { noteIssue } from "@/services/issues";
 
 export interface ProjectFilesEvents {
   /** Another project is about to open: stop playing. */

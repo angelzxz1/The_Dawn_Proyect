@@ -20,8 +20,8 @@ import {
   X,
 } from "lucide-react";
 import { audioEngine } from "@/engine/audioEngine";
-import { getCopiedClip } from "@/lib/clipboard";
-import type { ChannelConfig, ClipInstance } from "@/lib/types";
+import { getCopiedClip } from "@/state/clipboard";
+import type { ChannelConfig, ClipInstance } from "@/project/types";
 import type { ContextMenuItem } from "@/studio/shell/ContextMenu";
 
 export type ContextMenuState =

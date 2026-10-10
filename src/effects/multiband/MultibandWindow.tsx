@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Headphones, Power, Trash2, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { MultibandGraph, mbBandColor } from "./MultibandGraph";
@@ -28,7 +28,7 @@ import {
 } from "./multibandModel";
 import { SidechainPanel, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import type { SidechainRouting } from "@/effects/sidechain/sidechainModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface MultibandWindowProps {

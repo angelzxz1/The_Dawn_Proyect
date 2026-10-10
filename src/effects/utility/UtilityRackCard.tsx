@@ -1,9 +1,9 @@
 "use client";
 
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { PluginToggle, RackCardHeader } from "@/effects/ui/PluginChrome";
 import { UTILITY_KNOBS, UTILITY_TOGGLES, utilitySpec, utilityValue } from "./UtilityWindow";
-import { spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { spaceGrotesk } from "@/ui/pluginFonts";
 
 interface UtilityRackCardProps {
   params: Record<string, number>;

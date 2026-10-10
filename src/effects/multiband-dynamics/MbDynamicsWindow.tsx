@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Power } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginToggle, PluginWindow } from "@/effects/ui/PluginChrome";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { SidechainPanel, type SidechainSource } from "@/effects/sidechain/SidechainPanel";

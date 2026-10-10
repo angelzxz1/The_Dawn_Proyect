@@ -2,9 +2,9 @@
 
 import { useMemo, useRef } from "react";
 import { Repeat } from "lucide-react";
-import type { ClipType, NoteEvent } from "@/lib/types";
-import type { TrackColor } from "@/lib/colors";
-import { TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import type { ClipType, NoteEvent } from "@/project/types";
+import type { TrackColor } from "@/project/colors";
+import { TRACK_ROW_HEIGHT } from "./layout";
 import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 
 interface ClipBlockProps {

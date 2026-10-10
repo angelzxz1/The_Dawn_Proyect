@@ -2,7 +2,7 @@
 // made of, and where they can be tapped.
 
 import * as Tone from "tone";
-import type { NoteEvent, InstrumentType, ChannelType } from "../lib/types";
+import type { NoteEvent, InstrumentType, ChannelType } from "../project/types";
 import { type Instrument } from "../instruments/instrument";
 import { type EffectType } from "../effects/registry";
 import type { SidechainRouting } from "../effects/sidechain/sidechainModel";

@@ -11,7 +11,7 @@ import { decodeEffectFileAudio, discardEffectFile, effectFileBlob, registerEffec
 import { parseNamFile } from "../effects/nam-amp/namModel";
 import { packFileName, packId, packPathKind, readPack, writePack, type PackFile, type PackManifest } from "./dawnPack";
 import type { ToneEntry } from "../library/tones";
-import { noteIssue } from "../lib/issues";
+import { noteIssue } from "../services/issues";
 
 export interface InstalledPack extends PackManifest {
   id: string;

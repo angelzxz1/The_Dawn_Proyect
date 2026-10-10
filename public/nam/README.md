@@ -9,5 +9,6 @@ see the LICENSE files here.
 They're vendored rather than installed because the package's React 18 peer
 dependency conflicts with this app's React 19, and only these two engine
 files are used. The app talks to the worklet directly through its message
-protocol (see src/lib/namEngine.ts). To update: copy the same two files from
-a newer release of the package and check its protocol hasn't changed.
+protocol (see src/effects/nam-amp/namEngine.ts). To update: copy the same
+two files from a newer release of the package and check its protocol
+hasn't changed.

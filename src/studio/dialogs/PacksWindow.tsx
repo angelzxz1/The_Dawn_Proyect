@@ -6,7 +6,7 @@ import { PACK_EXTENSION } from "@/project/dawnPack";
 import { buildMyPresetsPack, installedPacks, subscribePacks, type InstalledPack } from "@/project/packStore";
 import { downloadBlob } from "@/export/exportProject";
 import { safeFileName } from "@/export/exportFormats";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 const EMPTY: InstalledPack[] = [];
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cachedWaveform, loadWaveform, waveformFromPeaks, waveformSpan, type Waveform } from "@/lib/waveform";
+import { cachedWaveform, loadWaveform, waveformFromPeaks, waveformSpan, type Waveform } from "@/engine/waveform";
 
 /** Canvas tiles this wide (px); only those on screen are drawn, so a long
  * clip zoomed in never needs one giant canvas. */

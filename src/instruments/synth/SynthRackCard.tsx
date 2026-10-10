@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Maximize2 } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { PluginKnob } from "@/ui/PluginKnob";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import type { SynthParams } from "./synthParams";
 import { warpedCycle } from "./synthViz";
 import { WAVETABLE_INFO, factoryWavetable, previewFrames } from "./wavetableModel";

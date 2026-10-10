@@ -12,8 +12,8 @@ import { EFFECT_UI } from "@/effects/ui/registry";
 import { SynthRackCard } from "@/instruments/synth/SynthRackCard";
 import { DrumRackCard } from "@/instruments/drum-rack/DrumRackCard";
 import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
-import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/lib/types";
-import type { TrackColor } from "@/lib/colors";
+import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/project/types";
+import type { TrackColor } from "@/project/colors";
 
 interface FxRackProps {
   channelName: string;

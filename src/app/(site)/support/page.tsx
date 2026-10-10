@@ -5,7 +5,7 @@ import { PackCover } from "@/site/illustrations";
 import { Tiers } from "@/site/interactive";
 import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
 import { ISSUES_URL, REPO_URL, supportLink } from "@/site/siteLinks";
-import { contactEmail, membershipPlatforms } from "@/lib/support";
+import { contactEmail, membershipPlatforms } from "@/services/support";
 
 export const metadata: Metadata = {
   title: "Support",

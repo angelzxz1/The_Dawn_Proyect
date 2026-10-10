@@ -1,5 +1,5 @@
 import type * as Tone from "tone";
-import { noteIssue } from "../../lib/issues";
+import { noteIssue } from "../../services/issues";
 
 // Client for the NAM (Neural Amp Modeler) engine: TONE3000's WebAssembly
 // build of NeuralAmpModelerCore, vendored in public/nam/ (see its README).

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 // A four-step tour of the studio, shown once after the first visit's start
 // screen and reopenable from Help. Each step points at an element marked

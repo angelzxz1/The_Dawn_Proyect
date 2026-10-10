@@ -5,7 +5,7 @@ import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mi
 import { demoSongAvailable } from "@/project/demoSong";
 import type { RecentProject } from "@/project/projectFiles";
 import { PROJECT_TEMPLATES, type ProjectTemplate, type TemplateId } from "@/project/templates";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 const ICONS: Record<TemplateId, typeof Guitar> = {
   "guitar-demo": Guitar,

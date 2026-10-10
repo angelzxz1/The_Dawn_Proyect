@@ -15,7 +15,7 @@ import {
   ungroup,
   upstreamOf,
 } from "./routing";
-import type { ChannelConfig } from "../lib/types";
+import type { ChannelConfig } from "../project/types";
 
 const track = (id: string, extra: Partial<ChannelConfig> = {}): ChannelConfig => ({
   id,

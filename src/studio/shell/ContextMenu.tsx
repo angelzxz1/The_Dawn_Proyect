@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 export interface ContextMenuItem {
   label: string;

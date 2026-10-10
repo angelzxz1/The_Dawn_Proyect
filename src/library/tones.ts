@@ -6,7 +6,7 @@
 
 import { cabImpulse, factoryCab, FACTORY_CABS } from "../effects/ir-loader/cabIrs";
 import { encodeWav } from "../export/wav";
-import { noteIssue } from "../lib/issues";
+import { noteIssue } from "../services/issues";
 
 export interface ToneEntry {
   id: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { setTelemetryEnabled, subscribeTelemetry, telemetryConfigured, telemetryEnabled, browserOptedOut } from "@/lib/telemetry";
+import { setTelemetryEnabled, subscribeTelemetry, telemetryConfigured, telemetryEnabled, browserOptedOut } from "@/services/telemetry";
 
 /** The switch for usage statistics and error reports (About → Privacy). */
 export function TelemetrySwitch() {

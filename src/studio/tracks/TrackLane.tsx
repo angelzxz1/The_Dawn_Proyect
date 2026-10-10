@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { ClipBlock } from "@/studio/timeline/ClipBlock";
 import { RecordingClip } from "@/studio/timeline/RecordingClip";
-import type { ClipInstance } from "@/lib/types";
-import type { TrackColor } from "@/lib/colors";
-import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import type { ClipInstance } from "@/project/types";
+import type { TrackColor } from "@/project/colors";
+import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
 
 interface TrackLaneProps {

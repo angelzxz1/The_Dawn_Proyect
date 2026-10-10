@@ -12,7 +12,7 @@ import {
   setLoopEdge,
   snapBeats,
   type ArrangementLoop,
-} from "@/lib/arrangementLoop";
+} from "@/project/arrangementLoop";
 
 export const LOOP_BAR_HEIGHT = 14;
 const HANDLE_PX = 7;

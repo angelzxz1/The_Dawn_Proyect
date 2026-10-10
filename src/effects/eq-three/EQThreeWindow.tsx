@@ -1,11 +1,11 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { EQThreeGraph } from "./EQThreeGraph";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { paramSpecs } from "@/effects/registry";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface EQThreeWindowProps {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { CompressorGraph } from "./CompressorGraph";
 import { CompressorMeters } from "./CompressorMeter";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
@@ -9,7 +9,7 @@ import { paramSpecs } from "@/effects/registry";
 import { autoMakeupDb } from "./compressorModel";
 import { SidechainPanel, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import type { SidechainRouting } from "@/effects/sidechain/sidechainModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface CompressorWindowProps {

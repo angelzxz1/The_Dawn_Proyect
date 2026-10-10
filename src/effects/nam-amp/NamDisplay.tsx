@@ -5,7 +5,7 @@ import { audioEngine } from "@/engine/audioEngine";
 import { filterResponseDb } from "@/effects/filter/filterModel";
 import { toneStackStages } from "./namModel";
 import type { NamModelState } from "./NamFileSlot";
-import { fraunces } from "@/effects/ui/pluginFonts";
+import { fraunces } from "@/ui/pluginFonts";
 
 interface NamDisplayProps {
   hostId: string;

@@ -118,7 +118,7 @@ The events, their properties, and what they answer:
 | `support_link_clicked`, `feedback_opened` | `where` | Is the support ask visible? |
 | `error_shown` | `area` | What's breaking? |
 
-`src/lib/telemetry.ts` only accepts these property names, each holding a
+`src/services/telemetry.ts` only accepts these property names, each holding a
 short code, so names, paths and typed text can't end up in an event. Error
 reports carry the error message with file names and quoted text removed,
 the stack, the browser string and the release, and at most ten are sent per

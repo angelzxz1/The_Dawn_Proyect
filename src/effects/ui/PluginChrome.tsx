@@ -2,7 +2,7 @@
 
 import { Maximize2, Power, X } from "lucide-react";
 import { PluginIcon } from "./PluginIcon";
-import { fraunces, spaceGrotesk } from "./pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "./PresetMenu";
 
 /** The top row of a compact FX rack card: icon, name, a short status, and

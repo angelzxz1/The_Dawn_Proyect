@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { RULER_HEIGHT, computeAdaptiveMarks, snapUnitFor } from "@/lib/timeline";
+import { RULER_HEIGHT, computeAdaptiveMarks, snapUnitFor } from "./layout";
 
 interface TimelineRulerProps {
   bpm: number;

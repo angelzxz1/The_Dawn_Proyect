@@ -2,10 +2,10 @@
 
 import { useState, type ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
-import { CREDIT_KINDS, creditsOfKind } from "@/lib/credits";
+import { CREDIT_KINDS, creditsOfKind } from "@/content/credits";
 import { PrivacyPolicy } from "@/site/PrivacyPolicy";
 import { SupportSection, WhatsNew } from "./SupportViews";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
 export const REPO_URL = "https://github.com/angelzxz1/The_Dawn_Proyect";

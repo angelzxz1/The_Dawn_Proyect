@@ -1,7 +1,7 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { SaturatorGraph } from "./SaturatorGraph";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
@@ -19,7 +19,7 @@ import {
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { PluginToggle } from "@/effects/ui/PluginChrome";
 import { ColorEqGraph } from "./SaturatorGraph";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface SaturatorWindowProps {

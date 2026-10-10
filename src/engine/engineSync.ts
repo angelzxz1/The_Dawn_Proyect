@@ -11,8 +11,8 @@ import type { audioEngine } from "./audioEngine";
 import type { AudioClipTiming } from "./nodes";
 import type { EffectInstance } from "../effects/registry";
 import { notesWithinClip, type ProjectState } from "../project/project";
-import { quarterNotesPerBar } from "../lib/timeline";
-import type { AudioClipInstance, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent } from "../lib/types";
+import { quarterNotesPerBar } from "../project/musicTime";
+import type { AudioClipInstance, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent } from "../project/types";
 
 /** The engine calls the sync makes (the real engine, or a test's fake). */
 export type EngineApi = Pick<

@@ -1,7 +1,7 @@
 // What Dawn is built on and ships with, from src/content/licenses.json:
 // the Credits screen lists it, and the test checks every entry is complete.
 
-import data from "../content/licenses.json";
+import data from "./licenses.json";
 
 export type CreditKind = "software" | "sound" | "font" | "original";
 

@@ -48,8 +48,8 @@ import {
   type SynthPreset,
 } from "./synthPresets";
 import { WAVETABLE_IDS, WAVETABLE_INFO } from "./wavetableModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
-import type { TrackColor } from "@/lib/colors";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
+import type { TrackColor } from "@/project/colors";
 import { EnvelopeEditor, FilterView, LfoView, Scope, WavetableView } from "./SynthDisplays";
 import {
   ModRow,
@@ -65,7 +65,7 @@ import {
   useLiveFrames,
   useSynth,
 } from "./SynthUi";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 interface SynthWindowProps {
   channelId: string;

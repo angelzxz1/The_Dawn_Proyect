@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { EFFECT_CHAINS } from "./chains";
 import { factoryCab } from "./ir-loader/cabIrs";
-import { CREDITS } from "../lib/credits";
+import { CREDITS } from "../content/credits";
 import { paramSpecs } from "./registry";
 import { findPreset } from "./presets";
 import { parseToneManifest } from "../library/tones";

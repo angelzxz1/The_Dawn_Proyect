@@ -18,7 +18,7 @@ import {
   type EffectPreset,
   type PresetRef,
 } from "@/effects/presets";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 const NO_PRESETS: EffectPreset[] = [];
 

@@ -10,7 +10,7 @@ import { MAX_NAM_BYTES, parseNamFile } from "./nam-amp/namModel";
 import type { SynthParams } from "../instruments/synth/synthParams";
 import type { DrumKitParams } from "../instruments/drum-rack/drumParams";
 import { factoryFileBlob, isFactoryFile } from "../library/tones";
-import { noteIssue } from "../lib/issues";
+import { noteIssue } from "../services/issues";
 
 const files = new Map<string, Blob>();
 const decoded = new Map<string, Promise<AudioBuffer | null>>();

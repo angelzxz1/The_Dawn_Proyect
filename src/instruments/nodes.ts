@@ -2,13 +2,13 @@
 // Drum Rack or the synth. Shared by the live engine and the export.
 
 import * as Tone from "tone";
-import type { InstrumentType, SynthParams } from "../lib/types";
+import type { InstrumentType, SynthParams } from "../project/types";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano/piano";
 import { NullInstrument, type Instrument } from "./instrument";
 import { DrumRack } from "./drum-rack/drumRack";
 import { defaultDrumKit, type DrumKitParams } from "./drum-rack/drumParams";
 import { SynthInstrument, defaultSynthParams } from "./synth/synth";
-import { noteIssue } from "../lib/issues";
+import { noteIssue } from "../services/issues";
 
 export function createInstrument(
   type: InstrumentType | null,

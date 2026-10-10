@@ -1,7 +1,7 @@
 import * as Tone from "tone";
 import { NamInstance, type NamModelInfo } from "./namEngine";
 import { namSlimSize, normalizationDb, toneStack } from "./namModel";
-import { noteIssue } from "../../lib/issues";
+import { noteIssue } from "../../services/issues";
 
 // Loading a model parses it on the audio thread, which stalls all audio
 // for ~0.1-0.2 s. Undo/redo rebuilds every track's effects from scratch,

@@ -1,5 +1,5 @@
 import { Midi } from "@tonejs/midi";
-import type { NoteEvent } from "../lib/types";
+import type { NoteEvent } from "../project/types";
 
 /**
  * Parses a standard MIDI file into a flat list of note events (all tracks

@@ -3,11 +3,11 @@
 import { useMemo } from "react";
 import { Maximize2, Power, X } from "lucide-react";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { ParamEqGraph } from "./ParamEqGraph";
 import { paramSpecs } from "@/effects/registry";
 import { eqBandsFromParams } from "./paramEqModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 
 interface ParamEqRackCardProps {
   params: Record<string, number>;

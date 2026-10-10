@@ -1,6 +1,6 @@
 "use client";
 
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { PluginToggle, PluginWindow } from "@/effects/ui/PluginChrome";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { TunerHistory, TunerNeedle, tuneColor, useTuner } from "./TunerDisplay";

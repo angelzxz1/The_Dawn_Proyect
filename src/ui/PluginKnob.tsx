@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { FINE_FACTOR } from "@/lib/knobInput";
+import { FINE_FACTOR } from "./knobInput";
 import { useKnobWheel } from "./useKnobWheel";
 
 export type KnobMode = "bipolar" | "log" | "linear";

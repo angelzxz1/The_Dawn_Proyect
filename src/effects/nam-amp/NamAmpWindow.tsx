@@ -1,13 +1,13 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { NamDisplay } from "./NamDisplay";
 import { NamFileSlot, useNamModel } from "./NamFileSlot";
 import { paramSpecs, type EffectFileRef, type ParamSpec } from "@/effects/registry";
 import { normalizationDb } from "./namModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 import { TonePicker } from "@/studio/rack/TonePicker";
 

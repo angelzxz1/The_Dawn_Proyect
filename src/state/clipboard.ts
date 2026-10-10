@@ -2,7 +2,7 @@
 // arrangement view. Plain in-memory state (not React state) is enough here -
 // it's client-only, single-user, and doesn't need to trigger re-renders.
 
-import type { NoteEvent } from "./types";
+import type { NoteEvent } from "../project/types";
 
 let noteClipboard: NoteEvent[] | null = null;
 

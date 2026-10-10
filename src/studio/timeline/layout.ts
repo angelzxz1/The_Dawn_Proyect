@@ -1,5 +1,7 @@
 // Shared layout constants and helpers for the horizontal arrangement view.
 
+import { secondsPerBar } from "../../project/musicTime";
+
 export const TRACK_HEADER_WIDTH = 202;
 // Tall enough for the header's four rows - name, pan/vol + meter, the
 // instrument/FX row, and the import/export/clear/remove row.
@@ -35,25 +37,6 @@ export interface AdaptiveMark {
 /** Zoom thresholds (px) above which a finer subdivision starts being drawn. */
 const SHOW_BEATS_PX = 22;
 const SHOW_16THS_PX = 16;
-
-/** Quarter-note-equivalent beats per bar for an x/y time signature. */
-export function quarterNotesPerBar(numerator: number, denominator: number): number {
-  return (numerator * 4) / denominator;
-}
-
-export function secondsPerBar(bpm: number, beatsPerBar: number): number {
-  return (60 / bpm) * beatsPerBar;
-}
-
-/** Rounds a duration up to the next bar boundary (minimum one bar). */
-export function roundUpToBar(
-  seconds: number,
-  bpm: number,
-  beatsPerBar: number
-): number {
-  const bar = secondsPerBar(bpm, beatsPerBar);
-  return Math.max(bar, Math.ceil(seconds / bar) * bar);
-}
 
 /** Bar gridline positions (in px) for a timeline at the given tempo/zoom. */
 export function computeBarMarks(
@@ -124,44 +107,4 @@ export function snapUnitFor(bpm: number, pxPerSecond: number, beatsPerBar: numbe
   if (secondsPer16th * pxPerSecond >= SHOW_16THS_PX) return secondsPer16th;
   if (secondsPerBeat * pxPerSecond >= SHOW_BEATS_PX) return secondsPerBeat;
   return secondsPerBar(bpm, beatsPerBar);
-}
-
-/** User-facing grid resolution for dragging/placing clips - independent of
- * zoom, unlike `snapUnitFor`. "off" means free positioning (no snapping). */
-export type SnapResolution = "off" | "bar" | "1/2" | "1/4" | "1/8" | "1/16";
-
-export const SNAP_RESOLUTIONS: SnapResolution[] = ["off", "bar", "1/2", "1/4", "1/8", "1/16"];
-
-export const SNAP_RESOLUTION_LABELS: Record<SnapResolution, string> = {
-  off: "Off",
-  bar: "1 Bar",
-  "1/2": "1/2",
-  "1/4": "1/4",
-  "1/8": "1/8",
-  "1/16": "1/16",
-};
-
-/** Grid size in seconds for a snap resolution - 0 means "off" (free). Note
- * values are quarter-note-relative, independent of the time signature's
- * numerator; "bar" uses the actual bar length for the current signature. */
-export function snapSecondsForResolution(
-  resolution: SnapResolution,
-  bpm: number,
-  beatsPerBar: number
-): number {
-  const quarter = 60 / bpm;
-  switch (resolution) {
-    case "off":
-      return 0;
-    case "bar":
-      return secondsPerBar(bpm, beatsPerBar);
-    case "1/2":
-      return quarter * 2;
-    case "1/4":
-      return quarter;
-    case "1/8":
-      return quarter / 2;
-    case "1/16":
-      return quarter / 4;
-  }
 }

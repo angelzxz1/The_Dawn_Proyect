@@ -1,7 +1,7 @@
 // New ids for tracks, clips, buses and automation lanes ("ch-3", "clip-12",
 // ...), and a new track's defaults.
 
-import type { ChannelConfig, ChannelType } from "@/lib/types";
+import type { ChannelConfig, ChannelType } from "@/project/types";
 
 const counters = { ch: 0, clip: 0, bus: 0, auto: 0 };
 type IdKind = keyof typeof counters;

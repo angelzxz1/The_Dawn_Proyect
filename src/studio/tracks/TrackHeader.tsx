@@ -18,10 +18,10 @@ import {
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import { InputMeter } from "./InputMeter";
-import type { ChannelConfig } from "@/lib/types";
-import { TRACK_COLOR_PALETTE, type TrackColor, type TrackColorPick } from "@/lib/colors";
+import type { ChannelConfig } from "@/project/types";
+import { TRACK_COLOR_PALETTE, type TrackColor, type TrackColorPick } from "@/project/colors";
 import { CustomColorButton } from "./CustomColorButton";
-import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/lib/timeline";
+import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 
 /** Mute and solo, shared by the full and the folded header. */
 function MuteSolo({ channel, onMuteToggle, onSoloToggle }: Pick<TrackHeaderProps, "channel" | "onMuteToggle" | "onSoloToggle">) {

@@ -2,7 +2,7 @@
 
 import { RackCardHeader, PluginToggle } from "@/effects/ui/PluginChrome";
 import { tuneColor, useTuner } from "./TunerDisplay";
-import { spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { spaceGrotesk } from "@/ui/pluginFonts";
 
 interface TunerRackCardProps {
   hostId?: string;

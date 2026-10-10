@@ -851,7 +851,7 @@ From there you can:
 
 ## Keyboard shortcuts
 
-They all go through one place (`src/lib/shortcuts.ts`), in layers: a menu
+They all go through one place (`src/ui/shortcuts.ts`), in layers: a menu
 takes a key before the window under it, and a dialog, the piano roll or the
 tour keeps the studio's keys (Space, R...) from acting behind it. Ctrl/Cmd+S
 and Ctrl/Cmd+O work everywhere but in the tour.
@@ -968,14 +968,15 @@ npm start       # serve out/ locally
 - `src/app/`: the Next.js App Router entry: the website's pages and the
   app itself (`/app`, one client page).
 - `src/studio/`: the DAW screen. `Daw.tsx` puts it together; the rest is
-  grouped by area: `transport/`, `timeline/` (ruler, clips, playhead),
-  `tracks/` (track headers and lanes, meters, the master and bus row),
-  `rack/` (the FX rack, effect windows, effect and groove browsers),
-  `notes/` (piano roll, on-screen keyboard, note input), `dialogs/`
-  (export, project menu, start screen, packs, about and support) and
-  `shell/` (tour, updates, the phone notice, the context menu).
+  grouped by area: `transport/`, `timeline/` (ruler, clips, playhead, row
+  and zoom sizes), `tracks/` (track headers and lanes, meters, the master
+  and bus row), `rack/` (the FX rack, effect windows, effect and groove
+  browsers), `notes/` (piano roll, on-screen keyboard, note input),
+  `dialogs/` (export, project menu, start screen, packs, about and
+  support) and `shell/` (tour, updates, the phone notice, the context
+  menu).
 - `src/state/`: the project store and its actions (tracks, clips, effects,
-  buses), with undo and redo.
+  buses), with undo and redo, and the copy/paste clipboard.
 - `src/effects/`: every audio effect, one folder each (`compressor/`,
   `delay/`, `furnace/`, `nam-amp/`...). A folder holds the effect's DSP
   model and kernel, its audio node, its rack card, window and graphs, and
@@ -992,26 +993,34 @@ npm start       # serve out/ locally
   files and add one line to each of the three collectors; leaving one out
   is a type error. Alongside them: `types.ts` and `format.ts` (shared
   shapes and value formatting), `presets.ts`, `chains.ts`, `effectFiles.ts`,
-  `ui/` (the plugin UI they share: knobs, window chrome, preset menu) and
-  `sidechain/`.
+  `ui/` (what their cards and windows share: window chrome, preset menu,
+  file slot) and `sidechain/`.
 - `src/instruments/`: the instruments, one folder each (`synth/`,
   `drum-rack/`, `piano/`), holding their DSP, presets or kits, windows and
   rack cards. `instrument.ts` is the interface the engine plays them
   through; `nodes.ts` builds whichever one a track uses.
 - `src/engine/`: the audio engine (`audioEngine.ts`): transport, track
   strips, inputs and recording, mixing and routing, delay compensation,
-  the metronome, and `engineSync.ts`, which makes it match the project.
-- `src/project/`: the project's shape and schema, saving and loading
-  (autosave, project files, recovery), packs, templates and the demo song.
+  the metronome, decoding audio files and their waveforms, and
+  `engineSync.ts`, which makes it match the project.
+- `src/project/`: what a project is made of and how it's kept: its types
+  (`types.ts`: tracks, clips, notes, automation), musical time and the snap
+  grid, the arrangement loop, scales, track colors and automation targets;
+  the schema, saving and loading (autosave, project files, recovery),
+  packs, templates and the demo song.
 - `src/export/`: rendering the mix offline (`bounce.ts`), WAV and MP3
   encoding, and MIDI files; `src/workers/` runs the MP3 encoder.
 - `src/library/`: the groove library and the bundled tones.
 - `src/site/`: the website's shared parts (header and footer, legal pages,
   the privacy policy the app shows too, fonts, links).
-- `src/content/`: text and data the site and app show (FAQ, licenses,
-  what's new).
-- `src/lib/`: small helpers shared across the app (types, colors, scales,
-  shortcuts, telemetry...).
+- `src/content/`: text and data the site and app show (FAQ, membership
+  tiers, licenses and credits, what's new).
+- `src/ui/`: controls shared by the studio, effects and instruments: the
+  keyboard shortcut layers, knob dragging and wheel input, the plugin knob
+  and fonts.
+- `src/services/`: what reaches outside the app: usage statistics and error
+  reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
+  and feedback links set per deployment (`support.ts`).
 
 ### Stack
 

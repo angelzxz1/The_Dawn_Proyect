@@ -2,11 +2,11 @@
 
 import { useRef } from "react";
 import { Power, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { LimiterMeters } from "./LimiterMeters";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface LimiterWindowProps {

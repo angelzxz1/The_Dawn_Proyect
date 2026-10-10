@@ -1,7 +1,7 @@
 // A MIDI take being recorded: the notes played, timed from where the take
 // starts. `clock` says how far into the take (s) "now" is.
 
-import type { NoteEvent } from "../lib/types";
+import type { NoteEvent } from "../project/types";
 
 const MIN_NOTE_DURATION = 0.05;
 

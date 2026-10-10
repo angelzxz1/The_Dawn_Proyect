@@ -1,10 +1,10 @@
 "use client";
 
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { RackCardHeader } from "@/effects/ui/PluginChrome";
 import { FurnaceCurve, furnaceSpec, furnaceValue } from "./FurnaceWindow";
 import { AMP_MODE_LABELS, AMP_RECTIFIER_LABELS, ampMode, ampRectifier } from "./ampModel";
-import { spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { spaceGrotesk } from "@/ui/pluginFonts";
 
 const CARD_KNOBS = ["gain", "bass", "mid", "treble"];
 

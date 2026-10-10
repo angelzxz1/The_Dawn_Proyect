@@ -1,8 +1,8 @@
 "use client";
 
-import type { AutomationPoint } from "@/lib/types";
-import type { TrackColor } from "@/lib/colors";
-import { computeAdaptiveMarks } from "@/lib/timeline";
+import type { AutomationPoint } from "@/project/types";
+import type { TrackColor } from "@/project/colors";
+import { computeAdaptiveMarks } from "@/studio/timeline/layout";
 
 let pointIdCounter = 0;
 function newPointId(): string {

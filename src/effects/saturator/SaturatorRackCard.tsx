@@ -1,11 +1,11 @@
 "use client";
 
 import { Maximize2, Power, X } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { DISTORTION_KNOBS, saturatorParam, saturatorSpec } from "./SaturatorWindow";
 import { SHAPE_LABELS, distortionShapeFromParam } from "./saturatorModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 
 interface SaturatorRackCardProps {
   params: Record<string, number>;

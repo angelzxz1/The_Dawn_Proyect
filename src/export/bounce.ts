@@ -18,10 +18,10 @@ import { chainLatency, nodeLatency } from "../engine/latency";
 import { audibleTracks, planMix } from "../engine/mixGraph";
 import type { SidechainTap } from "../effects/sidechain/sidechainModel";
 import { encodeWav } from "./wav";
-import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "../lib/types";
+import type { BusConfig, ChannelConfig, ClipInstance, MidiClipInstance } from "../project/types";
 import type { EffectInstance } from "../effects/registry";
 import { downstreamOf, inputMap, routeMap, upstreamOf } from "../engine/routing";
-import { noteIssue } from "../lib/issues";
+import { noteIssue } from "../services/issues";
 
 const MIN_NOTE_DURATION = 0.05;
 /** Default extra render time so reverb/delay tails aren't cut off. */

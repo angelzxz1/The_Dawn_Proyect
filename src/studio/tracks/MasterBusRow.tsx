@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Sliders } from "lucide-react";
-import { MASTER_COLOR, trackColorOf } from "@/lib/colors";
+import { MASTER_COLOR, trackColorOf } from "@/project/colors";
 import { busActions } from "@/state/busActions";
 import { projectSetter, projectStore, useProjectValue } from "@/state/projectStore";
 import { Meter } from "./Meter";

@@ -1,7 +1,7 @@
 "use client";
 
 import { Music } from "lucide-react";
-import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
+import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "@/project/scales";
 
 interface ScaleSelectorProps {
   value: ScaleSetting;

@@ -1,10 +1,10 @@
 "use client";
 
 import { Maximize2, Power, X } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { LIMITER_KNOBS, limiterSpec } from "./LimiterWindow";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 
 interface LimiterRackCardProps {
   params: Record<string, number>;

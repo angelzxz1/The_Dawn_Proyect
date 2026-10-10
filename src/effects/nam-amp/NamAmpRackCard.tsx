@@ -1,12 +1,12 @@
 "use client";
 
 import { Maximize2, Power, X } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { NamFileSlot, useNamModel } from "./NamFileSlot";
 import { NAM_AMP_KNOBS, namAmpParam, namAmpSpec } from "./NamAmpWindow";
 import type { EffectFileRef } from "@/effects/registry";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 
 interface NamAmpRackCardProps {
   params: Record<string, number>;

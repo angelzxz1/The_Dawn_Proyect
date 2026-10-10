@@ -3,9 +3,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Circle } from "lucide-react";
 import { audioEngine } from "@/engine/audioEngine";
-import { TRACK_ROW_HEIGHT } from "@/lib/timeline";
-import type { NoteEvent } from "@/lib/types";
-import type { Waveform } from "@/lib/waveform";
+import { TRACK_ROW_HEIGHT } from "./layout";
+import type { NoteEvent } from "@/project/types";
+import type { Waveform } from "@/engine/waveform";
 import { COMPACT_BELOW, noteNameToMidi } from "./ClipBlock";
 import { WaveformCanvas } from "./WaveformCanvas";
 

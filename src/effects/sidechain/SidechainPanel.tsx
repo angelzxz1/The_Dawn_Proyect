@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Headphones } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginToggle } from "@/effects/ui/PluginChrome";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { audioEngine } from "@/engine/audioEngine";

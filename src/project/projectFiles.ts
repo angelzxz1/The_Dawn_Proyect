@@ -14,7 +14,7 @@
 
 import type { ProjectState } from "./project";
 import { PROJECT_VERSION, normalizeProject, type SerializedClip, type SerializedProject } from "./projectSchema";
-import type { AudioClipInstance, ClipInstance, MidiClipInstance } from "../lib/types";
+import type { AudioClipInstance, ClipInstance, MidiClipInstance } from "./types";
 
 export const PROJECT_FILE = "project.dawn.json";
 export const HISTORY_FILE = "history.json";

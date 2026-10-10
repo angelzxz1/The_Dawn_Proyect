@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlignHorizontalJustifyStart, Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/instruments/piano/piano";
-import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/lib/scales";
+import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/project/scales";
 import { DRUM_PADS, drumLabelForNote } from "@/instruments/drum-rack/drums";
 import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
-import type { InstrumentType, NoteEvent } from "@/lib/types";
-import type { TrackColor } from "@/lib/colors";
+import type { InstrumentType, NoteEvent } from "@/project/types";
+import type { TrackColor } from "@/project/colors";
 import { audioEngine } from "@/engine/audioEngine";
-import { copyNotes, getCopiedNotes } from "@/lib/clipboard";
+import { copyNotes, getCopiedNotes } from "@/state/clipboard";
 import { ScaleSelector } from "./ScaleSelector";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 interface PianoRollEditorProps {
   channelName: string;

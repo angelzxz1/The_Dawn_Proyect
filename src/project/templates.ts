@@ -12,7 +12,7 @@ import { midiToNoteName } from "../instruments/piano/piano";
 import { findPreset, paramsFromPreset } from "../effects/presets";
 import { normalizeProject, type SerializedProject } from "./projectSchema";
 import { FACTORY_SYNTH_PRESETS } from "../instruments/synth/synthPresets";
-import type { ChannelConfig, NoteEvent } from "../lib/types";
+import type { ChannelConfig, NoteEvent } from "./types";
 
 export type TemplateId = "guitar-demo" | "beat" | "voice-guitar" | "empty";
 

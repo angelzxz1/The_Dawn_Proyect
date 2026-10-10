@@ -1,12 +1,12 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { ReverbGraph } from "./ReverbGraph";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
 import { REVERB_MODES, highsRt60, reverbModeFromParam } from "./reverbModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface ReverbWindowProps {

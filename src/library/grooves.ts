@@ -7,7 +7,7 @@
 import { FACTORY_KITS } from "../instruments/drum-rack/drumKits";
 import { padNote } from "../instruments/drum-rack/drumParams";
 import { midiToNoteName } from "../instruments/piano/piano";
-import type { NoteEvent } from "../lib/types";
+import type { NoteEvent } from "../project/types";
 
 /** The parts a pattern plays, and the pad each sits on. */
 export const GROOVE_ROLES = {

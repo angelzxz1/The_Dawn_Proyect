@@ -1,12 +1,12 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { DelayGraph } from "./DelayGraph";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { paramSpecs } from "@/effects/registry";
 import { snapToDivision, formatDivision } from "./delayDivisions";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface DelayWindowProps {

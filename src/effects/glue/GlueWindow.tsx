@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginToggle, PluginWindow } from "@/effects/ui/PluginChrome";
 import { SidechainPanel, type SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import { audioEngine } from "@/engine/audioEngine";

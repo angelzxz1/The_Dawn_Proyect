@@ -11,7 +11,7 @@ import type { EffectFileRef, EffectInstance, EffectType } from "@/effects/regist
 import { MAX_IR_SECONDS } from "@/effects/ir-loader/irModel";
 import { findPreset, paramsFromPreset } from "@/effects/presets";
 import type { SidechainRouting } from "@/effects/sidechain/sidechainModel";
-import { track } from "@/lib/telemetry";
+import { track } from "@/services/telemetry";
 import type { PresetChange } from "@/effects/ui/PresetMenu";
 import { projectStore } from "./projectStore";
 

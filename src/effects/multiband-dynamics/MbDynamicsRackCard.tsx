@@ -1,12 +1,12 @@
 "use client";
 
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { RackCardHeader } from "@/effects/ui/PluginChrome";
 import { SidechainBadge } from "@/effects/sidechain/SidechainPanel";
 import { MbDynamicsDisplay, useMbdMeters } from "./MbDynamicsDisplay";
 import { mbdSpec, mbdValue } from "./MbDynamicsWindow";
 import { mbdActiveBands, mbdSettingsFromParams } from "./mbDynamicsModel";
-import { spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { spaceGrotesk } from "@/ui/pluginFonts";
 
 /** The compact Multiband Dynamics in the FX rack: a small read-only
  * display and Amount, Time and Output. */

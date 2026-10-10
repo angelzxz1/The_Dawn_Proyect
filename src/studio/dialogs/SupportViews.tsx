@@ -3,9 +3,9 @@
 import { Heart, MessageSquare, X } from "lucide-react";
 import { RELEASES } from "@/content/whatsNew";
 import { isBrave } from "@/project/projectFiles";
-import { communityLink, feedbackUrl, supportLinks } from "@/lib/support";
-import { track } from "@/lib/telemetry";
-import { issueSummary } from "@/lib/issues";
+import { communityLink, feedbackUrl, supportLinks } from "@/services/support";
+import { track } from "@/services/telemetry";
+import { issueSummary } from "@/services/issues";
 
 export function openFeedback(where: string) {
   track("feedback_opened", { where });

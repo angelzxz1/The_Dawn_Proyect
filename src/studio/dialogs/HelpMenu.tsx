@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, CircleHelp, Compass, LifeBuoy, MessageSquare, Wrench } from "lucide-react";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 /** Help in the header: the tour, and the guides on the website. */
 export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedback: () => void }) {

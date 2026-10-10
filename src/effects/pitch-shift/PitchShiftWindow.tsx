@@ -1,12 +1,12 @@
 "use client";
 
 import { Power, X } from "lucide-react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { PitchShiftKeyboard } from "./PitchShiftKeyboard";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
 import { shiftReadout } from "./pitchInterval";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface PitchShiftWindowProps {

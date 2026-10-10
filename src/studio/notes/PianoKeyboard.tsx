@@ -8,8 +8,8 @@ import {
   isBlackKey,
   midiToNoteName,
 } from "@/instruments/piano/piano";
-import { isNoteInScale, type ScaleSetting } from "@/lib/scales";
-import { useShortcuts } from "@/lib/shortcuts";
+import { isNoteInScale, type ScaleSetting } from "@/project/scales";
+import { useShortcuts } from "@/ui/shortcuts";
 
 interface PianoKeyboardProps {
   activeNotes: Set<string>;

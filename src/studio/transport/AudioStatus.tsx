@@ -5,8 +5,8 @@ import { Cpu, Timer } from "lucide-react";
 import { audioEngine } from "@/engine/audioEngine";
 import { cpuReading, type CpuReading } from "@/engine/cpuMeter";
 import { loadAudioPrefs, saveAudioPrefs, type AudioPrefs } from "@/engine/audioPrefs";
-import { useShortcuts } from "@/lib/shortcuts";
-import { noteIssue } from "@/lib/issues";
+import { useShortcuts } from "@/ui/shortcuts";
+import { noteIssue } from "@/services/issues";
 
 const ms = (seconds: number) => `${(seconds * 1000).toFixed(1)} ms`;
 

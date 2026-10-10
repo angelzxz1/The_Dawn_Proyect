@@ -9,7 +9,7 @@ import type {
   MidiClipInstance,
   NoteEvent,
   TimeSignature,
-} from "../lib/types";
+} from "./types";
 import type { EffectInstance } from "../effects/registry";
 
 export interface ProjectState {

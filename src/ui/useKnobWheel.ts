@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
-import { WHEEL_GESTURE_MS, wheelTurn } from "@/lib/knobInput";
+import { WHEEL_GESTURE_MS, wheelTurn } from "./knobInput";
 
 /** Turns a knob with the mouse wheel while the pointer is over it (Shift
  * for fine). `onTurn` gets the new position (0..1) along the knob's sweep,

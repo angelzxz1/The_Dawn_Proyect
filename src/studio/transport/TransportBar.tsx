@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Circle, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
-import type { TimeSignature } from "@/lib/types";
+import type { TimeSignature } from "@/project/types";
 
 const DENOMINATORS = [1, 2, 4, 8, 16, 32];
 const COUNT_IN_OPTIONS = [0, 1, 2, 4];

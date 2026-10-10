@@ -9,10 +9,10 @@ import { EFFECT_UI } from "@/effects/ui/registry";
 import { EffectPresetContext } from "@/effects/ui/PresetMenu";
 import type { SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import type { EffectInstance } from "@/effects/registry";
-import { track } from "@/lib/telemetry";
+import { track } from "@/services/telemetry";
 import { effectActions } from "@/state/effectActions";
 import { projectStore } from "@/state/projectStore";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 /** A drag or edit gesture starts: one undo step for all of it. */
 const startEdit = () => projectStore.push();

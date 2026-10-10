@@ -4,7 +4,7 @@ import { PREFERRED_SAMPLE_RATE } from "./context";
 export { PREFERRED_SAMPLE_RATE };
 
 
-import type { NoteEvent, InstrumentType, ChannelType, SynthParams, AutomationLane } from "../lib/types";
+import type { NoteEvent, InstrumentType, ChannelType, SynthParams, AutomationLane } from "../project/types";
 import { DrumRack, type DrumLiveState } from "../instruments/drum-rack/drumRack";
 import { padNote, type DrumKitParams } from "../instruments/drum-rack/drumParams";
 import { SynthInstrument, setSynthTempo, type SynthLiveState } from "../instruments/synth/synth";
@@ -16,7 +16,7 @@ import { LookaheadLimiter, type LimiterLevels } from "../effects/limiter/lookahe
 import { measureNativeLatencies } from "./nativeLatency";
 import { chainLatency, detectRoundTrip, nodeLatency, type CompensationPlan } from "./latency";
 import { InputRecorder, takeToWav } from "./inputRecorder";
-import type { Waveform } from "../lib/waveform";
+import type { Waveform } from "./waveform";
 import { installCpuMeter } from "./cpuMeter";
 import { decodeEffectFileAudio, readEffectFileText } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
@@ -36,7 +36,7 @@ import { Transport } from "./transport";
 import { createInstrument } from "../instruments/nodes";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
 import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./nodes";
-import { attempt, noteIssue } from "../lib/issues";
+import { attempt, noteIssue } from "../services/issues";
 
 export type { AudioClipTiming };
 

@@ -20,11 +20,11 @@ import { NoteInputWindow } from "@/studio/notes/NoteInputWindow";
 import { EffectWindow } from "@/studio/rack/EffectWindow";
 import { MasterBusRow } from "@/studio/tracks/MasterBusRow";
 import { RecoveryNotice } from "@/studio/dialogs/RecoveryNotice";
-import { automationCurrentValue, automationRange, automationTargetKey, automationTargetOptions } from "@/lib/automationTargets";
+import { automationCurrentValue, automationRange, automationTargetKey, automationTargetOptions } from "@/project/automationTargets";
 import { contextMenuItems, type ContextMenuState } from "./contextMenus";
 import { busActions } from "@/state/busActions";
 import { useProjectFiles } from "./useProjectFiles";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
@@ -44,20 +44,20 @@ import { EffectBrowser } from "@/studio/rack/EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "@/studio/tracks/AutomationLane";
 import { audioEngine } from "@/engine/audioEngine";
 import { type DrumKitParams } from "@/instruments/drum-rack/drumParams";
-import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/lib/arrangementLoop";
+import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/project/arrangementLoop";
 import { downloadMidiFile, parseMidiFile } from "@/export/midiFile";
 import { midiToNoteName } from "@/instruments/piano/piano";
 import { listenToWebMidi } from "@/engine/webMidi";
-import { MASTER_COLOR, trackColorOf } from "@/lib/colors";
+import { MASTER_COLOR, trackColorOf } from "@/project/colors";
 import { canMoveTrack, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, outputTargets, routeMap } from "@/engine/routing";
-import { decodeAudioFile } from "@/lib/audioFile";
+import { decodeAudioFile } from "@/engine/audioFile";
 import type { ProjectState } from "@/project/project";
 import { hydrateEngine, syncEngine } from "@/engine/engineSync";
 import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
 import { ProjectMenu } from "@/studio/dialogs/ProjectMenu";
 import { AboutWindow, type AboutTab } from "@/studio/dialogs/AboutWindow";
 import { TelemetrySwitch } from "@/studio/dialogs/TelemetrySwitch";
-import { startTelemetry, track, trackAppOpened, trackOnce } from "@/lib/telemetry";
+import { startTelemetry, track, trackAppOpened, trackOnce } from "@/services/telemetry";
 import { isBrave, recentProjects, supportsFolders } from "@/project/projectFiles";
 import { type SerializedProject } from "@/project/projectSchema";
 import type { BounceParams } from "@/export/bounce";
@@ -71,31 +71,33 @@ import { AppUpdater } from "@/studio/shell/AppUpdater";
 import { installPack, removePack } from "@/project/packStore";
 import { PACK_EXTENSION } from "@/project/dawnPack";
 import { openFeedback, PostExportNote } from "@/studio/dialogs/SupportViews";
-import { shouldAskAfterExport, supportLinks } from "@/lib/support";
+import { shouldAskAfterExport, supportLinks } from "@/services/support";
 import type { ProjectTemplate } from "@/project/templates";
 import { grooveById, grooveHits, grooveKit, type Groove } from "@/library/grooves";
 import { loadAudioPrefs } from "@/engine/audioPrefs";
 import { type EffectType } from "@/effects/registry";
-import type { ScaleSetting } from "@/lib/scales";
+import type { ScaleSetting } from "@/project/scales";
 import {
   DEFAULT_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
   MIN_PX_PER_SECOND,
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
-  SNAP_RESOLUTIONS,
-  SNAP_RESOLUTION_LABELS,
   TRACK_HEADER_WIDTH,
   rowHeightOf,
+  snapUnitFor,
+} from "@/studio/timeline/layout";
+import {
+  SNAP_RESOLUTIONS,
+  SNAP_RESOLUTION_LABELS,
   quarterNotesPerBar,
   roundUpToBar,
   secondsPerBar,
   snapSecondsForResolution,
-  snapUnitFor,
   type SnapResolution,
-} from "@/lib/timeline";
-import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/lib/types";
-import { noteIssue } from "@/lib/issues";
+} from "@/project/musicTime";
+import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/project/types";
+import { noteIssue } from "@/services/issues";
 import { flushSync } from "react-dom";
 import { microphoneAllowed } from "@/engine/inputs";
 

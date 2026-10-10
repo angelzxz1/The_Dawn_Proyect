@@ -1,7 +1,7 @@
 // The website's questions and answers: all of them on /faq, a few on the
 // landing page. Keep answers true to what Dawn does today.
 
-import { membershipPlatforms } from "@/lib/support";
+import { membershipPlatforms } from "@/services/support";
 
 export const FAQ_CATEGORIES = ["General", "Recording & guitar", "Projects & privacy", "Browsers & devices", "Support & money"] as const;
 export type FaqCategory = (typeof FAQ_CATEGORIES)[number];

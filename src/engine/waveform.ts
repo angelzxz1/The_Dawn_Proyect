@@ -4,7 +4,7 @@
 // it. Computed once per audio source (clips split from one recording share
 // it) and cached by the source's URL.
 
-import { noteIssue } from "./issues";
+import { noteIssue } from "../services/issues";
 
 /** Samples per bucket: ~1.3 ms at 48 kHz, finer than a pixel at the
  * timeline's closest zoom. */

@@ -5,7 +5,7 @@
 // audio clip when the project is loaded back.
 
 import { normalizeProject, type SerializedProject } from "./projectSchema";
-import { noteIssue } from "../lib/issues";
+import { noteIssue } from "../services/issues";
 
 export type { SerializedClip, SerializedProject } from "./projectSchema";
 

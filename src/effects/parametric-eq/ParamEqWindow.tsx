@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Headphones, Power, Trash2, X } from "lucide-react";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
+import { PluginKnob } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { ParamEqGraph, eqBandColor } from "./ParamEqGraph";
@@ -23,7 +23,7 @@ import {
   type EqBand,
   type EqShape,
 } from "./paramEqModel";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
 import { WindowPresetMenu } from "@/effects/ui/PresetMenu";
 
 interface ParamEqWindowProps {

@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import { PluginKnob, type KnobMode } from "@/effects/ui/PluginKnob";
+import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginWindow } from "@/effects/ui/PluginChrome";
 import { Segmented } from "@/effects/ui/PluginSegmented";
 import { paramSpecs, type ParamSpec } from "@/effects/registry";
 import { AMP_MODES, AMP_MODE_LABELS, AMP_RECTIFIERS, AMP_RECTIFIER_LABELS, ampMode, ampRectifier, ampToneCurve } from "./ampModel";
-import { fraunces } from "@/effects/ui/pluginFonts";
+import { fraunces } from "@/ui/pluginFonts";
 
 export function furnaceSpec(key: string): ParamSpec {
   return paramSpecs("tubeAmp").find((s) => s.key === key)!;

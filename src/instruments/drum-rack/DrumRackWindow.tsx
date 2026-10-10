@@ -20,9 +20,9 @@ import {
 } from "./drumParams";
 import { allDrumKits, deleteDrumKit, saveDrumKit, serverDrumKits, subscribeDrumKits, type DrumKitPreset } from "./drumKits";
 import { newEffectFileId, registerEffectFile } from "@/effects/effectFiles";
-import { fraunces, spaceGrotesk } from "@/effects/ui/pluginFonts";
-import { PluginKnob } from "@/effects/ui/PluginKnob";
-import { useShortcuts } from "@/lib/shortcuts";
+import { fraunces, spaceGrotesk } from "@/ui/pluginFonts";
+import { PluginKnob } from "@/ui/PluginKnob";
+import { useShortcuts } from "@/ui/shortcuts";
 
 // The Drum Rack's window: 16 pads (C1 at the bottom left, like Ableton),
 // and an editor for the selected pad.

@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { FINE_FACTOR } from "@/lib/knobInput";
-import { useKnobWheel } from "@/effects/ui/useKnobWheel";
+import { FINE_FACTOR } from "@/ui/knobInput";
+import { useKnobWheel } from "@/ui/useKnobWheel";
 
 interface ValueBarProps {
   label: string;

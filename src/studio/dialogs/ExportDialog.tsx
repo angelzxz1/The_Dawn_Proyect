@@ -5,8 +5,8 @@ import { Download, Loader2, X } from "lucide-react";
 import type { BounceParams } from "@/export/bounce";
 import { downloadBlob, ExportCancelled, exportProject, stemTracks, type ExportResult, type ExportStatus } from "@/export/exportProject";
 import { loadExportSettings, MP3_BITRATES, saveExportSettings, safeFileName, TAIL_CHOICES, type ExportSettings } from "@/export/exportFormats";
-import { reportError } from "@/lib/telemetry";
-import { useShortcuts } from "@/lib/shortcuts";
+import { reportError } from "@/services/telemetry";
+import { useShortcuts } from "@/ui/shortcuts";
 
 function Segmented<T extends string | number>({
   value,

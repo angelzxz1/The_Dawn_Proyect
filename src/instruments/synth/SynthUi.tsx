@@ -2,8 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { FINE_FACTOR } from "@/lib/knobInput";
-import { useKnobWheel } from "@/effects/ui/useKnobWheel";
+import { FINE_FACTOR } from "@/ui/knobInput";
+import { useKnobWheel } from "@/ui/useKnobWheel";
 import {
   BIPOLAR_SOURCES,
   DEST_INDEX,
@@ -18,7 +18,7 @@ import {
   type SynthParams,
 } from "./synthParams";
 import type { SynthLiveState } from "./synth";
-import { useShortcuts } from "@/lib/shortcuts";
+import { useShortcuts } from "@/ui/shortcuts";
 
 // Daybreak's look: night-blue panels, a dawn gradient for what's alive,
 // each modulation source with its own color.

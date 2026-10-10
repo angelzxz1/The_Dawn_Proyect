@@ -6,14 +6,14 @@
 // track is selected, which FX rack is open - stays with the view.
 
 import { audioEngine } from "@/engine/audioEngine";
-import type { TrackColorPick } from "@/lib/colors";
+import type { TrackColorPick } from "@/project/colors";
 import { defaultDrumKit, type DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import { groupTracks, moveTrack, setTrackGroup, ungroup } from "@/engine/routing";
 import { defaultSynthParams } from "@/instruments/synth/synth";
 import type { SynthParams } from "@/instruments/synth/synthParams";
-import { track } from "@/lib/telemetry";
-import { automationTargetKey } from "@/lib/automationTargets";
-import type { AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/lib/types";
+import { track } from "@/services/telemetry";
+import { automationTargetKey } from "@/project/automationTargets";
+import type { AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/project/types";
 import { createChannel, newAutomationLaneId } from "./ids";
 import { projectStore } from "./projectStore";
 

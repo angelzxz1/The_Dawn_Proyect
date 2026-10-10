@@ -23,10 +23,20 @@ export function trackColorForIndex(index: number): TrackColor {
 /** A "#rrggbb" color the user picked themselves. */
 export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-/** A track color from any "#rrggbb". */
+const fromHex = new Map<string, TrackColor>();
+
+/** A track color from any "#rrggbb" - the same object each time for the
+ * same color, like the palette's, so a memoized track row sees it as
+ * unchanged. */
 export function trackColorFromHex(hex: string): TrackColor {
-  const n = parseInt(hex.slice(1), 16);
-  return { accent: hex.toLowerCase(), accentSoft: `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0.16)` };
+  const key = hex.toLowerCase();
+  let color = fromHex.get(key);
+  if (!color) {
+    const n = parseInt(key.slice(1), 16);
+    color = { accent: key, accentSoft: `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},0.16)` };
+    fromHex.set(key, color);
+  }
+  return color;
 }
 
 /** What the color picker chose: a palette slot, or any "#rrggbb". */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import {
   ActivitySquare,
   ChevronDown,
@@ -25,7 +25,7 @@ import { CustomColorButton } from "./CustomColorButton";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 
 /** Mute and solo, shared by the full and the folded header. */
-function MuteSolo({ channel, onMuteToggle, onSoloToggle }: Pick<TrackHeaderProps, "channel" | "onMuteToggle" | "onSoloToggle">) {
+function MuteSolo({ channel, onMuteToggle, onSoloToggle }: { channel: ChannelConfig; onMuteToggle: () => void; onSoloToggle: () => void }) {
   return (
     <>
       <button
@@ -34,7 +34,7 @@ function MuteSolo({ channel, onMuteToggle, onSoloToggle }: Pick<TrackHeaderProps
         aria-pressed={channel.muted}
         onClick={(e) => {
           e.stopPropagation();
-          onMuteToggle?.();
+          onMuteToggle();
         }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
           channel.muted ? "border-record bg-record/20 text-record" : "border-border text-muted hover:bg-surface-raised"
@@ -48,7 +48,7 @@ function MuteSolo({ channel, onMuteToggle, onSoloToggle }: Pick<TrackHeaderProps
         aria-pressed={channel.solo}
         onClick={(e) => {
           e.stopPropagation();
-          onSoloToggle?.();
+          onSoloToggle();
         }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
           channel.solo ? "border-yellow-400 bg-yellow-400/20 text-yellow-300" : "border-border text-muted hover:bg-surface-raised"
@@ -58,6 +58,48 @@ function MuteSolo({ channel, onMuteToggle, onSoloToggle }: Pick<TrackHeaderProps
       </button>
     </>
   );
+}
+
+/** What a track header can do, given the track's id. The studio passes the
+ * same object to every header, and the same one on every redraw (see
+ * useStableActions), so a header redraws only when its own track does. */
+export interface TrackHeaderActions {
+  select(id: string): void;
+  rename(id: string, name: string): void;
+  setVolume(id: string, db: number): void;
+  setPan(id: string, pan: number): void;
+  /** Fired once at the start of a vol/pan drag or edit gesture - lets the
+   * caller push one undo checkpoint per gesture. */
+  adjustStart(): void;
+  toggleMute(id: string): void;
+  toggleSolo(id: string): void;
+  /** Toggles this channel's record-arm - exactly one channel is armed at a
+   * time. Only the armed channel is what Record captures and the only one
+   * that sounds for incoming notes. */
+  toggleArm(id: string): void;
+  /** Audio tracks: whether its input is heard live, through its effects. */
+  toggleMonitor(id: string): void;
+  /** Opens the FX window (instrument slot + effects chain). */
+  openFx(id: string): void;
+  importMidi(id: string, file: File): void;
+  exportMidi(id: string): void;
+  importAudio(id: string, file: File): void;
+  clear(id: string): void;
+  remove(id: string): void;
+  contextMenu(id: string, e: React.MouseEvent): void;
+  /** A palette slot or any color from the color wheel. */
+  recolor(id: string, pick: TrackColorPick): void;
+  move(id: string, direction: -1 | 1): void;
+  toggleAutomation(id: string): void;
+  setInputDevice(deviceId: string | null): void;
+  /** Primes mic permission and refreshes the input devices - fired when the
+   * input select gains focus, since the browser only returns the full,
+   * labeled device list once permission has been granted at least once. */
+  requestInputDevices(): void;
+  /** Folds or unfolds the track; `all` (Alt-click) does every track. */
+  toggleFold(id: string, all: boolean): void;
+  /** Ctrl/Cmd-click: picks the track to be grouped with the other picked ones. */
+  pick(id: string): void;
 }
 
 interface TrackHeaderProps {
@@ -72,62 +114,28 @@ interface TrackHeaderProps {
   /** The master bus track: no clip, no import/export/clear/remove. */
   isMaster?: boolean;
   effectsCount?: number;
-  onSelect: () => void;
-  onRename: (name: string) => void;
-  onVolumeChange: (db: number) => void;
-  onPanChange: (pan: number) => void;
-  /** Fired once at the start of a vol/pan drag or edit gesture - lets the
-   * caller push one undo checkpoint per gesture. */
-  onAdjustStart?: () => void;
-  onMuteToggle?: () => void;
-  onSoloToggle?: () => void;
-  /** Toggles this channel's record-arm - exactly one channel is armed at a
-   * time. Only the armed channel is what Record captures and the only one
-   * that sounds for incoming notes. */
-  onArmToggle?: () => void;
+  actions: TrackHeaderActions;
   /** Audio tracks only: whether this track's input is heard live, through
    * its effects (the headphones button). */
   monitoring?: boolean;
-  onMonitorToggle?: () => void;
-  /** Opens the FX window (instrument slot + effects chain). */
-  onOpenFx?: () => void;
-  onImportMidi?: (file: File) => void;
-  onExportMidi?: () => void;
-  onImportAudio?: (file: File) => void;
-  onClearClip?: () => void;
-  onRemove?: () => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  /** A palette slot or any color from the color wheel. */
-  onRecolor?: (pick: TrackColorPick) => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
   /** Whether this track's automation lane is currently expanded below it. */
   showAutomation?: boolean;
-  onToggleAutomation?: () => void;
   /** The browser's available audio input devices, and which one this
    * track records from - shown in place of the "Audio" badge on an audio
    * track so a device can be picked right on the track, without needing
    * it armed first. Unused for a MIDI track. */
   inputDevices?: { deviceId: string; label: string }[];
   selectedInputDeviceId?: string | null;
-  onInputDeviceChange?: (deviceId: string | null) => void;
-  /** Primes mic permission and refreshes `inputDevices` - fired when the
-   * input select gains focus, since the browser only returns the full,
-   * labeled device list once permission has been granted at least once. */
-  onRequestInputDevices?: () => void;
   /** The row's height: short when the track is folded. */
   rowHeight?: number;
-  /** Folds or unfolds this track; `all` (Alt-click) does every track. */
-  onToggleFold?: (all: boolean) => void;
   /** For a group's member: the group's color, drawn as a bar at its left. */
   groupColor?: TrackColor;
   /** For a group: how many tracks it holds. */
   memberCount?: number;
   /** Ctrl/Cmd-clicked, to be grouped with the other picked tracks. */
   picked?: boolean;
-  onPick?: () => void;
   /** Where its audio goes, when that's not the default (another track's
    * name, or "Master" for a member sent past its group). */
   outputName?: string | null;
@@ -179,7 +187,8 @@ function IconButton({
   );
 }
 
-export function TrackHeader({
+/** One track's header. Memoized: it redraws only when its own props change. */
+export const TrackHeader = memo(function TrackHeader({
   channel,
   color,
   selected,
@@ -189,43 +198,45 @@ export function TrackHeader({
   canRemove,
   isMaster = false,
   effectsCount = 0,
-  onSelect,
-  onRename,
-  onVolumeChange,
-  onPanChange,
-  onAdjustStart,
-  onMuteToggle,
-  onSoloToggle,
-  onArmToggle,
+  actions,
   monitoring = false,
-  onMonitorToggle,
-  onOpenFx,
-  onImportMidi,
-  onExportMidi,
-  onImportAudio,
-  onClearClip,
-  onRemove,
-  onContextMenu,
-  onRecolor,
   canMoveUp,
   canMoveDown,
-  onMoveUp,
-  onMoveDown,
   showAutomation,
-  onToggleAutomation,
   inputDevices,
   selectedInputDeviceId,
-  onInputDeviceChange,
-  onRequestInputDevices,
   rowHeight = TRACK_ROW_HEIGHT,
-  onToggleFold,
   groupColor,
   memberCount = 0,
   picked = false,
-  onPick,
   outputName,
   inputName,
 }: TrackHeaderProps) {
+  const id = channel.id;
+  const onSelect = () => actions.select(id);
+  const onRename = (name: string) => actions.rename(id, name);
+  const onVolumeChange = (db: number) => actions.setVolume(id, db);
+  const onPanChange = (pan: number) => actions.setPan(id, pan);
+  const onAdjustStart = actions.adjustStart;
+  const onMuteToggle = () => actions.toggleMute(id);
+  const onSoloToggle = () => actions.toggleSolo(id);
+  const onArmToggle = () => actions.toggleArm(id);
+  const onMonitorToggle = () => actions.toggleMonitor(id);
+  const onOpenFx = () => actions.openFx(id);
+  const onImportMidi = (file: File) => actions.importMidi(id, file);
+  const onExportMidi = () => actions.exportMidi(id);
+  const onImportAudio = (file: File) => actions.importAudio(id, file);
+  const onClearClip = () => actions.clear(id);
+  const onRemove = () => actions.remove(id);
+  const onContextMenu = (e: React.MouseEvent) => actions.contextMenu(id, e);
+  const onRecolor = (pick: TrackColorPick) => actions.recolor(id, pick);
+  const onMoveUp = () => actions.move(id, -1);
+  const onMoveDown = () => actions.move(id, 1);
+  const onToggleAutomation = () => actions.toggleAutomation(id);
+  const onInputDeviceChange = actions.setInputDevice;
+  const onRequestInputDevices = actions.requestInputDevices;
+  const onToggleFold = (all: boolean) => actions.toggleFold(id, all);
+  const onPick = () => actions.pick(id);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const [editingName, setEditingName] = useState(false);
@@ -244,12 +255,12 @@ export function TrackHeader({
   return (
     <div
       onClick={(e) => {
-        if ((e.ctrlKey || e.metaKey) && onPick) onPick();
+        if (e.ctrlKey || e.metaKey) onPick();
         else onSelect();
       }}
       onContextMenu={onContextMenu}
       style={{ width: TRACK_HEADER_WIDTH, height: rowHeight }}
-      title={onPick ? "Ctrl/Cmd-click to pick several tracks, then Ctrl+G to group them" : undefined}
+      title="Ctrl/Cmd-click to pick several tracks, then Ctrl+G to group them"
       className={`relative flex shrink-0 cursor-pointer flex-col gap-1 border-b border-r border-border py-1.5 pr-1.5 transition-colors ${
         groupColor ? "pl-3" : "pl-1.5"
       } ${folded ? "justify-center" : ""} ${picked ? "ring-2 ring-inset ring-accent" : ""} ${
@@ -259,20 +270,18 @@ export function TrackHeader({
       {groupColor && <div className="pointer-events-none absolute inset-y-0 left-0 w-1.5" style={{ background: groupColor.accent, opacity: 0.7 }} />}
       {isGroup && !folded && <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5" style={{ background: color.accent }} />}
       <div className="relative flex items-center gap-1.5">
-        {onToggleFold && (
-          <button
-            type="button"
-            title={`${channel.folded ? "Unfold" : isGroup ? "Fold (hide its tracks)" : "Fold"} · Alt-click: all tracks`}
-            aria-expanded={!channel.folded}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFold(e.altKey);
-            }}
-            className="-mx-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-raised hover:text-foreground"
-          >
-            {channel.folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-          </button>
-        )}
+        <button
+          type="button"
+          title={`${channel.folded ? "Unfold" : isGroup ? "Fold (hide its tracks)" : "Fold"} · Alt-click: all tracks`}
+          aria-expanded={!channel.folded}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFold(e.altKey);
+          }}
+          className="-mx-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-raised hover:text-foreground"
+        >
+          {channel.folded ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+        </button>
         {isMaster ? (
           <span
             className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -310,7 +319,7 @@ export function TrackHeader({
                 type="button"
                 title={`Color ${i + 1}`}
                 onClick={() => {
-                  onRecolor?.({ colorIndex: i });
+                  onRecolor({ colorIndex: i });
                   setShowColorPicker(false);
                 }}
                 className="h-4 w-4 rounded-full ring-1 ring-black/30 hover:ring-white/60"
@@ -320,7 +329,7 @@ export function TrackHeader({
             <CustomColorButton
               value={color.accent}
               onPick={(hex) => {
-                onRecolor?.({ color: hex });
+                onRecolor({ color: hex });
                 setShowColorPicker(false);
               }}
             />
@@ -374,7 +383,7 @@ export function TrackHeader({
             aria-pressed={monitoring}
             onClick={(e) => {
               e.stopPropagation();
-              onMonitorToggle?.();
+              onMonitorToggle();
             }}
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
               monitoring ? "border-accent bg-accent/25 text-accent" : "border-border text-muted hover:bg-surface-raised"
@@ -394,7 +403,7 @@ export function TrackHeader({
             aria-pressed={channel.armed}
             onClick={(e) => {
               e.stopPropagation();
-              onArmToggle?.();
+              onArmToggle();
             }}
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
               channel.armed
@@ -473,8 +482,8 @@ export function TrackHeader({
             <select
               title="Which microphone or audio-interface input this track records from"
               value={selectedInputDeviceId ?? ""}
-              onChange={(e) => onInputDeviceChange?.(e.target.value || null)}
-              onFocus={() => onRequestInputDevices?.()}
+              onChange={(e) => onInputDeviceChange(e.target.value || null)}
+              onFocus={() => onRequestInputDevices()}
               className="h-5 max-w-[76px] rounded border border-border bg-surface px-1 text-[10px] text-muted"
             >
               <option value="">Default</option>
@@ -492,7 +501,7 @@ export function TrackHeader({
           <button
             type="button"
             title={`FX${effectsCount > 0 ? ` (${effectsCount})` : ""} — instrument & effects`}
-            onClick={() => onOpenFx?.()}
+            onClick={() => onOpenFx()}
             className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
               effectsCount > 0 ? "text-accent" : "text-muted"
             }`}
@@ -525,13 +534,13 @@ export function TrackHeader({
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) onImportMidi?.(file);
+                  if (file) onImportMidi(file);
                   e.target.value = "";
                 }}
               />
               <IconButton
                 title="Export .mid"
-                onClick={() => onExportMidi?.()}
+                onClick={() => onExportMidi()}
                 disabled={!hasNotes}
               >
                 <Download size={12} />
@@ -549,7 +558,7 @@ export function TrackHeader({
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) onImportAudio?.(file);
+                  if (file) onImportAudio(file);
                   e.target.value = "";
                 }}
               />
@@ -558,30 +567,28 @@ export function TrackHeader({
           {!isGroup && (
             <IconButton
               title="Clear all clips on this track"
-              onClick={() => onClearClip?.()}
+              onClick={() => onClearClip()}
               disabled={!(hasClipContent ?? hasNotes)}
             >
               <Trash2 size={12} />
             </IconButton>
           )}
-          <IconButton title="Move track up" onClick={() => onMoveUp?.()} disabled={!canMoveUp}>
+          <IconButton title="Move track up" onClick={() => onMoveUp()} disabled={!canMoveUp}>
             <ChevronUp size={12} />
           </IconButton>
-          <IconButton title="Move track down" onClick={() => onMoveDown?.()} disabled={!canMoveDown}>
+          <IconButton title="Move track down" onClick={() => onMoveDown()} disabled={!canMoveDown}>
             <ChevronDown size={12} />
           </IconButton>
-          {onToggleAutomation && (
-            <IconButton
-              title={showAutomation ? "Hide automation lane" : "Show automation lane"}
-              onClick={() => onToggleAutomation()}
-              active={showAutomation}
-            >
-              <ActivitySquare size={12} />
-            </IconButton>
-          )}
+          <IconButton
+            title={showAutomation ? "Hide automation lane" : "Show automation lane"}
+            onClick={() => onToggleAutomation()}
+            active={showAutomation}
+          >
+            <ActivitySquare size={12} />
+          </IconButton>
           {!isMidi && !isGroup && !inputName && channel.armed ? <InputMeter /> : <div className="flex-1" />}
           {canRemove && (
-            <IconButton title={isGroup ? "Remove the group (its tracks stay)" : "Remove channel"} onClick={() => onRemove?.()} danger>
+            <IconButton title={isGroup ? "Remove the group (its tracks stay)" : "Remove channel"} onClick={() => onRemove()} danger>
               <X size={12} />
             </IconButton>
           )}
@@ -589,4 +596,4 @@ export function TrackHeader({
       )}
     </div>
   );
-}
+});

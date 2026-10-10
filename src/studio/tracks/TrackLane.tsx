@@ -1,12 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ClipBlock } from "@/studio/timeline/ClipBlock";
 import { RecordingClip } from "@/studio/timeline/RecordingClip";
 import type { ClipInstance } from "@/project/types";
 import type { TrackColor } from "@/project/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
+
+/** What a lane can do, given the track's id. The studio passes the same
+ * object to every lane, and the same one on every redraw (see
+ * useStableActions), so a lane redraws only when its own track does. */
+export interface TrackLaneActions {
+  selectTrack(channelId: string): void;
+  /** `additive` is true for a Ctrl/Cmd-click. */
+  selectClip(channelId: string, clipId: string, additive: boolean): void;
+  editClip(channelId: string, clipId: string): void;
+  moveClip(channelId: string, clipId: string, offsetSeconds: number): void;
+  resizeClip(channelId: string, clipId: string, lengthSeconds: number): void;
+  setFades(channelId: string, clipId: string, fadeIn: number, fadeOut: number): void;
+  setGain(channelId: string, clipId: string, gainDb: number): void;
+  clipContextMenu(channelId: string, clipId: string, e: React.MouseEvent): void;
+  laneContextMenu(channelId: string, e: React.MouseEvent, atSeconds: number): void;
+  /** Fired once at the start of a clip move/resize/fade/gain drag - lets
+   * the caller push one undo checkpoint per drag instead of one per pixel. */
+  clipDragStart(): void;
+  /** A file dropped from the OS - `atSeconds` is where on the timeline it
+   * was dropped, unsnapped (the caller snaps it to the bar). */
+  dropAudioFile(channelId: string, file: File, atSeconds: number): void;
+  /** A groove dragged from the browser was dropped here. */
+  dropGroove(channelId: string, grooveId: string, atSeconds: number): void;
+}
 
 interface TrackLaneProps {
   clips: ClipInstance[];
@@ -28,29 +52,15 @@ interface TrackLaneProps {
   /** Which clips (by id) on this lane are selected - Delete/duplicate/drag
    * operate on all of them together. */
   selectedClipIds: Set<string>;
-  onSelectTrack: () => void;
-  /** `additive` is true for a Ctrl/Cmd-click. */
-  onSelectClip: (clipId: string, additive: boolean) => void;
-  onEditClip: (clipId: string) => void;
-  onMoveClip: (clipId: string, offsetSeconds: number) => void;
-  onResizeClip: (clipId: string, lengthSeconds: number) => void;
-  onFadeChange: (clipId: string, fadeIn: number, fadeOut: number) => void;
-  onGainChange: (clipId: string, gainDb: number) => void;
-  onClipContextMenu: (clipId: string, e: React.MouseEvent) => void;
-  onLaneContextMenu: (e: React.MouseEvent, atSeconds: number) => void;
-  /** Fired once at the start of a clip move/resize/fade/gain drag - lets
-   * the caller push one undo checkpoint per drag instead of one per pixel. */
-  onClipDragStart: () => void;
+  actions: TrackLaneActions;
   /** Whether this track can accept an audio file dragged in from the OS -
    * only an audio-type channel can. A MIDI lane still swallows the drop
    * (so the browser doesn't navigate to the file) but shows no affordance
    * and doesn't import anything. */
   acceptsFileDrop: boolean;
-  /** Fires once a dropped file lands - `atSeconds` is where on the
-   * timeline it was dropped, unsnapped (the caller snaps it to the bar). */
-  onDropAudioFile: (file: File, atSeconds: number) => void;
-  /** A groove dragged from the browser was dropped here (MIDI tracks only). */
-  onDropGroove?: (grooveId: string, atSeconds: number) => void;
+  /** Whether a groove dragged from the browser can be dropped here (MIDI
+   * tracks only). */
+  acceptsGrooves: boolean;
   /** What to do here, shown while the lane is empty. */
   hint?: string;
   /** The lane's height (shorter when the track is folded). */
@@ -60,7 +70,9 @@ interface TrackLaneProps {
   overview?: { id: string; clips: ClipInstance[]; color: TrackColor }[];
 }
 
-export function TrackLane({
+/** One track's lane of clips. Memoized: it redraws only when its own props
+ * change. */
+export const TrackLane = memo(function TrackLane({
   clips,
   color,
   bpm,
@@ -73,23 +85,25 @@ export function TrackLane({
   recording = false,
   channelId,
   selectedClipIds,
-  onSelectTrack,
-  onSelectClip,
-  onEditClip,
-  onMoveClip,
-  onResizeClip,
-  onFadeChange,
-  onGainChange,
-  onClipContextMenu,
-  onLaneContextMenu,
-  onClipDragStart,
+  actions,
   acceptsFileDrop,
-  onDropAudioFile,
-  onDropGroove,
+  acceptsGrooves,
   hint,
   rowHeight = TRACK_ROW_HEIGHT,
   overview,
 }: TrackLaneProps) {
+  const onSelectTrack = () => actions.selectTrack(channelId);
+  const onSelectClip = (clipId: string, additive: boolean) => actions.selectClip(channelId, clipId, additive);
+  const onEditClip = (clipId: string) => actions.editClip(channelId, clipId);
+  const onMoveClip = (clipId: string, offset: number) => actions.moveClip(channelId, clipId, offset);
+  const onResizeClip = (clipId: string, length: number) => actions.resizeClip(channelId, clipId, length);
+  const onFadeChange = (clipId: string, fadeIn: number, fadeOut: number) => actions.setFades(channelId, clipId, fadeIn, fadeOut);
+  const onGainChange = (clipId: string, gainDb: number) => actions.setGain(channelId, clipId, gainDb);
+  const onClipContextMenu = (clipId: string, e: React.MouseEvent) => actions.clipContextMenu(channelId, clipId, e);
+  const onLaneContextMenu = (e: React.MouseEvent, atSeconds: number) => actions.laneContextMenu(channelId, e, atSeconds);
+  const onClipDragStart = actions.clipDragStart;
+  const onDropAudioFile = (file: File, atSeconds: number) => actions.dropAudioFile(channelId, file, atSeconds);
+  const onDropGroove = acceptsGrooves ? (grooveId: string, atSeconds: number) => actions.dropGroove(channelId, grooveId, atSeconds) : undefined;
   const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [grooveDragOver, setGrooveDragOver] = useState(false);
@@ -221,7 +235,7 @@ export function TrackLane({
       ))}
     </div>
   );
-}
+});
 
 /** A group lane's summary: each member's clips as a faint bar in its own
  * stripe, like Ableton's group track. */

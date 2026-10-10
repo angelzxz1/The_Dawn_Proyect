@@ -1021,7 +1021,8 @@ npm start       # serve out/ locally
   tiers, licenses and credits, what's new).
 - `src/ui/`: controls shared by the studio, effects and instruments: the
   keyboard shortcut layers, knob dragging and wheel input, the plugin knob
-  and fonts.
+  and fonts, and `useStableActions` (handlers that keep memoized rows like
+  the track headers and lanes from redrawing).
 - `src/services/`: what reaches outside the app: usage statistics and error
   reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
   and feedback links set per deployment (`support.ts`).

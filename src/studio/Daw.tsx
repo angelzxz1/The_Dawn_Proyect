@@ -10,8 +10,9 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Download, ChevronsDownUp, Heart, Info, Loader2, MessageSquare, Redo2, Repeat, KeyboardMusic, Undo2, ZoomIn, ZoomOut } from "lucide-react";
-import { TrackHeader } from "@/studio/tracks/TrackHeader";
-import { TrackLane } from "@/studio/tracks/TrackLane";
+import { TrackHeader, type TrackHeaderActions } from "@/studio/tracks/TrackHeader";
+import { TrackLane, type TrackLaneActions } from "@/studio/tracks/TrackLane";
+import { useStableActions } from "@/ui/useStableActions";
 import { TimelineScrollbar } from "@/studio/timeline/TimelineScrollbar";
 import { TimelineRuler } from "@/studio/timeline/TimelineRuler";
 import { Playhead } from "@/studio/timeline/Playhead";
@@ -48,7 +49,7 @@ import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nud
 import { downloadMidiFile, parseMidiFile } from "@/export/midiFile";
 import { midiToNoteName } from "@/instruments/piano/piano";
 import { listenToWebMidi } from "@/engine/webMidi";
-import { MASTER_COLOR, trackColorOf } from "@/project/colors";
+import { MASTER_COLOR, trackColorOf, type TrackColor } from "@/project/colors";
 import { canMoveTrack, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, outputTargets, routeMap } from "@/engine/routing";
 import { decodeAudioFile } from "@/engine/audioFile";
 import type { ProjectState } from "@/project/project";
@@ -130,6 +131,10 @@ function laneHint(channel: ChannelConfig, armed: boolean): string {
 const setClipsByChannel = projectSetter("clipsByChannel");
 const setBpm = projectSetter("bpm");
 const setTimeSignature = projectSetter("timeSignature");
+
+/** A track with no clips (one shared empty list, so its lane can skip
+ * redraws). */
+const NO_CLIPS: ClipInstance[] = [];
 
 export function Daw() {
   // The document lives in the project store (src/state/projectStore.ts),
@@ -357,7 +362,7 @@ export function Daw() {
   const { canUndo, canRedo } = useHistoryState();
 
   const clipsOf = useCallback(
-    (channelId: string): ClipInstance[] => clipsByChannel[channelId] ?? [],
+    (channelId: string): ClipInstance[] => clipsByChannel[channelId] ?? NO_CLIPS,
     [clipsByChannel]
   );
   const channelTypeOf = useCallback(
@@ -1522,6 +1527,86 @@ export function Daw() {
     visibleChannels.reduce((sum, c) => sum + rowHeightOf(c), 0) +
     (automationChannelId && visibleChannels.some((c) => c.id === automationChannelId) ? AUTOMATION_LANE_HEIGHT : 0);
 
+
+  // The tracks' handlers, the same object on every redraw (each call goes to
+  // the latest handler), so the memoized headers and lanes redraw only when
+  // their own track changes - not for every clip drag or click elsewhere.
+  const headerActions = useStableActions<TrackHeaderActions>({
+    select: (id) => {
+      setSelectedChannelId(id);
+      setSelectedClipIds(new Set());
+      setTrackPicks(new Set());
+      openFx(id);
+    },
+    rename: handleRenameChannel,
+    setVolume: handleVolumeChange,
+    setPan: handlePanChange,
+    adjustStart: pushHistory,
+    toggleMute: handleMuteToggle,
+    toggleSolo: handleSoloToggle,
+    toggleArm: handleArmToggle,
+    toggleMonitor: handleMonitorToggle,
+    openFx,
+    importMidi: (id, file) => void handleImportMidi(id, file),
+    exportMidi: handleExportChannelMidi,
+    importAudio: (id, file) => void handleImportAudioAppend(id, file),
+    clear: handleClearTrack,
+    remove: handleRemoveChannel,
+    contextMenu: openHeaderMenu,
+    recolor: handleRecolorChannel,
+    move: handleReorderChannel,
+    toggleAutomation: handleToggleAutomation,
+    setInputDevice: handleInputDeviceChange,
+    requestInputDevices: handleRequestInputDevices,
+    toggleFold: (id, all) => (all ? handleFoldAll(!channels.find((c) => c.id === id)?.folded) : handleToggleFold(id)),
+    pick: handlePickTrack,
+  });
+  const laneActions = useStableActions<TrackLaneActions>({
+    selectTrack: (id) => {
+      setSelectedChannelId(id);
+      setSelectedClipIds(new Set());
+      openFx(id);
+    },
+    selectClip: (id, clipId, additive) => {
+      setSelectedChannelId(id);
+      openFx(id);
+      setSelectedClipIds((prev) => {
+        if (additive) {
+          const next = new Set(prev);
+          if (next.has(clipId)) next.delete(clipId);
+          else next.add(clipId);
+          return next;
+        }
+        return new Set([clipId]);
+      });
+    },
+    editClip: handleEditClip,
+    moveClip: handleMoveClip,
+    resizeClip: handleResizeClip,
+    setFades: handleFadeChange,
+    setGain: handleGainChange,
+    clipContextMenu: openClipMenu,
+    laneContextMenu: openLaneMenu,
+    clipDragStart: pushHistory,
+    dropAudioFile: (id, file, atSeconds) => void handleDropAudioFile(id, file, atSeconds),
+    dropGroove: (id, grooveId, atSeconds) => {
+      const groove = grooveById(grooveId);
+      if (groove) handleAddGroove(id, groove, atSeconds);
+    },
+  });
+  // A group's lane draws its members' clips; the same list while they don't
+  // change, so its memoized lane can skip redraws too.
+  const groupOverviews = useMemo(() => {
+    const map = new Map<string, { id: string; clips: ClipInstance[]; color: TrackColor }[]>();
+    channels.forEach((g) => {
+      if (g.type !== "group") return;
+      map.set(
+        g.id,
+        channels.filter((m) => m.groupId === g.id).map((m) => ({ id: m.id, clips: clipsOf(m.id), color: trackColorOf(m) }))
+      );
+    });
+    return map;
+  }, [channels, clipsOf]);
   return (
     <div className="flex h-screen overflow-hidden">
       {isLoadingProject && (
@@ -1822,14 +1907,12 @@ export function Daw() {
                   channel={channel}
                   color={trackColorOf(channel)}
                   rowHeight={rowHeightOf(channel)}
-                  onToggleFold={(all) => (all ? handleFoldAll(!channel.folded) : handleToggleFold(channel.id))}
                   groupColor={(() => {
                     const group = channel.groupId ? channels.find((g) => g.id === channel.groupId) : undefined;
                     return group ? trackColorOf(group) : undefined;
                   })()}
                   memberCount={channel.type === "group" ? channels.filter((m) => m.groupId === channel.id).length : 0}
                   picked={trackPicks.has(channel.id)}
-                  onPick={() => handlePickTrack(channel.id)}
                   outputName={outputNameOf(channel)}
                   inputName={inputNameOf(channel)}
                   selected={channel.id === selectedChannelId}
@@ -1841,36 +1924,10 @@ export function Daw() {
                   canMoveUp={canMoveTrack(channels, channel.id, -1)}
                   canMoveDown={canMoveTrack(channels, channel.id, 1)}
                   showAutomation={automationChannelId === channel.id}
-                  onToggleAutomation={() => handleToggleAutomation(channel.id)}
                   inputDevices={inputDevices}
                   selectedInputDeviceId={selectedInputDeviceId}
-                  onInputDeviceChange={handleInputDeviceChange}
-                  onRequestInputDevices={handleRequestInputDevices}
-                  onSelect={() => {
-                    setSelectedChannelId(channel.id);
-                    setSelectedClipIds(new Set());
-                    setTrackPicks(new Set());
-                    openFx(channel.id);
-                  }}
-                  onRename={(name) => handleRenameChannel(channel.id, name)}
-                  onRecolor={(pick) => handleRecolorChannel(channel.id, pick)}
-                  onMoveUp={() => handleReorderChannel(channel.id, -1)}
-                  onMoveDown={() => handleReorderChannel(channel.id, 1)}
-                  onVolumeChange={(db) => handleVolumeChange(channel.id, db)}
-                  onPanChange={(pan) => handlePanChange(channel.id, pan)}
-                  onAdjustStart={pushHistory}
-                  onMuteToggle={() => handleMuteToggle(channel.id)}
-                  onSoloToggle={() => handleSoloToggle(channel.id)}
-                  onArmToggle={() => handleArmToggle(channel.id)}
                   monitoring={monitoredChannelIds.has(channel.id)}
-                  onMonitorToggle={() => handleMonitorToggle(channel.id)}
-                  onOpenFx={() => openFx(channel.id)}
-                  onImportMidi={(file) => void handleImportMidi(channel.id, file)}
-                  onExportMidi={() => handleExportChannelMidi(channel.id)}
-                  onImportAudio={(file) => void handleImportAudioAppend(channel.id, file)}
-                  onClearClip={() => handleClearTrack(channel.id)}
-                  onRemove={() => handleRemoveChannel(channel.id)}
-                  onContextMenu={(e) => openHeaderMenu(channel.id, e)}
+                  actions={headerActions}
                 />
                 {automationChannelId === channel.id && (
                   <div
@@ -1935,13 +1992,7 @@ export function Daw() {
                   clips={clipsOf(channel.id)}
                   color={trackColorOf(channel)}
                   rowHeight={rowHeightOf(channel)}
-                  overview={
-                    channel.type === "group"
-                      ? channels
-                          .filter((m) => m.groupId === channel.id)
-                          .map((m) => ({ id: m.id, clips: clipsOf(m.id), color: trackColorOf(m) }))
-                      : undefined
-                  }
+                  overview={channel.type === "group" ? groupOverviews.get(channel.id) : undefined}
                   bpm={bpm}
                   beatsPerBar={beatsPerBar}
                   totalSeconds={totalSeconds}
@@ -1952,43 +2003,10 @@ export function Daw() {
                   recording={transportState === "recording" && channel.id === recordingChannelId}
                   channelId={channel.id}
                   selectedClipIds={selectedClipIds}
-                  onSelectTrack={() => {
-                    setSelectedChannelId(channel.id);
-                    setSelectedClipIds(new Set());
-                    openFx(channel.id);
-                  }}
-                  onSelectClip={(clipId, additive) => {
-                    setSelectedChannelId(channel.id);
-                    openFx(channel.id);
-                    setSelectedClipIds((prev) => {
-                      if (additive) {
-                        const next = new Set(prev);
-                        if (next.has(clipId)) next.delete(clipId);
-                        else next.add(clipId);
-                        return next;
-                      }
-                      return new Set([clipId]);
-                    });
-                  }}
-                  onEditClip={(clipId) => handleEditClip(channel.id, clipId)}
-                  onMoveClip={(clipId, offset) => handleMoveClip(channel.id, clipId, offset)}
-                  onResizeClip={(clipId, length) => handleResizeClip(channel.id, clipId, length)}
-                  onFadeChange={(clipId, fadeIn, fadeOut) => handleFadeChange(channel.id, clipId, fadeIn, fadeOut)}
-                  onGainChange={(clipId, gainDb) => handleGainChange(channel.id, clipId, gainDb)}
-                  onClipContextMenu={(clipId, e) => openClipMenu(channel.id, clipId, e)}
-                  onLaneContextMenu={(e, atSeconds) => openLaneMenu(channel.id, e, atSeconds)}
-                  onClipDragStart={pushHistory}
+                  actions={laneActions}
                   acceptsFileDrop={channel.type === "audio"}
+                  acceptsGrooves={channel.type === "midi"}
                   hint={laneHint(channel, channel.id === armedChannelId)}
-                  onDropAudioFile={(file, atSeconds) => void handleDropAudioFile(channel.id, file, atSeconds)}
-                  onDropGroove={
-                    channel.type === "midi"
-                      ? (id, atSeconds) => {
-                          const groove = grooveById(id);
-                          if (groove) handleAddGroove(channel.id, groove, atSeconds);
-                        }
-                      : undefined
-                  }
                 />
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">

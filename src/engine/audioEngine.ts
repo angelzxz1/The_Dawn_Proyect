@@ -171,7 +171,9 @@ class AudioEngine {
   async ensureStarted(): Promise<void> {
     if (this.started) return;
     if (!this.startPromise) {
-      this.startPromise = Tone.start().then(() => {
+      // The metronome's worklet loads alongside, so the first Play clicks.
+      const metronome = this.transport.prepare().catch((error) => noteIssue("metronome.load", error));
+      this.startPromise = Promise.all([Tone.start(), metronome]).then(() => {
         this.started = true;
         // Browsers' own nodes hide some delay; measure it for compensation.
         void measureNativeLatencies(Tone.getContext().sampleRate).then(() => this.refreshMix());

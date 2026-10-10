@@ -19,6 +19,11 @@ export class Transport {
     this.metronome = new Metronome(clickOutput);
   }
 
+  /** Loads the metronome's worklet (see Metronome.prepare). */
+  prepare(): Promise<void> {
+    return this.metronome.prepare();
+  }
+
   private get tone() {
     return Tone.getTransport();
   }

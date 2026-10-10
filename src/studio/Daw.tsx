@@ -30,20 +30,19 @@ import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
 import { DrumPads } from "@/instruments/drum-rack/DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "@/studio/transport/LoopBar";
-import { DrumRackWindow } from "@/instruments/drum-rack/DrumRackWindow";
 import { ExpressionControls } from "@/studio/notes/ExpressionControls";
 import { PianoRollEditor } from "@/studio/notes/PianoRollEditor";
 import { ScaleSelector } from "@/studio/notes/ScaleSelector";
 import { ContextMenu } from "@/studio/shell/ContextMenu";
 import { FxRack } from "@/studio/rack/FxRack";
-import { SynthWindow } from "@/instruments/synth/SynthWindow";
+import { INSTRUMENT_UI } from "@/instruments/ui/registry";
+import type { InstrumentSettings, InstrumentType } from "@/instruments/registry";
 import type { SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import { SIDECHAIN_TAP_LABELS } from "@/effects/sidechain/sidechainModel";
 import { AudioStatus } from "@/studio/transport/AudioStatus";
 import { EffectBrowser } from "@/studio/rack/EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "@/studio/tracks/AutomationLane";
 import { audioEngine } from "@/engine/audioEngine";
-import { type DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/project/arrangementLoop";
 import { downloadMidiFile, parseMidiFile } from "@/export/midiFile";
 import { midiToNoteName } from "@/instruments/piano/piano";
@@ -96,7 +95,7 @@ import {
   snapSecondsForResolution,
   type SnapResolution,
 } from "@/project/musicTime";
-import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, SynthParams, TimeSignature } from "@/project/types";
+import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TimeSignature } from "@/project/types";
 import { noteIssue } from "@/services/issues";
 import { flushSync } from "react-dom";
 import { microphoneAllowed } from "@/engine/inputs";
@@ -154,8 +153,8 @@ export function Daw() {
   const [fxMasterOpen, setFxMasterOpen] = useState(false);
   /** Whether the dedicated Synth Settings window is open, for whichever
    * channel the FX rack is currently showing. */
-  const [synthWindowOpen, setSynthWindowOpen] = useState(false);
-  const [drumWindowOpen, setDrumWindowOpen] = useState(false);
+  /** The instrument whose window is open (shown while its track's rack is). */
+  const [instrumentWindow, setInstrumentWindow] = useState<InstrumentType | null>(null);
   const [aboutTab, setAboutTab] = useState<AboutTab | null>(null);
   /** The start screen: on the first visit, and from File > New. */
   const [startScreen, setStartScreen] = useState<null | "welcome" | "new">(null);
@@ -457,7 +456,7 @@ export function Daw() {
     const currentIds = new Set(channels.map((c) => c.id));
     channels.forEach((c) => {
       if (!registeredChannelIds.current.has(c.id)) {
-        audioEngine.addChannel(c.id, c.type, c.instrument, c.synthParams, c.drumParams);
+        audioEngine.addChannel(c.id, c.type, c.instrument, c);
         audioEngine.setVolume(c.id, c.volume);
         audioEngine.setPan(c.id, c.pan);
         audioEngine.setMute(c.id, c.muted);
@@ -1059,16 +1058,9 @@ export function Daw() {
     setAutomationTarget({ kind: "volume" });
   }, []);
 
-  const handleDrumKitChange = useCallback(
-    (kit: DrumKitParams) => {
-      if (fxChannelId) trackActions.setDrumKit(fxChannelId, kit);
-    },
-    [fxChannelId]
-  );
-
-  const handleSynthParamsChange = useCallback(
-    (params: SynthParams) => {
-      if (fxChannelId) trackActions.setSynthParams(fxChannelId, params);
+  const handleInstrumentSettingsChange = useCallback(
+    (settings: InstrumentSettings) => {
+      if (fxChannelId) trackActions.setInstrumentSettings(fxChannelId, settings);
     },
     [fxChannelId]
   );
@@ -2136,16 +2128,14 @@ export function Daw() {
           channelType={fxChannel?.type}
           color={fxChannel ? trackColorOf(fxChannel) : fxBus ? trackColorOf(fxBus) : MASTER_COLOR}
           instrument={fxChannel?.instrument}
-          synthParams={fxChannel?.synthParams}
-          drumParams={fxChannel?.drumParams}
-          onOpenDrumRack={() => setDrumWindowOpen(true)}
+          instrumentSettings={fxChannel}
+          onOpenInstrument={() => setInstrumentWindow(fxChannel?.instrument ?? null)}
           effects={rackEffects}
           bpm={bpm}
           buses={buses}
           sends={fxChannel?.sends}
           onInstrumentChange={fxChannel ? (type) => handleInstrumentChange(fxChannel.id, type) : undefined}
-          onOpenSynthSettings={() => setSynthWindowOpen(true)}
-          onSynthParamsChange={fxChannel ? handleSynthParamsChange : undefined}
+          onInstrumentSettingsChange={fxChannel ? handleInstrumentSettingsChange : undefined}
           onSendChange={fxChannel ? handleSendChange : undefined}
           onAddEffect={(type, atIndex, presetId) => effectActions.add(fxHostId, type, atIndex, presetId)}
           onRemoveEffect={(effectId) => effectActions.remove(fxHostId, effectId)}
@@ -2233,28 +2223,24 @@ export function Daw() {
 
       {aboutTab && <AboutWindow initialTab={aboutTab} onClose={() => setAboutTab(null)} privacyExtra={<TelemetrySwitch />} />}
 
-      {drumWindowOpen && fxChannel?.instrument === "drums" && fxChannel.drumParams && (
-        <DrumRackWindow
-          channelId={fxChannel.id}
-          channelName={fxChannel.name}
-          kit={fxChannel.drumParams}
-          onChange={handleDrumKitChange}
-          onClose={() => setDrumWindowOpen(false)}
-          onDragStart={pushHistory}
-        />
-      )}
-
-      {synthWindowOpen && fxChannel?.instrument === "synth" && fxChannel.synthParams && (
-        <SynthWindow
-          channelId={fxChannel.id}
-          channelName={fxChannel.name}
-          color={trackColorOf(fxChannel)}
-          params={fxChannel.synthParams}
-          onChange={handleSynthParamsChange}
-          onClose={() => setSynthWindowOpen(false)}
-          onDragStart={pushHistory}
-        />
-      )}
+      {fxChannel?.instrument &&
+        fxChannel.instrument === instrumentWindow &&
+        (() => {
+          const { Window } = INSTRUMENT_UI[fxChannel.instrument];
+          return (
+            Window && (
+              <Window
+                channelId={fxChannel.id}
+                channelName={fxChannel.name}
+                color={trackColorOf(fxChannel)}
+                settings={fxChannel}
+                onSettingsChange={handleInstrumentSettingsChange}
+                onClose={() => setInstrumentWindow(null)}
+                onDragStart={pushHistory}
+              />
+            )
+          );
+        })()}
 
       {expandedEffectId && expandedEffect && (
         <EffectWindow

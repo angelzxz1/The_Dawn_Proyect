@@ -12,7 +12,7 @@ import { PROJECT_VERSION, normalizeProject, type SerializedProject } from "./pro
 import { SCALE_NAMES, SCALE_ROOTS } from "./scales";
 import { SNAP_RESOLUTIONS } from "./musicTime";
 import { WAVETABLE_IDS } from "../instruments/synth/wavetableModel";
-import { defaultSynthParams } from "../instruments/synth/synth";
+import { initSynthParams } from "../instruments/synth/synthParams";
 
 const FIXTURE_DIR = join(__dirname, "__fixtures__", "saved-projects");
 const fixtures = readdirSync(FIXTURE_DIR)
@@ -71,7 +71,7 @@ function expectValidProject(p: SerializedProject) {
     if (c.synthParams) {
       // `preset` (the name it was loaded as) is optional.
       const keys = (o: object) => Object.keys(o).filter((k) => k !== "preset").sort();
-      expect(keys(c.synthParams)).toEqual(keys(defaultSynthParams()));
+      expect(keys(c.synthParams)).toEqual(keys(initSynthParams()));
       expect(WAVETABLE_IDS).toContain(c.synthParams.osc1.table);
       expect(WAVETABLE_IDS).toContain(c.synthParams.osc2.table);
     }
@@ -220,7 +220,7 @@ describe("damaged saved data", () => {
     expect(project.channels[0].automationLanes![0].points).toEqual([{ id: "p", time: 1, value: 6 }]);
     expect(project.clipsByChannel["ch-1"].map((c) => c.id)).toEqual(["c2"]);
     expect(project.clipsByChannel["ch-2"]).toEqual([]); // c2 was already used on ch-1
-    expect(project.channels[1].synthParams).toEqual(defaultSynthParams());
+    expect(project.channels[1].synthParams).toEqual(initSynthParams());
     expect(project.channelEffects["ch-2"][0].params.mode).toBe(1);
   });
 

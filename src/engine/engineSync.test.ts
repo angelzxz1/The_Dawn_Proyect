@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hydrateEngine, syncEngine, type EngineApi } from "./engineSync";
 import type { EffectInstance, EffectType } from "../effects/registry";
 import type { ProjectState } from "../project/project";
+import type { InstrumentSettings } from "../instruments/registry";
 import type { AudioClipInstance, ChannelConfig, ChannelType, InstrumentType, MidiClipInstance, NoteEvent } from "../project/types";
 
 // A stand-in for the audio engine that keeps what the real one would hold
@@ -54,14 +55,14 @@ class FakeEngine {
     return JSON.parse(JSON.stringify({ tracks: sorted(this.tracks), buses: sorted(this.buses), master: this.master, tempo: this.tempo }));
   }
 
-  addChannel(id: string, type: ChannelType, instrument: InstrumentType | null, synth?: unknown, drums?: unknown) {
+  addChannel(id: string, type: ChannelType, instrument: InstrumentType | null, settings?: InstrumentSettings) {
     this.log("addChannel");
     if (this.tracks.has(id)) return;
     this.tracks.set(id, {
       type,
       instrument: type === "midi" ? instrument : null,
-      synth: synth ?? null,
-      drums: drums ?? null,
+      synth: settings?.synthParams ?? null,
+      drums: settings?.drumParams ?? null,
       volume: 0,
       pan: 0,
       muted: false,
@@ -77,21 +78,17 @@ class FakeEngine {
     this.log("removeChannel");
     this.tracks.delete(id);
   }
-  setInstrument(id: string, type: InstrumentType | null, synth?: unknown, drums?: unknown) {
+  setInstrument(id: string, type: InstrumentType | null, settings?: InstrumentSettings) {
     this.log("setInstrument");
     const t = this.tracks.get(id);
     if (!t || t.type !== "midi" || t.instrument === type) return;
-    Object.assign(t, { instrument: type, synth: synth ?? null, drums: drums ?? null });
+    Object.assign(t, { instrument: type, synth: settings?.synthParams ?? null, drums: settings?.drumParams ?? null });
   }
-  setSynthParams(id: string, params: unknown) {
-    this.log("setSynthParams");
+  setInstrumentSettings(id: string, settings: InstrumentSettings) {
+    this.log("setInstrumentSettings");
     const t = this.tracks.get(id);
-    if (t?.instrument === "synth") t.synth = params;
-  }
-  setDrumKit(id: string, kit: unknown) {
-    this.log("setDrumKit");
-    const t = this.tracks.get(id);
-    if (t?.instrument === "drums") t.drums = kit;
+    if (t?.instrument === "synth" && settings.synthParams) t.synth = settings.synthParams;
+    if (t?.instrument === "drums" && settings.drumParams) t.drums = settings.drumParams;
   }
   setVolume(id: string, db: number) {
     this.log("setVolume");

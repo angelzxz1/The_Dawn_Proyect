@@ -9,10 +9,6 @@ export interface NoteEvent {
   velocity: number;
 }
 
-/** The sound source a MIDI track plays through - "like in Ableton", an
- * instrument you pick per track rather than a single hardcoded piano. */
-export type InstrumentType = "piano" | "drums" | "synth";
-
 /** A channel's fixed kind, chosen when it's created (Ableton-style): a MIDI
  * track plays notes through an instrument and can host audio effects too; an
  * audio track holds a recorded/imported clip and can only host audio
@@ -21,7 +17,7 @@ export type InstrumentType = "piano" | "drums" | "synth";
  * lifetime of the channel. */
 export type ChannelType = "midi" | "audio" | "group";
 
-export interface ChannelConfig {
+export interface ChannelConfig extends InstrumentSettings {
   id: string;
   name: string;
   volume: number; // dB
@@ -34,11 +30,6 @@ export interface ChannelConfig {
    * track doesn't have to have anything loaded into it. Unused for audio
    * channels. */
   instrument: InstrumentType | null;
-  /** Live params for the "synth" instrument - only meaningful (and only
-   * present) while `instrument === "synth"`. */
-  synthParams?: SynthParams;
-  /** The Drum Rack's kit - only present while `instrument === "drums"`. */
-  drumParams?: DrumKitParams;
   muted: boolean;
   /** Soloing any one channel silences every non-soloed channel. */
   solo: boolean;
@@ -75,7 +66,7 @@ export interface ChannelConfig {
 }
 
 import type { SynthParams } from "../instruments/synth/synthParams";
-import type { DrumKitParams } from "../instruments/drum-rack/drumParams";
+import type { InstrumentSettings, InstrumentType } from "../instruments/registry";
 import type { SidechainTap } from "../effects/sidechain/sidechainModel";
 
 /** An audio track's input taken from another track. */
@@ -85,7 +76,7 @@ export interface TrackInput {
   /** Where on it: before its effects, after them, or after its fader. */
   tap: SidechainTap;
 }
-export type { SynthParams };
+export type { InstrumentType, SynthParams };
 
 /** A send/return bus: several tracks can route a copy of their signal into
  * one shared effect (e.g. one reverb every track sends into) instead of

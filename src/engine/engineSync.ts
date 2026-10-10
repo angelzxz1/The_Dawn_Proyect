@@ -10,6 +10,7 @@
 import type { audioEngine } from "./audioEngine";
 import type { AudioClipTiming } from "./nodes";
 import type { EffectInstance } from "../effects/registry";
+import { changedInstrumentSettings } from "../instruments/registry";
 import { notesWithinClip, type ProjectState } from "../project/project";
 import { quarterNotesPerBar } from "../project/musicTime";
 import type { AudioClipInstance, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent } from "../project/types";
@@ -20,8 +21,7 @@ export type EngineApi = Pick<
   | "addChannel"
   | "removeChannel"
   | "setInstrument"
-  | "setSynthParams"
-  | "setDrumKit"
+  | "setInstrumentSettings"
   | "setVolume"
   | "setPan"
   | "setMute"
@@ -119,7 +119,7 @@ function syncEffects(engine: EngineApi, host: string, prev: EffectInstance[], ne
 // --- Tracks ---
 
 function addTrack(engine: EngineApi, state: ProjectState, channel: ChannelConfig): void {
-  engine.addChannel(channel.id, channel.type, channel.instrument, channel.synthParams, channel.drumParams);
+  engine.addChannel(channel.id, channel.type, channel.instrument, channel);
   engine.setVolume(channel.id, channel.volume);
   engine.setPan(channel.id, channel.pan);
   engine.setMute(channel.id, channel.muted);
@@ -134,10 +134,10 @@ function syncTrack(engine: EngineApi, prev: ChannelConfig, next: ChannelConfig):
   if (prev === next) return;
   const id = next.id;
   if (prev.instrument !== next.instrument) {
-    engine.setInstrument(id, next.instrument, next.synthParams, next.drumParams);
+    engine.setInstrument(id, next.instrument, next);
   } else {
-    if (next.synthParams && prev.synthParams !== next.synthParams) engine.setSynthParams(id, next.synthParams);
-    if (next.drumParams && prev.drumParams !== next.drumParams) engine.setDrumKit(id, next.drumParams);
+    const changed = changedInstrumentSettings(prev, next);
+    if (changed) engine.setInstrumentSettings(id, changed);
   }
   if (prev.volume !== next.volume) engine.setVolume(id, next.volume);
   if (prev.pan !== next.pan) engine.setPan(id, next.pan);

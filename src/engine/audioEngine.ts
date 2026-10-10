@@ -4,7 +4,7 @@ import { PREFERRED_SAMPLE_RATE } from "./context";
 export { PREFERRED_SAMPLE_RATE };
 
 
-import type { NoteEvent, InstrumentType, ChannelType, SynthParams, AutomationLane } from "../project/types";
+import type { NoteEvent, InstrumentType, ChannelType, AutomationLane } from "../project/types";
 import { DrumRack, type DrumLiveState } from "../instruments/drum-rack/drumRack";
 import { padNote, type DrumKitParams } from "../instruments/drum-rack/drumParams";
 import { SynthInstrument, setSynthTempo, type SynthLiveState } from "../instruments/synth/synth";
@@ -33,7 +33,8 @@ import { interpolateAutomation } from "./automation";
 import { InputManager } from "./inputs";
 import { MidiTake } from "./midiTake";
 import { Transport } from "./transport";
-import { createInstrument } from "../instruments/nodes";
+import { createInstrument, updateInstrument } from "../instruments/nodes";
+import type { InstrumentSettings } from "../instruments/registry";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
 import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./nodes";
 import { attempt, noteIssue } from "../services/issues";
@@ -439,8 +440,7 @@ class AudioEngine {
     id: string,
     channelType: ChannelType,
     instrument: InstrumentType | null,
-    synthParams?: SynthParams,
-    drumParams?: DrumKitParams
+    instrumentSettings?: InstrumentSettings
   ): void {
     if (this.channels.has(id)) return;
 
@@ -478,12 +478,7 @@ class AudioEngine {
       meter,
       channelType,
       instrumentType: channelType === "midi" ? instrument : null,
-      instrument: createInstrument(
-        channelType === "midi" ? instrument : null,
-        onSettled,
-        synthParams,
-        drumParams
-      ),
+      instrument: createInstrument(channelType === "midi" ? instrument : null, onSettled, instrumentSettings),
       part: null,
       heldNotes: new Set(),
       effects: [],
@@ -608,7 +603,7 @@ class AudioEngine {
   /** Swaps the instrument a MIDI track plays through (e.g. Piano -> Drums,
    * or null to leave the track empty), disposing the old one and
    * reconnecting the signal chain. No-op on an audio channel. */
-  setInstrument(id: string, type: InstrumentType | null, synthParams?: SynthParams, drumParams?: DrumKitParams): void {
+  setInstrument(id: string, type: InstrumentType | null, settings?: InstrumentSettings): void {
     const nodes = this.channels.get(id);
     if (!nodes || nodes.channelType !== "midi" || nodes.instrumentType === type) return;
     nodes.instrument.dispose();
@@ -618,25 +613,17 @@ class AudioEngine {
       this.pendingLoads = Math.max(0, this.pendingLoads - 1);
       if (this.pendingLoads === 0) this.setReady(true);
     };
-    nodes.instrument = createInstrument(type, onSettled, synthParams, drumParams);
+    nodes.instrument = createInstrument(type, onSettled, settings);
     nodes.instrumentType = type;
     this.rewireChannel(id);
   }
 
-  /** Applies a full new param set to a channel's synth instrument (a no-op
-   * if it isn't currently a synth - e.g. a stale event arriving right after
-   * switching to Piano/Drums). */
-  setSynthParams(id: string, params: SynthParams): void {
+  /** Applies new settings (the synth's patch, the Drum Rack's kit) to the
+   * instrument a track plays. Settings for another instrument are ignored -
+   * e.g. a stale edit arriving right after switching to the piano. */
+  setInstrumentSettings(id: string, settings: InstrumentSettings): void {
     const nodes = this.channels.get(id);
-    if (nodes?.instrumentType === "synth") {
-      (nodes.instrument as SynthInstrument).setParams(params);
-    }
-  }
-
-  /** Applies a new kit to a track's Drum Rack (no-op if it isn't one). */
-  setDrumKit(id: string, kit: DrumKitParams): void {
-    const nodes = this.channels.get(id);
-    if (nodes?.instrumentType === "drums") (nodes.instrument as DrumRack).setKit(kit);
+    if (nodes) updateInstrument(nodes.instrumentType, nodes.instrument, settings);
   }
 
   /** Plays one of a track's drum pads now (clicking it in the Drum Rack). */

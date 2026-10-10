@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Drum, GripVertical, Piano, SlashSquare, Waves } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, SlashSquare } from "lucide-react";
 import { ValueBar } from "@/studio/tracks/ValueBar";
 import { EFFECT_DRAG_MIME, PRESET_DRAG_MIME } from "./EffectBrowser";
 import { PresetMenu, type PresetChange } from "@/effects/ui/PresetMenu";
@@ -9,10 +9,9 @@ import { sidechainSourceName, type SidechainSource } from "@/effects/sidechain/S
 import { SIDECHAIN_TAPS, SIDECHAIN_TAP_LABELS, type SidechainTap } from "@/effects/sidechain/sidechainModel";
 import type { EffectInstance, EffectType } from "@/effects/registry";
 import { EFFECT_UI } from "@/effects/ui/registry";
-import { SynthRackCard } from "@/instruments/synth/SynthRackCard";
-import { DrumRackCard } from "@/instruments/drum-rack/DrumRackCard";
-import type { DrumKitParams } from "@/instruments/drum-rack/drumParams";
-import type { BusConfig, ChannelType, InstrumentType, SynthParams } from "@/project/types";
+import { INSTRUMENT_LABELS, INSTRUMENT_TYPES, type InstrumentSettings, type InstrumentType } from "@/instruments/registry";
+import { INSTRUMENT_UI } from "@/instruments/ui/registry";
+import type { BusConfig, ChannelType } from "@/project/types";
 import type { TrackColor } from "@/project/colors";
 
 interface FxRackProps {
@@ -25,9 +24,9 @@ interface FxRackProps {
   channelType?: ChannelType;
   color: TrackColor;
   instrument?: InstrumentType | null;
-  synthParams?: SynthParams;
-  /** The Drum Rack's kit, while `instrument === "drums"`. */
-  drumParams?: DrumKitParams;
+  /** The track's instrument settings (the synth's patch, the Drum Rack's
+   * kit); the instrument's card reads its own. */
+  instrumentSettings?: InstrumentSettings;
   effects: EffectInstance[];
   /** The project's current tempo - only used by the Delay card/window's
    * Sync mode (note-division knobs) and its "@ N BPM" readout. */
@@ -35,12 +34,10 @@ interface FxRackProps {
   buses?: BusConfig[];
   sends?: Record<string, number>;
   onInstrumentChange?: (type: InstrumentType | null) => void;
-  /** Opens the dedicated Synth Settings window - only meaningful while
-   * `instrument === "synth"`. */
-  onOpenSynthSettings?: () => void;
-  /** Macro knobs on the synth's card. */
-  onSynthParamsChange?: (params: SynthParams) => void;
-  onOpenDrumRack?: () => void;
+  /** Edits from the instrument's card (the synth's macro knobs). */
+  onInstrumentSettingsChange?: (settings: InstrumentSettings) => void;
+  /** Opens the instrument's own window (the synth, the Drum Rack). */
+  onOpenInstrument?: () => void;
   onSendChange?: (busId: string, db: number | null) => void;
   /** `atIndex` omitted means "append at the end"; `presetId` loads that
    * preset into the new effect. */
@@ -80,9 +77,10 @@ const REORDER_DRAG_MIME = "application/x-dawn-effect-reorder";
 
 const INSTRUMENT_OPTIONS: { type: InstrumentType | null; label: string; icon: React.ReactNode }[] = [
   { type: null, label: "None", icon: <SlashSquare size={12} /> },
-  { type: "piano", label: "Piano", icon: <Piano size={12} /> },
-  { type: "drums", label: "Drums", icon: <Drum size={12} /> },
-  { type: "synth", label: "Synth", icon: <Waves size={12} /> },
+  ...INSTRUMENT_TYPES.map((type) => {
+    const Icon = INSTRUMENT_UI[type].icon;
+    return { type, label: INSTRUMENT_LABELS[type], icon: <Icon size={12} /> };
+  }),
 ];
 
 const SEND_OFF_DB = -60;
@@ -136,16 +134,14 @@ export function FxRack({
   channelType,
   color,
   instrument,
-  synthParams,
-  drumParams,
+  instrumentSettings,
   effects,
   bpm,
   buses = [],
   sends = {},
   onInstrumentChange,
-  onOpenSynthSettings,
-  onSynthParamsChange,
-  onOpenDrumRack,
+  onInstrumentSettingsChange,
+  onOpenInstrument,
   onSendChange,
   onAddEffect,
   onRemoveEffect,
@@ -258,7 +254,7 @@ export function FxRack({
       {!collapsed && (
       <div className="flex flex-1 items-stretch gap-0 overflow-x-auto p-2">
         {channelType === "midi" && (
-          <div className={`flex ${instrument === "synth" || instrument === "drums" ? "w-[262px]" : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}>
+          <div className={`flex ${instrument ? INSTRUMENT_UI[instrument].slotWidth : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
               Instrument
             </div>
@@ -282,10 +278,21 @@ export function FxRack({
             {instrument === null && (
               <p className="text-[11px] text-muted">No instrument loaded — this track stays silent.</p>
             )}
-            {instrument === "drums" && drumParams && <DrumRackCard channelId={hostId} kit={drumParams} onOpen={onOpenDrumRack} />}
-            {instrument === "synth" && synthParams && (
-              <SynthRackCard params={synthParams} onChange={onSynthParamsChange} onDragStart={onParamDragStart} onOpen={onOpenSynthSettings} />
-            )}
+            {instrument &&
+              (() => {
+                const { RackCard } = INSTRUMENT_UI[instrument];
+                return (
+                  RackCard && (
+                    <RackCard
+                      channelId={hostId}
+                      settings={instrumentSettings ?? {}}
+                      onSettingsChange={onInstrumentSettingsChange}
+                      onDragStart={onParamDragStart}
+                      onOpen={onOpenInstrument}
+                    />
+                  )
+                );
+              })()}
           </div>
         )}
 

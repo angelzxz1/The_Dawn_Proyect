@@ -118,7 +118,7 @@ export const clipActions = {
     projectStore.push();
     if (channel.instrument !== "drums") {
       const drumParams = channel.drumParams ?? structuredClone(grooveKit(groove));
-      audioEngine.setInstrument(channelId, "drums", channel.synthParams, drumParams);
+      audioEngine.setInstrument(channelId, "drums", { ...channel, drumParams });
       projectStore.set("channels", (prev) => prev.map((c) => (c.id === channelId ? { ...c, instrument: "drums", drumParams } : c)));
     }
     const clip: MidiClipInstance = {

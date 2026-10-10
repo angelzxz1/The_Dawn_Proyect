@@ -7,10 +7,8 @@
 
 import { audioEngine } from "@/engine/audioEngine";
 import type { TrackColorPick } from "@/project/colors";
-import { defaultDrumKit, type DrumKitParams } from "@/instruments/drum-rack/drumParams";
 import { groupTracks, moveTrack, setTrackGroup, ungroup } from "@/engine/routing";
-import { defaultSynthParams } from "@/instruments/synth/synth";
-import type { SynthParams } from "@/instruments/synth/synthParams";
+import { startingSettings, type InstrumentSettings } from "@/instruments/registry";
 import { track } from "@/services/telemetry";
 import { automationTargetKey } from "@/project/automationTargets";
 import type { AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/project/types";
@@ -120,21 +118,16 @@ export const trackActions = {
     const current = channels().find((c) => c.id === id);
     if (!current) return;
     projectStore.push();
-    const synthParams = type === "synth" ? current.synthParams ?? defaultSynthParams() : current.synthParams;
-    const drumParams = type === "drums" ? current.drumParams ?? defaultDrumKit() : current.drumParams;
-    audioEngine.setInstrument(id, type, synthParams, drumParams);
-    updateTrack(id, (c) => ({ ...c, instrument: type, synthParams, drumParams }));
+    const added = startingSettings(current, type);
+    audioEngine.setInstrument(id, type, { ...current, ...added });
+    updateTrack(id, (c) => ({ ...c, instrument: type, ...added }));
   },
 
-  // Instrument edits: no undo step here - the windows take one per gesture.
-  setDrumKit(id: string, kit: DrumKitParams): void {
-    audioEngine.setDrumKit(id, kit);
-    updateTrack(id, (c) => ({ ...c, drumParams: kit }));
-  },
-
-  setSynthParams(id: string, params: SynthParams): void {
-    audioEngine.setSynthParams(id, params);
-    updateTrack(id, (c) => ({ ...c, synthParams: params }));
+  /** The synth's patch, the Drum Rack's kit: only the settings that
+   * changed. No undo step here - the windows take one per gesture. */
+  setInstrumentSettings(id: string, settings: InstrumentSettings): void {
+    audioEngine.setInstrumentSettings(id, settings);
+    updateTrack(id, (c) => ({ ...c, ...settings }));
   },
 
   /** A send's level in dB, or null to remove it. */

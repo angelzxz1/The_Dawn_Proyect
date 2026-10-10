@@ -10,8 +10,6 @@ import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/no
 import { MAX_COMPENSATION } from "../engine/nodes";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
-import { SynthInstrument } from "../instruments/synth/synth";
-import { DrumRack } from "../instruments/drum-rack/drumRack";
 import { notesWithinClip } from "../project/project";
 import { workletsReady } from "../engine/workletLoader";
 import { chainLatency, nodeLatency } from "../engine/latency";
@@ -312,7 +310,7 @@ export async function renderProject(params: BounceParams, options: RenderOptions
       const clips = params.clipsByChannel[channel.id] ?? [];
 
       if (channel.type === "midi") {
-        const instrument = createInstrument(channel.instrument, () => {}, channel.synthParams, channel.drumParams);
+        const instrument = createInstrument(channel.instrument, () => {}, channel);
         instrument.connect(ownDelay);
         const flattened = clips
           .filter(isMidiClip)
@@ -328,8 +326,9 @@ export async function renderProject(params: BounceParams, options: RenderOptions
               if (instrument instanceof Tone.Sampler) {
                 const check = () => (instrument.loaded ? resolve() : setTimeout(check, 10));
                 check();
-              } else if (instrument instanceof SynthInstrument || instrument instanceof DrumRack) {
-                // Its worklet starts once its wavetables are ready (an imported one is decoded first).
+              } else if (instrument.ready) {
+                // The synth's and Drum Rack's worklets start once their
+                // wavetables or samples are ready (imported ones decoded first).
                 void instrument.ready.then(resolve, resolve);
               } else {
                 resolve();

@@ -21,6 +21,9 @@ export interface Instrument {
   setDetune?(cents: number): void;
   /** Live mod wheel, 0..1 - same optionality as `setDetune`. */
   setModWheel?(amount: number): void;
+  /** Resolves once it can play, for one that loads something first (the
+   * synth's wavetables, the Drum Rack's samples). */
+  readonly ready?: Promise<void>;
 }
 
 /**

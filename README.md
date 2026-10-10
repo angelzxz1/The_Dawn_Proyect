@@ -997,8 +997,12 @@ npm start       # serve out/ locally
   file slot) and `sidechain/`.
 - `src/instruments/`: the instruments, one folder each (`synth/`,
   `drum-rack/`, `piano/`), holding their DSP, presets or kits, windows and
-  rack cards. `instrument.ts` is the interface the engine plays them
-  through; `nodes.ts` builds whichever one a track uses.
+  rack cards. Like the effects, each describes itself in three files:
+  `index.ts` (its saved key, name, and the settings it keeps on the track:
+  the synth's patch, the Drum Rack's kit), `audio.ts` (how its sound source
+  is built and new settings applied) and `ui.tsx` (its picker icon, rack
+  card and window). `registry.ts`, `nodes.ts` and `ui/registry.ts` collect
+  them; `instrument.ts` is the interface the engine plays them through.
 - `src/engine/`: the audio engine (`audioEngine.ts`): transport, track
   strips, inputs and recording, mixing and routing, delay compensation,
   the metronome, decoding audio files and their waveforms, and

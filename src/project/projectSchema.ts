@@ -15,8 +15,7 @@ import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "../effects/fi
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
 import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./musicTime";
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
-import { normalizeSynthParams } from "../instruments/synth/synthParams";
-import { normalizeDrumKit } from "../instruments/drum-rack/drumParams";
+import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registry";
 import { HEX_COLOR } from "./colors";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
 import type {
@@ -172,10 +171,6 @@ function normalizeEffects(raw: unknown, seenIds: Set<string>): EffectInstance[] 
   return uniqueById(arr(raw).map(normalizeEffect), seenIds);
 }
 
-// --- synth ---
-
-export { normalizeSynthParams };
-
 // --- channels ---
 
 function normalizeLane(
@@ -242,7 +237,7 @@ function normalizeChannel(
   if (!id) return null;
   const type = oneOf(r.type, ["midi", "audio", "group"] as const, "midi");
   const instrument =
-    type === "midi" ? oneOf<InstrumentType | null>(r.instrument, ["piano", "drums", "synth", null], null) : null;
+    type === "midi" ? oneOf<InstrumentType | null>(r.instrument, [...INSTRUMENT_TYPES, null], null) : null;
   const sends = Object.fromEntries(
     Object.entries(obj(r.sends)).filter(
       ([busId, db]) => busIds.has(busId) && typeof db === "number" && Number.isFinite(db)
@@ -259,8 +254,7 @@ function normalizeChannel(
     ...(typeof r.color === "string" && HEX_COLOR.test(r.color) ? { color: r.color.toLowerCase() } : {}),
     type,
     instrument,
-    ...(instrument === "synth" ? { synthParams: normalizeSynthParams(r.synthParams) } : {}),
-    ...(instrument === "drums" ? { drumParams: normalizeDrumKit(r.drumParams) } : {}),
+    ...readInstrumentSettings(instrument, r),
     muted: bool(r.muted, false),
     solo: bool(r.solo, false),
     // A group has nothing to record.

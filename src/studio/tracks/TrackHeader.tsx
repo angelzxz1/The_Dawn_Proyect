@@ -19,6 +19,7 @@ import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import { InputMeter } from "./InputMeter";
 import type { ChannelConfig } from "@/project/types";
+import { INSTRUMENT_LABELS } from "@/instruments/registry";
 import { TRACK_COLOR_PALETTE, type TrackColor, type TrackColorPick } from "@/project/colors";
 import { CustomColorButton } from "./CustomColorButton";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
@@ -145,10 +146,7 @@ function formatPan(pan: number): string {
 }
 
 function instrumentLabel(instrument: ChannelConfig["instrument"]): string {
-  if (instrument === "piano") return "Piano";
-  if (instrument === "drums") return "Drums";
-  if (instrument === "synth") return "Synth";
-  return "Empty";
+  return instrument ? INSTRUMENT_LABELS[instrument] : "Empty";
 }
 
 function IconButton({

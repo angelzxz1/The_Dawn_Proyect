@@ -1,44 +1,30 @@
-// The instruments a MIDI track can play: none, the sampled piano, the
-// Drum Rack or the synth. Shared by the live engine and the export.
+// Builds the instrument a MIDI track plays (or a silent one for an empty
+// track) and applies its settings, from each instrument folder's audio.ts.
+// Shared by the live engine and the export.
 
-import * as Tone from "tone";
-import type { InstrumentType, SynthParams } from "../project/types";
-import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "./piano/piano";
+import type { InstrumentType } from "./registry";
+import type { InstrumentAudio, InstrumentSettings } from "./types";
 import { NullInstrument, type Instrument } from "./instrument";
-import { DrumRack } from "./drum-rack/drumRack";
-import { defaultDrumKit, type DrumKitParams } from "./drum-rack/drumParams";
-import { SynthInstrument, defaultSynthParams } from "./synth/synth";
-import { noteIssue } from "../services/issues";
+import { pianoAudio } from "./piano/audio";
+import { drumRackAudio } from "./drum-rack/audio";
+import { synthAudio } from "./synth/audio";
 
-export function createInstrument(
-  type: InstrumentType | null,
-  onSettled: () => void,
-  synthParams?: SynthParams,
-  drumParams?: DrumKitParams
-): Instrument {
+const AUDIO: Record<InstrumentType, InstrumentAudio> = {
+  piano: pianoAudio,
+  drums: drumRackAudio,
+  synth: synthAudio,
+};
+
+export function createInstrument(type: InstrumentType | null, onSettled: () => void, settings: InstrumentSettings = {}): Instrument {
   if (type === null) {
     queueMicrotask(onSettled);
     return new NullInstrument();
   }
-  if (type === "drums") {
-    const rack = new DrumRack(drumParams ?? defaultDrumKit());
-    void rack.ready.then(onSettled, onSettled);
-    return rack;
-  }
-  if (type === "synth") {
-    // Synth-built too - no samples to wait on.
-    queueMicrotask(onSettled);
-    return new SynthInstrument(synthParams ?? defaultSynthParams());
-  }
-  return new Tone.Sampler({
-    urls: PIANO_SAMPLE_URLS,
-    baseUrl: PIANO_SAMPLE_BASE_URL,
-    release: 1,
-    attack: 0,
-    onload: onSettled,
-    onerror: (error) => {
-      onSettled();
-      noteIssue("instrument.load", error);
-    },
-  });
+  return AUDIO[type].create(settings, onSettled);
+}
+
+/** Applies new settings to a track's instrument. Settings that belong to
+ * another instrument are ignored (an edit arriving just after a switch). */
+export function updateInstrument(type: InstrumentType | null, instrument: Instrument, settings: InstrumentSettings): void {
+  if (type) AUDIO[type].update?.(instrument, settings);
 }

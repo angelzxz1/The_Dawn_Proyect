@@ -28,7 +28,7 @@ import type * as Tone from "tone";
 
 /** Seconds an effect node delays its audio (0 for most). */
 export function nodeLatency(node: Tone.ToneAudioNode): number {
-  const latency = (node as unknown as { latency?: unknown }).latency;
+  const latency = "latency" in node ? node.latency : undefined;
   return typeof latency === "number" && Number.isFinite(latency) ? Math.max(0, latency) : 0;
 }
 

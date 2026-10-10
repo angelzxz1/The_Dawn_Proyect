@@ -61,5 +61,5 @@ export function defineAudio<N extends Tone.ToneAudioNode>(audio: {
   create(params: Record<string, number>): N;
   set(node: N, key: string, value: number): void;
 }): EffectAudio {
-  return audio as unknown as EffectAudio;
+  return audio;
 }

@@ -533,8 +533,8 @@ function normalizeMods(raw: unknown): ModRoute[] {
   const out: ModRoute[] = [];
   for (const item of raw) {
     const r = obj(item);
-    const source = oneOf(r.source, MOD_SOURCES, null as unknown as ModSource);
-    const dest = oneOf(r.dest, MOD_DESTS, null as unknown as ModDest);
+    const source = oneOf<ModSource | null>(r.source, MOD_SOURCES, null);
+    const dest = oneOf<ModDest | null>(r.dest, MOD_DESTS, null);
     if (!source || !dest) continue;
     let id = typeof r.id === "string" && r.id ? r.id : newModId();
     if (seen.has(id)) id = newModId();

@@ -196,10 +196,15 @@ interface FileHandle {
 }
 export type ProjectFolder = DirectoryHandle;
 
-type PickerWindow = { showDirectoryPicker?: (o?: { mode?: "readwrite"; id?: string }) => Promise<DirectoryHandle> };
+declare global {
+  interface Window {
+    /** The File System Access API's folder picker (Chromium only). */
+    showDirectoryPicker?: (options?: { mode?: "readwrite"; id?: string }) => Promise<DirectoryHandle>;
+  }
+}
 
 export function supportsFolders(): boolean {
-  return typeof window !== "undefined" && typeof (window as unknown as PickerWindow).showDirectoryPicker === "function";
+  return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
 }
 
 /** Brave is Chromium but ships with the folder API turned off (it can be
@@ -210,7 +215,7 @@ export function isBrave(): boolean {
 
 async function pickDirectory(): Promise<DirectoryHandle | null> {
   try {
-    return await (window as unknown as PickerWindow).showDirectoryPicker!({ mode: "readwrite", id: "dawn-projects" });
+    return (await window.showDirectoryPicker?.({ mode: "readwrite", id: "dawn-projects" })) ?? null;
   } catch {
     return null; // cancelled
   }

@@ -106,9 +106,9 @@ export class InputManager {
     const stream = await this.ensureMicStream();
     if (!this.micSource || this.micSource.mediaStream !== stream) {
       this.micSource?.disconnect();
-      this.micSource = Tone.getContext().createMediaStreamSource(stream) as unknown as MediaStreamAudioSourceNode;
+      this.micSource = Tone.getContext().createMediaStreamSource(stream);
       // The input meter listens to the raw input, before any effect.
-      this.inputAnalyser ??= Tone.getContext().createAnalyser() as unknown as AnalyserNode;
+      this.inputAnalyser ??= Tone.getContext().createAnalyser();
       this.inputAnalyser.fftSize = 2048;
       this.micSource.connect(this.inputAnalyser);
     }

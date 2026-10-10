@@ -1,5 +1,5 @@
 import * as Tone from "tone";
-import { PREFERRED_SAMPLE_RATE } from "./context";
+import { PREFERRED_SAMPLE_RATE, nativeAudioContext } from "./context";
 
 export { PREFERRED_SAMPLE_RATE };
 
@@ -373,20 +373,13 @@ class AudioEngine {
     return () => this.latencyListeners.delete(fn);
   }
 
-  /** The browser's own context, under Tone's and standardized-audio-
-   * context's wrappers (which don't pass outputLatency through). */
-  private nativeContext(): AudioContext | null {
-    const raw = Tone.getContext().rawContext as unknown as { _nativeAudioContext?: AudioContext } & Partial<AudioContext>;
-    return raw._nativeAudioContext ?? (typeof raw.outputLatency === "number" ? (raw as AudioContext) : null);
-  }
-
   /** Latency figures, in seconds. `output`: from the audio engine to the
    * speakers (the browser's buffer plus the device's). `input`: from the
    * mic to the engine, as the browser reports it (it may not know it all -
    * a measured round trip replaces the estimate). `effects`: how late the
    * mix leaves the master from compensation and master effects. */
   getLatencyInfo(): { sampleRate: number; output: number; input: number; effects: number; compensated: number } {
-    const ctx = this.nativeContext();
+    const ctx = nativeAudioContext();
     const base = ctx?.baseLatency ?? 0;
     const output = base + (ctx?.outputLatency ?? 0);
     const settings = this.inputs.inputSettings ?? {};

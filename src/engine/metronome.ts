@@ -198,7 +198,7 @@ export class Metronome {
   }
 
   private play(time: number, accent: boolean, countIn: boolean): void {
-    const raw = Tone.getContext().rawContext as unknown as BaseAudioContext;
+    const raw = Tone.getContext().rawContext;
     this.buffers ??= {
       accent: clickBuffer(raw, 1046.5, -14),
       beat: clickBuffer(raw, 523.25, -14),

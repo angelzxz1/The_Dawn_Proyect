@@ -1,5 +1,9 @@
 // The app's audio context: 48 kHz, and how far ahead the transport
 // schedules (see below), set up once when the engine module first loads.
+//
+// Tone.js types its context as the browser's own AudioContext, but wraps
+// it in standardized-audio-context. The two places that cross between
+// them are here, so nothing else needs a forced type conversion.
 
 import * as Tone from "tone";
 import { AudioContext as StdAudioContext } from "standardized-audio-context";
@@ -46,7 +50,16 @@ if (typeof window !== "undefined") {
   }
   // Setting lookAhead also sets the clock's tick (to half of it): set the
   // tick after.
-  const context = Tone.getContext() as Tone.Context;
-  context.lookAhead = SCHEDULE_AHEAD;
-  context.updateInterval = SCHEDULE_TICK;
+  const context = Tone.getContext();
+  if (context instanceof Tone.Context) {
+    context.lookAhead = SCHEDULE_AHEAD;
+    context.updateInterval = SCHEDULE_TICK;
+  }
+}
+
+/** The browser's own context, under Tone's and standardized-audio-
+ * context's wrappers (which don't pass outputLatency through). */
+export function nativeAudioContext(): AudioContext | null {
+  const raw = Tone.getContext().rawContext as unknown as { _nativeAudioContext?: AudioContext } & Partial<AudioContext>;
+  return raw._nativeAudioContext ?? (typeof raw.outputLatency === "number" ? (raw as AudioContext) : null);
 }

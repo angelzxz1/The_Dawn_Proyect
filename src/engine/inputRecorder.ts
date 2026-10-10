@@ -65,7 +65,7 @@ export type TakeChannels = Float32Array[];
 export class InputRecorder {
   private readonly chunks: { frame: number; data: Float32Array[] }[] = [];
   private node: AudioWorkletNode | null = null;
-  private source: Tone.InputNode | AudioNode | null = null;
+  private source: Tone.OutputNode | null = null;
   private done: Promise<void> | null = null;
   private resolveDone: (() => void) | null = null;
   private preview: { builder: WaveformBuilder; originFrame: number } | null = null;
@@ -80,10 +80,10 @@ export class InputRecorder {
    * node, so reusing it keeps a measured round trip valid for later takes.
    * `channels`: 2 records in stereo (another track's audio), 1 in mono
    * (an interface input, mixed down if the device sends more). */
-  static async start(context: Tone.BaseContext, source: Tone.OutputNode | AudioNode, channels: 1 | 2 = 1): Promise<InputRecorder> {
+  static async start(context: Tone.BaseContext, source: Tone.OutputNode, channels: 1 | 2 = 1): Promise<InputRecorder> {
     await loadWorklet(context, PROCESSOR_NAME, PROCESSOR_CODE);
     const rec = new InputRecorder(context);
-    rec.source = source as Tone.InputNode | AudioNode;
+    rec.source = source;
     rec.node = context.createAudioWorkletNode(PROCESSOR_NAME, {
       numberOfInputs: 1,
       numberOfOutputs: 0,
@@ -91,7 +91,7 @@ export class InputRecorder {
       channelCountMode: "explicit",
       channelInterpretation: "speakers",
       processorOptions: { channels },
-    }) as unknown as AudioWorkletNode;
+    });
     rec.done = new Promise((resolve) => (rec.resolveDone = resolve));
     rec.node.port.onmessage = (e: MessageEvent<{ frame: number; data: Float32Array[] } | { done: true }>) => {
       if ("done" in e.data) rec.resolveDone?.();
@@ -100,14 +100,14 @@ export class InputRecorder {
         rec.preview?.builder.add(e.data.frame - rec.preview.originFrame, mixdown(e.data.data));
       }
     };
-    Tone.connect(rec.source as Tone.OutputNode, rec.node);
+    Tone.connect(source, rec.node);
     return rec;
   }
 
   private unplug(): void {
     if (!this.source || !this.node) return;
     try {
-      Tone.disconnect(this.source as Tone.OutputNode, this.node);
+      Tone.disconnect(this.source, this.node);
     } catch {
       // Already gone (the source track was removed).
     }

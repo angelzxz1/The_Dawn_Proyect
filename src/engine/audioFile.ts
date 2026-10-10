@@ -15,10 +15,7 @@ export interface DecodedAudioClip {
 
 export async function decodeAudioFile(source: Blob): Promise<DecodedAudioClip> {
   const arrayBuffer = await source.arrayBuffer();
-  const AudioContextCtor =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const ctx = new AudioContextCtor();
+  const ctx = new AudioContext();
   let buffer: AudioBuffer;
   try {
     buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));

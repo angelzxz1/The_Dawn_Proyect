@@ -60,5 +60,5 @@ export function defineInstrumentAudio<N extends Instrument>(audio: {
   create(settings: InstrumentSettings, onSettled: () => void): N;
   update?(instrument: N, settings: InstrumentSettings): void;
 }): InstrumentAudio {
-  return audio as unknown as InstrumentAudio;
+  return audio;
 }

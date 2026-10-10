@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Circle, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/project/types";
@@ -64,23 +64,25 @@ export function TransportBar({
   onRecord,
   status,
 }: TransportBarProps) {
-  const [bpmDraft, setBpmDraft] = useState(String(bpm));
-  useEffect(() => setBpmDraft(String(bpm)), [bpm]);
+  // What's being typed into the BPM and time signature fields, or null to
+  // show the current value (so an undo, or a value clamped back to what it
+  // was, always shows).
+  const [bpmDraft, setBpmDraft] = useState<string | null>(null);
   const commitBpm = () => {
+    if (bpmDraft === null) return;
     const parsed = Number(bpmDraft);
     if (Number.isFinite(parsed) && parsed > 0) onBpmChange(Math.min(300, Math.max(20, parsed)));
-    else setBpmDraft(String(bpm));
+    setBpmDraft(null);
   };
 
-  const [numeratorDraft, setNumeratorDraft] = useState(String(timeSignature.numerator));
-  useEffect(() => setNumeratorDraft(String(timeSignature.numerator)), [timeSignature.numerator]);
+  const [numeratorDraft, setNumeratorDraft] = useState<string | null>(null);
   const commitNumerator = () => {
+    if (numeratorDraft === null) return;
     const parsed = Number(numeratorDraft);
     if (Number.isFinite(parsed) && parsed >= 1) {
       onTimeSignatureChange({ ...timeSignature, numerator: Math.max(1, Math.round(parsed)) });
-    } else {
-      setNumeratorDraft(String(timeSignature.numerator));
     }
+    setNumeratorDraft(null);
   };
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3">
@@ -162,7 +164,7 @@ export function TransportBar({
           type="number"
           min={20}
           max={300}
-          value={bpmDraft}
+          value={bpmDraft ?? String(bpm)}
           onChange={(e) => setBpmDraft(e.target.value)}
           onBlur={commitBpm}
           onKeyDown={(e) => {
@@ -178,7 +180,7 @@ export function TransportBar({
           type="number"
           min={1}
           max={32}
-          value={numeratorDraft}
+          value={numeratorDraft ?? String(timeSignature.numerator)}
           onChange={(e) => setNumeratorDraft(e.target.value)}
           onBlur={commitNumerator}
           onKeyDown={(e) => {

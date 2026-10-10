@@ -81,7 +81,9 @@ function drawTile(canvas: HTMLCanvasElement, wf: Waveform, x0: number, w: number
   }
 }
 
-function Tile({ x, w, h, draw }: { x: number; w: number; h: number; draw: (canvas: HTMLCanvasElement, x0: number, w: number) => void }) {
+/** `version` marks in-place changes to the waveform (a recording in
+ * progress), so the tile redraws. */
+function Tile({ x, w, h, draw, version }: { x: number; w: number; h: number; draw: (canvas: HTMLCanvasElement, x0: number, w: number) => void; version: number }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -94,7 +96,7 @@ function Tile({ x, w, h, draw }: { x: number; w: number; h: number; draw: (canva
   }, []);
   useEffect(() => {
     if (visible && canvasRef.current) draw(canvasRef.current, x, w);
-  }, [visible, draw, x, w]);
+  }, [visible, draw, x, w, version]);
   return (
     <div ref={boxRef} className="absolute top-0" style={{ left: x, width: w, height: h }}>
       {visible && <canvas ref={canvasRef} style={{ width: w, height: h, display: "block" }} />}
@@ -122,16 +124,14 @@ export function WaveformCanvas({
     (canvas: HTMLCanvasElement, x0: number, w: number) => {
       if (waveform) drawTile(canvas, waveform, x0, w, height, { pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color });
     },
-    // `version` marks in-place changes to `waveform`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [waveform, version, height, pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color]
+    [waveform, height, pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color]
   );
   if (!waveform || width <= 0) return null;
   const tiles = Math.ceil(width / TILE);
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {Array.from({ length: tiles }, (_, i) => (
-        <Tile key={i} x={i * TILE} w={Math.min(TILE, width - i * TILE)} h={height} draw={draw} />
+        <Tile key={i} x={i * TILE} w={Math.min(TILE, width - i * TILE)} h={height} draw={draw} version={version} />
       ))}
     </div>
   );

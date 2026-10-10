@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -479,11 +480,10 @@ export function Daw() {
   const routingKey = channels
     .map((c) => `${c.id}:${c.type}:${c.groupId ?? ""}:${c.output ?? ""}:${c.input ? `${c.input.track}/${c.input.tap}` : ""}`)
     .join("|");
-  useEffect(() => {
-    audioEngine.setRouting(channels.map((c) => ({ id: c.id, type: c.type, groupId: c.groupId, output: c.output, input: c.input })));
-    // Only the routing fields matter (routingKey covers them).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routingKey]);
+  const applyRouting = useEffectEvent(() =>
+    audioEngine.setRouting(channels.map((c) => ({ id: c.id, type: c.type, groupId: c.groupId, output: c.output, input: c.input })))
+  );
+  useEffect(() => applyRouting(), [routingKey]);
 
   // Keep the audio engine's buses in sync with React state too.
   useEffect(() => {
@@ -1260,8 +1260,28 @@ export function Daw() {
             }
           )
         : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contextMenu, channels, clipsOf, selectedClipIds, trackPicks]
+    [
+      contextMenu,
+      channels,
+      clipsOf,
+      selectedClipIds,
+      trackPicks,
+      handleEditClip,
+      handleCopyClip,
+      pasteReplaceClip,
+      handleExportClipMidi,
+      handleSplitClipAtPlayhead,
+      handleToggleLoopClip,
+      handleDuplicateSelectedClips,
+      handleDeleteSelectedClips,
+      handleAddEmptyClipAt,
+      triggerAudioImport,
+      handlePasteClipAtBar,
+      handleGroupTracks,
+      handleSetTrackGroup,
+      handleToggleFold,
+      handleRemoveChannel,
+    ]
   );
 
   const handlePreviewNote = useCallback(

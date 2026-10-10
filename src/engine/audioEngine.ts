@@ -238,6 +238,8 @@ class AudioEngine {
   /** The mix as last planned (mixGraph.ts). */
   private mix: MixGraph | null = null;
   private latencyListeners = new Set<() => void>();
+  private mixListeners = new Set<() => void>();
+  private mixVersion = 0;
 
   private ensureClickOut(): Tone.Delay {
     if (!this.clickOut) {
@@ -346,7 +348,19 @@ class AudioEngine {
     this.compensation = plan;
     this.applySidechains(mix);
     if (changed) this.latencyListeners.forEach((fn) => fn());
+    this.mixVersion += 1;
+    this.mixListeners.forEach((fn) => fn());
   }
+
+  /** Called whenever the mix is re-planned (routing, sidechains, sends,
+   * mute and solo...). Returns an unsubscribe. */
+  onMixChange = (fn: () => void): (() => void) => {
+    this.mixListeners.add(fn);
+    return () => this.mixListeners.delete(fn);
+  };
+
+  /** Goes up each time the mix is re-planned. */
+  getMixVersion = (): number => this.mixVersion;
 
   /** Plugin delay compensation on/off (on by default). */
   setDelayCompensation(enabled: boolean): void {

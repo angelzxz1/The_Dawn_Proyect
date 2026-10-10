@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mic2, Play, X } from "lucide-react";
 import { demoSongAvailable } from "@/project/demoSong";
 import type { RecentProject } from "@/project/projectFiles";
@@ -51,23 +51,25 @@ export function StartScreen({
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [demo, setDemo] = useState<DemoState>("checking");
 
+  // Whether there's a demo song (and on a first visit, loading it): checked
+  // once, when the screen opens.
+  const showDemo = useEffectEvent(async (available: boolean, isOpen: () => boolean) => {
+    if (!available || !firstVisit) {
+      setDemo(available ? "available" : "none");
+      return;
+    }
+    setDemo("loading");
+    const loaded = await onLoadDemo();
+    if (isOpen()) setDemo(loaded ? "loaded" : "none");
+  });
   useEffect(() => {
-    let live = true;
-    void demoSongAvailable().then(async (ok) => {
-      if (!live) return;
-      if (!ok || !firstVisit) {
-        setDemo(ok ? "available" : "none");
-        return;
-      }
-      setDemo("loading");
-      const loaded = await onLoadDemo();
-      if (live) setDemo(loaded ? "loaded" : "none");
+    let open = true;
+    void demoSongAvailable().then((available) => {
+      if (open) void showDemo(available, () => open);
     });
     return () => {
-      live = false;
+      open = false;
     };
-    // Checked once, when the screen opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const listen = async () => {

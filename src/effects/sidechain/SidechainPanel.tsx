@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { Headphones } from "lucide-react";
 import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginToggle } from "@/effects/ui/PluginChrome";
@@ -70,12 +70,11 @@ export function SidechainPanel({
   const listen = value("scListen") >= 0.5;
   const candidates = sources.filter((s) => s.id !== hostId);
   // Choices that would feed this track back into itself are greyed out.
-  const allowed = useMemo(
-    () => audioEngine.sidechainSourcesAllowed(hostId, effectId),
-    // Re-checked whenever the routing or the list of tracks changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hostId, effectId, sc.on, sc.source, sources]
-  );
+  // That depends on every track's routing, which reaches the engine after
+  // the studio redraws, so the panel redraws again whenever the engine
+  // re-plans the mix (the check itself is a few lookups in that plan).
+  useSyncExternalStore(audioEngine.onMixChange, audioEngine.getMixVersion, audioEngine.getMixVersion);
+  const allowed = audioEngine.sidechainSourcesAllowed(hostId, effectId);
   const sourceName = sidechainSourceName(sc, sources);
 
   const meterFill = useRef<HTMLDivElement>(null);

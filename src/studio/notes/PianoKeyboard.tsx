@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   KEYBOARD_HIGH_MIDI,
   KEYBOARD_KEY_OFFSETS,
@@ -86,36 +86,29 @@ export function PianoKeyboard({
     },
   });
 
-  // Releases any keys the computer keyboard was holding when the octave shifts,
-  // so notes don't get stuck on if the note name changes mid-hold.
-  useEffect(() => {
-    const keys = pressedKeys.current;
-    return () => {
-      keys.forEach((key) => {
-        const offset = KEYBOARD_KEY_OFFSETS[key];
-        if (offset !== undefined) {
-          onNoteOff(midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset));
-        }
-      });
-      keys.clear();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [octaveShift]);
-
-  // Also release any held keys the moment shortcuts get suspended (e.g. the
-  // piano roll editor opens), so a note can't get stuck on in the background.
-  useEffect(() => {
-    if (keyboardShortcutsEnabled) return;
+  /** Lets go of every key the computer keyboard is holding, as the notes
+   * they played at octave `shift`. */
+  const releaseHeldKeys = useEffectEvent((shift: number) => {
     const keys = pressedKeys.current;
     keys.forEach((key) => {
       const offset = KEYBOARD_KEY_OFFSETS[key];
       if (offset !== undefined) {
-        onNoteOff(midiToNoteName(KEYBOARD_LOW_MIDI + octaveShift * 12 + offset));
+        onNoteOff(midiToNoteName(KEYBOARD_LOW_MIDI + shift * 12 + offset));
       }
     });
     keys.clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyboardShortcutsEnabled]);
+  });
+
+  // Releases any keys the computer keyboard was holding when the octave shifts,
+  // so notes don't get stuck on if the note name changes mid-hold. (The
+  // notes were played at the octave before the shift.)
+  useEffect(() => () => releaseHeldKeys(octaveShift), [octaveShift]);
+
+  // Also release any held keys the moment shortcuts get suspended (e.g. the
+  // piano roll editor opens), so a note can't get stuck on in the background.
+  useEffect(() => {
+    if (!keyboardShortcutsEnabled) releaseHeldKeys(octaveShift);
+  }, [keyboardShortcutsEnabled, octaveShift]);
 
   const handleMouseDown = (note: string) => {
     pressedMouseNote.current = note;

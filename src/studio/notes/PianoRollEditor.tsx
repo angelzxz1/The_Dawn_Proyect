@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { AlignHorizontalJustifyStart, Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/instruments/piano/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/project/scales";
@@ -178,8 +178,9 @@ export function PianoRollEditor({
   };
 
   // Center the initial vertical scroll on the notes (or middle C - or the
-  // drum pad rows, for a drum track - if empty).
-  useEffect(() => {
+  // drum pad rows, for a drum track - if empty). Once, when the editor
+  // opens: editing notes afterwards doesn't move the view.
+  const centerScroll = useEffectEvent(() => {
     const centerMidi =
       notes.length > 0
         ? notes.reduce((sum, n) => sum + noteNameToMidi(n.note), 0) / notes.length
@@ -189,8 +190,8 @@ export function PianoRollEditor({
     const top = rowTop(centerMidi) - GRID_VIEWPORT_H / 2 + ROW_H / 2;
     if (gridScrollRef.current) gridScrollRef.current.scrollTop = Math.max(0, top);
     if (keysViewportRef.current) keysViewportRef.current.scrollTop = Math.max(0, top);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
+  useEffect(() => centerScroll(), []);
 
   const handleDeleteSelected = () => {
     if (selectedIds.size === 0) return;

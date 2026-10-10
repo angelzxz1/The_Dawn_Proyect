@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Headphones, Power, Trash2, X } from "lucide-react";
 import { PluginKnob, type KnobMode } from "@/ui/PluginKnob";
 import { PluginIcon } from "@/effects/ui/PluginIcon";
@@ -96,16 +96,13 @@ const T_SIZE = 116;
  * makeup) with a dot at its live level. */
 function TransferCurve({ band, color, levelDb, gainDb }: { band: MbBand; color: string; levelDb: number; gainDb: number }) {
   const pos = (db: number) => ((db - T_MIN) / -T_MIN) * T_SIZE;
-  const d = useMemo(() => {
-    const pts: string[] = [];
-    for (let i = 0; i <= 60; i++) {
-      const x = T_MIN + i;
-      const y = Math.max(T_MIN, Math.min(0, x + mbStaticGain(x, band)));
-      pts.push(`${pos(x).toFixed(1)},${(T_SIZE - pos(y)).toFixed(1)}`);
-    }
-    return `M${pts.join(" L")}`;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [band.thresh, band.ratio, band.knee, band.mode, band.range]);
+  const pts: string[] = [];
+  for (let i = 0; i <= 60; i++) {
+    const x = T_MIN + i;
+    const y = Math.max(T_MIN, Math.min(0, x + mbStaticGain(x, band)));
+    pts.push(`${pos(x).toFixed(1)},${(T_SIZE - pos(y)).toFixed(1)}`);
+  }
+  const d = `M${pts.join(" L")}`;
   const live = levelDb > T_MIN && Number.isFinite(levelDb);
   const outDb = Math.max(T_MIN, Math.min(0, levelDb + gainDb));
   return (

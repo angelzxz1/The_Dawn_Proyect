@@ -959,12 +959,15 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 ## Development
 
 ```bash
-npm run dev     # start the dev server
-npm test        # unit tests (Vitest): DSP kernels, routing, latency, presets, project files
-npm run lint    # ESLint
-npm run build   # static site in out/ (see docs/deploy.md)
-npm start       # serve out/ locally
+npm run dev       # start the dev server
+npm test          # unit tests (Vitest): DSP kernels, routing, latency, presets, project files
+npm run test:e2e  # browser tests (Playwright) on the build in out/ - run npm run build first
+npm run lint      # ESLint
+npm run build     # static site in out/ (see docs/deploy.md)
+npm start         # serve out/ locally
 ```
+
+The browser tests need Chromium once: `npx playwright install chromium`.
 
 - `src/app/`: the Next.js App Router entry: the website's pages and the
   app itself (`/app`, one client page).
@@ -1027,6 +1030,15 @@ npm start       # serve out/ locally
 - `src/services/`: what reaches outside the app: usage statistics and error
   reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
   and feedback links set per deployment (`support.ts`).
+- `e2e/`: the browser tests. They serve the built site and use it in
+  Chromium the way a person would: every page of the website, the
+  templates and the start screen, the transport, each track and clip
+  action, every effect's window, the instruments, recording (another
+  track, a fake microphone, the computer keyboard), autosave, saving and
+  opening a project file, exporting, and the metronome, timed from the
+  audio it plays. `studio.ts` finds things in the studio, `speakers.ts`
+  listens to what reaches the speakers, and `fixtures.ts` fails a test on
+  any error on the page and keeps it off the network.
 
 ### Stack
 

@@ -688,6 +688,8 @@ export function PianoRollEditor({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
+        role="dialog"
+        aria-label={`Piano Roll — ${channelName}`}
         className="relative flex max-h-[90vh] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl"
         style={{ width: "min(1160px, 96vw)" }}
       >

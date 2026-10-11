@@ -254,7 +254,11 @@ export function FxRack({
       {!collapsed && (
       <div className="flex flex-1 items-stretch gap-0 overflow-x-auto p-2">
         {channelType === "midi" && (
-          <div className={`flex ${instrument ? INSTRUMENT_UI[instrument].slotWidth : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}>
+          <div
+            role="group"
+            aria-label="Instrument"
+            className={`flex ${instrument ? INSTRUMENT_UI[instrument].slotWidth : "w-56"} shrink-0 flex-col rounded border border-border bg-surface-raised p-2`}
+          >
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
               Instrument
             </div>
@@ -263,6 +267,7 @@ export function FxRack({
                 <button
                   key={opt.label}
                   type="button"
+                  aria-pressed={instrument === opt.type}
                   onClick={() => onInstrumentChange?.(opt.type)}
                   className={`flex flex-1 items-center justify-center gap-1 border-l border-border py-1.5 text-[11px] first:border-l-0 ${
                     instrument === opt.type

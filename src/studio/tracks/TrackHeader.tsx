@@ -254,6 +254,8 @@ export const TrackHeader = memo(function TrackHeader({
 
   return (
     <div
+      role="group"
+      aria-label={`Track ${channel.name}`}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey) onPick();
         else onSelect();

@@ -49,6 +49,8 @@ interface TrackLaneProps {
   recording?: boolean;
   /** The engine id of this track (for reading the recording in progress). */
   channelId: string;
+  /** The track's name, which labels the lane. */
+  name: string;
   /** Which clips (by id) on this lane are selected - Delete/duplicate/drag
    * operate on all of them together. */
   selectedClipIds: Set<string>;
@@ -84,6 +86,7 @@ export const TrackLane = memo(function TrackLane({
   armed,
   recording = false,
   channelId,
+  name,
   selectedClipIds,
   actions,
   acceptsFileDrop,
@@ -116,6 +119,8 @@ export const TrackLane = memo(function TrackLane({
 
   return (
     <div
+      role="group"
+      aria-label={`${name} lane`}
       onClick={onSelectTrack}
       onContextMenu={(e) => {
         e.preventDefault();

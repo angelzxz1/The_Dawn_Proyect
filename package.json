@@ -8,6 +8,7 @@
     "start": "npx --yes serve out",
     "lint": "eslint",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "prebuild": "node scripts/build-sw.mjs"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "tone": "^15.1.22"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

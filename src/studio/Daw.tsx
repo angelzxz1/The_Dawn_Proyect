@@ -2002,6 +2002,7 @@ export function Daw() {
                   armed={channel.id === armedChannelId}
                   recording={transportState === "recording" && channel.id === recordingChannelId}
                   channelId={channel.id}
+                  name={channel.name}
                   selectedClipIds={selectedClipIds}
                   actions={laneActions}
                   acceptsFileDrop={channel.type === "audio"}

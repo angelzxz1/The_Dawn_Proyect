@@ -29,6 +29,7 @@ export function Playhead({ pxPerSecond, height }: PlayheadProps) {
   return (
     <div
       ref={ref}
+      data-testid="playhead"
       className="pointer-events-none absolute left-0 top-0 z-20 w-px bg-record"
       style={{ height }}
     >

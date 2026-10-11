@@ -1037,6 +1037,9 @@ trace of each failure (open a trace with `npx playwright show-trace`).
 - `src/services/`: what reaches outside the app: usage statistics and error
   reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
   and feedback links set per deployment (`support.ts`).
+- `src/fonts/`: the fonts, from Google Fonts, kept here so building needs
+  no network. `scripts/fonts.mjs` downloads them and writes the code that
+  loads them (see `src/fonts/README.md`).
 - `e2e/`: the browser tests. They serve the built site and use it in
   Chromium the way a person would: every page of the website, the
   templates and the start screen, the transport, each track and clip

@@ -137,7 +137,7 @@
       "license": "SIL OFL 1.1",
       "licenseUrl": "https://github.com/floriankarsten/space-grotesk/blob/master/OFL.txt",
       "url": "https://fonts.google.com/specimen/Space+Grotesk",
-      "usedFor": "The plugin windows"
+      "usedFor": "The plugin windows and the website's text"
     },
     {
       "id": "fraunces",
@@ -147,7 +147,17 @@
       "license": "SIL OFL 1.1",
       "licenseUrl": "https://github.com/undercasetype/Fraunces/blob/master/OFL.txt",
       "url": "https://fonts.google.com/specimen/Fraunces",
-      "usedFor": "Plugin window titles"
+      "usedFor": "Plugin window titles and the website's headings"
+    },
+    {
+      "id": "jetbrains-mono",
+      "name": "JetBrains Mono",
+      "kind": "font",
+      "author": "JetBrains",
+      "license": "SIL OFL 1.1",
+      "licenseUrl": "https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt",
+      "url": "https://www.jetbrains.com/lp/mono/",
+      "usedFor": "Numbers and file names on the website"
     },
     {
       "id": "dawn-sounds",

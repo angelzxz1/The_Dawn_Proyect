@@ -962,12 +962,19 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 npm run dev       # start the dev server
 npm test          # unit tests (Vitest): DSP kernels, routing, latency, presets, project files
 npm run test:e2e  # browser tests (Playwright) on the build in out/ - run npm run build first
+npm run typecheck # TypeScript
 npm run lint      # ESLint
 npm run build     # static site in out/ (see docs/deploy.md)
 npm start         # serve out/ locally
 ```
 
 The browser tests need Chromium once: `npx playwright install chromium`.
+
+Every push is checked on GitHub (`.github/workflows/ci.yml`, the Actions
+tab): one job runs the typecheck, lint and unit tests, another builds the
+site and runs the browser tests. When the browser tests fail, the run's
+page has their report to download, with a screenshot and a step-by-step
+trace of each failure (open a trace with `npx playwright show-trace`).
 
 - `src/app/`: the Next.js App Router entry: the website's pages and the
   app itself (`/app`, one client page).

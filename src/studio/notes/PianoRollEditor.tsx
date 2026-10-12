@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { AlignHorizontalJustifyStart, Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AlignHorizontalJustifyStart, ArrowRightToLine, Pause, Pencil, MousePointer2, Play, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isBlackKey, midiToNoteName } from "@/instruments/piano/piano";
 import { isNoteInScale, SCALE_ROOTS, type ScaleSetting } from "@/project/scales";
 import { DRUM_PADS, drumLabelForNote } from "@/instruments/drum-rack/drums";
@@ -11,6 +11,7 @@ import type { TrackColor } from "@/project/colors";
 import { audioEngine } from "@/engine/audioEngine";
 import { copyNotes, getCopiedNotes } from "@/state/clipboard";
 import { ScaleSelector } from "./ScaleSelector";
+import { ClipOverview } from "./ClipOverview";
 import { useShortcuts } from "@/ui/shortcuts";
 
 interface PianoRollEditorProps {
@@ -42,6 +43,8 @@ interface EditableNote extends NoteEvent {
 type Mode = "draw" | "select";
 
 let idCounter = 0;
+/** Follow, as last set: it stays the same between clips. */
+let followPlayhead = true;
 function withIds(notes: NoteEvent[]): EditableNote[] {
   return notes.map((n) => ({ ...n, id: `n${idCounter++}` }));
 }
@@ -58,6 +61,8 @@ const MIN_MIDI = 24; // C1
 const MAX_MIDI = 108; // C8
 const ROW_H = 13;
 const KEY_COL_WIDTH = 40;
+/** A drum track's keys show the pads' names. */
+const DRUM_KEY_COL_WIDTH = 64;
 const RULER_H = 20;
 const GRID_VIEWPORT_H = 340;
 const VELOCITY_H = 65;
@@ -66,8 +71,17 @@ const VELOCITY_SPAN = VELOCITY_H - 6;
 /** Where the dotted reference line sits: velocity 100 of 127. */
 const VELOCITY_REF = 100 / 127;
 const DEFAULT_PX_PER_SECOND = 130;
-const MIN_PX_PER_SECOND = 40;
+/** The most zoomed in; the most zoomed out shows the whole clip. */
 const MAX_PX_PER_SECOND = 500;
+/** Each zoom button press, and how fast Ctrl/Cmd+wheel zooms. */
+const ZOOM_STEP = 1.5;
+const WHEEL_ZOOM = 0.002;
+/** Grid lines closer than this (px) aren't drawn. */
+const MIN_LINE_GAP = 4;
+/** When following the playhead, where it lands after a page turn: this far
+ * from the left edge (px). */
+const FOLLOW_LEAD = 8;
+const GRID_ID = "piano-roll-grid";
 const DEFAULT_NOTE_BEATS = 1; // default drawn-note length, in beats
 const DRAG_THRESHOLD_PX = 3;
 const QUANTIZE_OPTIONS: { label: string; beats: number }[] = [
@@ -131,7 +145,13 @@ export function PianoRollEditor({
   const [notes, setNotes] = useState<EditableNote[]>(() => withIds(initialNotes));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<Mode>("draw");
-  const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
+  /** The zoom asked for; pxPerSecond is it kept within what the view allows. */
+  const [zoom, setZoom] = useState(DEFAULT_PX_PER_SECOND);
+  /** The grid's visible width, and the width of its vertical scrollbar (the
+   * rows above and below leave the same room, so they line up). */
+  const [viewWidth, setViewWidth] = useState(0);
+  const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  const [follow, setFollow] = useState(followPlayhead);
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
     null
   );
@@ -146,14 +166,19 @@ export function PianoRollEditor({
   const rulerViewportRef = useRef<HTMLDivElement>(null);
   const velocityViewportRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
+  const overviewPlayheadRef = useRef<HTMLDivElement>(null);
 
   const secondsPerBeat = 60 / bpm;
   const secondsPer16th = secondsPerBeat / 4;
   const ticksPerBar = Math.max(1, Math.round(beatsPerBar * 4));
   const defaultNoteDuration = secondsPerBeat * DEFAULT_NOTE_BEATS;
 
+  // Zoomed out at most to the whole clip filling the view.
+  const minZoom = viewWidth > 0 && length > 0 ? Math.min(viewWidth / length, MAX_PX_PER_SECOND) : 0;
+  const pxPerSecond = Math.min(MAX_PX_PER_SECOND, Math.max(minZoom, zoom));
   const contentWidth = length * pxPerSecond;
   const contentHeight = (MAX_MIDI - MIN_MIDI + 1) * ROW_H;
+  const keyColWidth = instrument === "drums" ? DRUM_KEY_COL_WIDTH : KEY_COL_WIDTH;
 
   const snapTime = (t: number) =>
     Math.min(length, Math.max(0, Math.round(t / secondsPer16th) * secondsPer16th));
@@ -277,28 +302,145 @@ export function PianoRollEditor({
     },
   ]);
 
-  // Playhead line, driven by rAF so it doesn't cause React re-renders.
+  /** A mouse button is held in the editor (drawing, dragging): following
+   * the playhead waits, so the view doesn't move under the pointer. */
+  const holding = useRef(false);
+  useEffect(() => {
+    const release = () => (holding.current = false);
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    return () => {
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+    };
+  }, []);
+  /** Where the playhead was (clip seconds) on the last frame it was followed;
+   * null when following starts afresh (play pressed, Follow turned on). */
+  const followedAt = useRef<number | null>(null);
+
+  // The playheads (the grid's and the overview's), driven by rAF so they
+  // don't cause React re-renders. With Follow on, while playing, the view
+  // turns a page when the playhead runs off it, like Ableton's - unless
+  // you've scrolled away from it, which leaves the view where you put it
+  // until the playhead comes back into it.
   useEffect(() => {
     let frame: number;
     const tick = () => {
+      const localTime = audioEngine.getTransportSeconds() - offset;
+      const visible = localTime >= 0 && localTime <= length;
       if (playheadRef.current) {
-        const localTime = audioEngine.getTransportSeconds() - offset;
-        const visible = localTime >= 0 && localTime <= length;
         playheadRef.current.style.opacity = visible ? "1" : "0";
         playheadRef.current.style.transform = `translateX(${localTime * pxPerSecond}px)`;
+      }
+      if (overviewPlayheadRef.current) {
+        overviewPlayheadRef.current.style.opacity = visible ? "1" : "0";
+        overviewPlayheadRef.current.style.left = `${(localTime / length) * 100}%`;
+      }
+      const grid = gridScrollRef.current;
+      if (!follow || !isPlaying || !visible || !grid) {
+        followedAt.current = null;
+      } else if (!holding.current) {
+        const left = grid.scrollLeft;
+        const inView = (seconds: number) => seconds * pxPerSecond >= left && seconds * pxPerSecond < left + grid.clientWidth;
+        const was = followedAt.current;
+        if (!inView(localTime) && (was === null || inView(was))) {
+          grid.scrollLeft = Math.max(0, localTime * pxPerSecond - FOLLOW_LEAD);
+        }
+        followedAt.current = localTime;
       }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [offset, length, pxPerSecond]);
+  }, [offset, length, pxPerSecond, follow, isPlaying]);
 
-  const handleGridScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollLeft } = e.currentTarget;
-    if (keysViewportRef.current) keysViewportRef.current.scrollTop = scrollTop;
-    if (rulerViewportRef.current) rulerViewportRef.current.scrollLeft = scrollLeft;
-    if (velocityViewportRef.current) velocityViewportRef.current.scrollLeft = scrollLeft;
+  /** Lines the keys, the ruler and the velocity lane up with the grid. */
+  const syncScroll = () => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    if (keysViewportRef.current) keysViewportRef.current.scrollTop = grid.scrollTop;
+    if (rulerViewportRef.current) rulerViewportRef.current.scrollLeft = grid.scrollLeft;
+    if (velocityViewportRef.current) velocityViewportRef.current.scrollLeft = grid.scrollLeft;
   };
+
+  /** Moves the view so it starts at `seconds`. */
+  const scrollToTime = (seconds: number) => {
+    if (!gridScrollRef.current) return;
+    gridScrollRef.current.scrollLeft = Math.max(0, seconds * pxPerSecond);
+    syncScroll();
+  };
+
+  /** Where the view starts (seconds) once a new zoom is drawn. */
+  const pendingLeft = useRef<number | null>(null);
+  /** Zooms to `px` pixels a second, keeping the time `seconds` at `x`
+   * pixels from the view's left edge. */
+  const zoomAround = (px: number, seconds: number, x: number) => {
+    const next = Math.min(MAX_PX_PER_SECOND, Math.max(minZoom, px));
+    const left = Math.max(0, seconds - x / next);
+    if (next === pxPerSecond) return scrollToTime(left);
+    pendingLeft.current = left;
+    setZoom(next);
+  };
+  const applyPendingLeft = useEffectEvent(() => {
+    if (pendingLeft.current === null) return;
+    scrollToTime(pendingLeft.current);
+    pendingLeft.current = null;
+  });
+  useLayoutEffect(() => applyPendingLeft(), [pxPerSecond]);
+
+  /** The zoom buttons zoom around the middle of the view. */
+  const zoomBy = (factor: number) => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    const middle = grid.clientWidth / 2;
+    zoomAround(pxPerSecond * factor, (grid.scrollLeft + middle) / pxPerSecond, middle);
+  };
+
+  /** Shows `span` seconds from `left`, filling the view (from the overview). */
+  const showSpan = (left: number, span: number, keep: "start" | "end") => {
+    const width = gridScrollRef.current?.clientWidth ?? viewWidth;
+    if (keep === "start") zoomAround(width / span, left, 0);
+    else zoomAround(width / span, left + span, width);
+  };
+
+  // The grid's size, measured before it's drawn so the zoom fits it.
+  useLayoutEffect(() => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    const measure = () => {
+      setViewWidth(grid.clientWidth);
+      setScrollbarWidth(grid.offsetWidth - grid.clientWidth);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
+
+  // The wheel over the grid: up and down scroll the notes (the browser's
+  // own scrolling), sideways (or Shift+wheel) scrolls through time, and
+  // Ctrl/Cmd+wheel (or pinching a trackpad) zooms around the pointer. Not
+  // React's listener, which is passive and can't stop the page zooming.
+  const handleWheel = useEffectEvent((e: WheelEvent) => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    const unit = e.deltaMode === 1 ? ROW_H : e.deltaMode === 2 ? grid.clientWidth : 1;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const x = e.clientX - grid.getBoundingClientRect().left;
+      zoomAround(pxPerSecond * Math.exp(-e.deltaY * unit * WHEEL_ZOOM), (grid.scrollLeft + x) / pxPerSecond, x);
+    } else if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      e.preventDefault();
+      grid.scrollLeft += (e.deltaX || e.deltaY) * unit;
+    }
+  });
+  useEffect(() => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    const onWheel = (e: WheelEvent) => handleWheel(e);
+    grid.addEventListener("wheel", onWheel, { passive: false });
+    return () => grid.removeEventListener("wheel", onWheel);
+  }, []);
 
   /** Content-pixel coordinates (accounting for scroll) for a client point. */
   const contentPoint = (clientX: number, clientY: number) => {
@@ -644,6 +786,11 @@ export function PianoRollEditor({
     setInsertAt(snapTime((e.clientX - rect.left) / pxPerSecond));
   };
 
+  const overviewNotes = useMemo(
+    () => notes.map((n) => ({ midi: noteNameToMidi(n.note), time: n.time, duration: n.duration })),
+    [notes]
+  );
+
   const pitchRows = useMemo(() => {
     const rows: number[] = [];
     for (let m = MAX_MIDI; m >= MIN_MIDI; m--) rows.push(m);
@@ -658,6 +805,9 @@ export function PianoRollEditor({
     const sixteenthPx = secondsPer16th * pxPerSecond;
     const showBeats = beatPx >= 26;
     const show16ths = sixteenthPx >= 18;
+    // Zoomed far out, bar numbers go on every 2nd, 4th... bar.
+    let labelEvery = 1;
+    while (labelEvery * ticksPerBar * sixteenthPx < 28) labelEvery *= 2;
     const lines: {
       left: number;
       strength: "bar" | "beat" | "tick";
@@ -673,10 +823,14 @@ export function PianoRollEditor({
       let label: string | null = null;
       if (withinBar === 0) {
         strength = "bar";
-        label = `${bar}`;
+        if ((bar - 1) % labelEvery === 0) label = `${bar}`;
+        else if (ticksPerBar * sixteenthPx < MIN_LINE_GAP) continue;
       } else if (withinBar % 4 === 0) {
         strength = "beat";
+        if (beatPx < MIN_LINE_GAP) continue;
         if (showBeats) label = `${bar}.${beat}`;
+      } else if (sixteenthPx < MIN_LINE_GAP) {
+        continue;
       } else if (show16ths) {
         label = `${bar}.${beat}.${sixteenth}`;
       }
@@ -692,6 +846,7 @@ export function PianoRollEditor({
         aria-label={`Piano Roll — ${channelName}`}
         className="relative flex max-h-[90vh] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl"
         style={{ width: "min(1160px, 96vw)" }}
+        onPointerDownCapture={() => (holding.current = true)}
       >
         <div className="flex items-center justify-between gap-3 border-b border-border bg-surface-raised px-3 py-2">
           <div className="flex items-center gap-2">
@@ -700,6 +855,23 @@ export function PianoRollEditor({
               style={{ background: color.accent }}
             />
             <span className="text-sm font-medium">Piano Roll — {channelName}</span>
+            <div className="ml-2 flex overflow-hidden rounded border border-border" role="group" aria-label="Mode">
+              {(["draw", "select"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  aria-pressed={mode === m}
+                  title={`${m === "draw" ? "Draw notes" : "Select notes"} (B switches)`}
+                  className={`flex h-7 items-center gap-1 px-2 text-[11px] capitalize ${
+                    mode === m ? "bg-accent/20 text-accent" : "text-muted hover:bg-surface"
+                  }`}
+                >
+                  {m === "draw" ? <Pencil size={12} /> : <MousePointer2 size={12} />}
+                  {m}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -714,10 +886,25 @@ export function PianoRollEditor({
             >
               {isPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                followPlayhead = !follow;
+                setFollow(followPlayhead);
+              }}
+              aria-pressed={follow}
+              title="Follow: while playing, the view turns a page when the playhead reaches its edge"
+              className={`flex h-7 items-center gap-1 rounded border px-2 text-[11px] ${
+                follow ? "border-accent bg-accent/20 text-accent" : "border-border text-muted hover:bg-surface"
+              }`}
+            >
+              <ArrowRightToLine size={13} />
+              Follow
+            </button>
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 40))}
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
                 title="Zoom out"
                 className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted hover:bg-surface"
               >
@@ -725,7 +912,7 @@ export function PianoRollEditor({
               </button>
               <button
                 type="button"
-                onClick={() => setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 40))}
+                onClick={() => zoomBy(ZOOM_STEP)}
                 title="Zoom in"
                 className="flex h-7 w-7 items-center justify-center rounded border border-border text-muted hover:bg-surface"
               >
@@ -787,18 +974,28 @@ export function PianoRollEditor({
           {" · press B to toggle mode · Q to quantize · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste: click the ruler (or empty space in select mode) to choose where pastes land, otherwise they go to the playhead · drag a velocity bar of a selection to change them all"}
         </div>
 
-        <div
-          className="pointer-events-none absolute left-3 top-12 z-30 flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
-        >
-          {mode === "draw" ? <Pencil size={11} /> : <MousePointer2 size={11} />}
-          {mode}
-          <span className="font-normal normal-case text-white/60">(b)</span>
-        </div>
-
         <div className="flex flex-col overflow-hidden p-3">
+          {/* The whole clip, to scroll and zoom */}
+          <div className="flex border-b border-border">
+            <div style={{ width: keyColWidth }} className="shrink-0 border-r border-border" />
+            <ClipOverview
+              target={gridScrollRef}
+              controls={GRID_ID}
+              length={length}
+              pxPerSecond={pxPerSecond}
+              secondsPerBar={secondsPerBeat * beatsPerBar}
+              notes={overviewNotes}
+              color={color.accent}
+              playheadRef={overviewPlayheadRef}
+              onScroll={scrollToTime}
+              onShow={showSpan}
+            />
+            <div style={{ width: scrollbarWidth }} className="shrink-0" />
+          </div>
+
           {/* Ruler row */}
           <div className="flex">
-            <div style={{ width: KEY_COL_WIDTH, height: RULER_H }} className="shrink-0 border-b border-r border-border" />
+            <div style={{ width: keyColWidth, height: RULER_H }} className="shrink-0 border-b border-r border-border" />
             <div
               ref={rulerViewportRef}
               style={{ height: RULER_H }}
@@ -830,16 +1027,17 @@ export function PianoRollEditor({
                   ))}
               </div>
             </div>
+            <div style={{ width: scrollbarWidth }} className="shrink-0 border-b border-border" />
           </div>
 
           {/* Keys + grid row */}
           <div className="flex">
             <div
               ref={keysViewportRef}
-              style={{ width: KEY_COL_WIDTH, height: GRID_VIEWPORT_H }}
+              style={{ width: keyColWidth, height: GRID_VIEWPORT_H }}
               className="shrink-0 overflow-hidden border-r border-border"
             >
-              <div className="relative" style={{ height: contentHeight, width: KEY_COL_WIDTH }}>
+              <div className="relative" style={{ height: contentHeight, width: keyColWidth }}>
                 {pitchRows.map((midi) => {
                   const black = isBlackKey(midi);
                   const inScale = scaleSetting.enabled && isNoteInScale(midi, scaleSetting);
@@ -850,7 +1048,7 @@ export function PianoRollEditor({
                       key={midi}
                       onPointerDown={() => onPreviewNote(midiToNoteName(midi))}
                       title={drumLabel ?? midiToNoteName(midi)}
-                      className={`absolute left-0 w-full cursor-pointer border-b border-black/30 text-right pr-1 text-[8px] leading-[13px] ${
+                      className={`absolute left-0 w-full cursor-pointer truncate border-b border-black/30 pl-0.5 pr-1 text-right text-[8px] leading-[12px] ${
                         instrument === "drums"
                           ? drumLabel
                             ? "bg-accent/15 font-medium text-accent"
@@ -868,11 +1066,15 @@ export function PianoRollEditor({
               </div>
             </div>
 
+            {/* Scrolled up and down by the browser, and through time by the
+                overview, the wheel and Follow - no scrollbar along the
+                bottom, which would leave the keys out of line. */}
             <div
               ref={gridScrollRef}
-              onScroll={handleGridScroll}
+              id={GRID_ID}
+              onScroll={syncScroll}
               style={{ height: GRID_VIEWPORT_H }}
-              className="flex-1 overflow-auto"
+              className="flex-1 overflow-x-hidden overflow-y-auto"
             >
               <div
                 onPointerDown={handleGridPointerDown}
@@ -997,7 +1199,7 @@ export function PianoRollEditor({
           {/* Velocity lane */}
           <div className="flex">
             <div
-              style={{ width: KEY_COL_WIDTH, height: VELOCITY_H }}
+              style={{ width: keyColWidth, height: VELOCITY_H }}
               className="relative shrink-0 border-r border-t border-border text-[9px] text-muted"
             >
               <span className="absolute left-1 top-1">vel</span>
@@ -1041,6 +1243,7 @@ export function PianoRollEditor({
                 })}
               </div>
             </div>
+            <div style={{ width: scrollbarWidth }} className="shrink-0 border-t border-border" />
           </div>
         </div>
       </div>

@@ -697,7 +697,8 @@ Double-click a MIDI clip to open it.
 - **Draw mode** (pencil): click and drag on the grid to draw a note.
 - **Select mode** (arrow): drag a box around notes to select them, then drag
   them to move them.
-- Press **B** to switch between the two modes.
+- Switch between the two with the **Draw** and **Select** buttons in the
+  toolbar, or press **B**.
 - **Arrow keys** nudge the selected notes by a semitone or a 1/16 note.
 - **Q** quantizes the notes to the chosen resolution (1/4 to 1/32).
 - **Shift-click** notes to add them to (or take them out of) the selection.
@@ -711,7 +712,17 @@ Double-click a MIDI clip to open it.
   of them by the same amount, and the **Velocity** box in the toolbar shows
   the selection's velocity (or its range) and sets them all to a typed
   value. The dotted line marks velocity 100.
-- **Zoom** with the + and − buttons, and press **Space** to play or stop.
+- The **overview** above the ruler shows the whole clip, with a box around
+  the part on screen, as in Ableton. Drag the box to scroll, drag either of
+  its edges to zoom in or out (the other edge stays put), click outside it to
+  jump there, and double-click it to see the whole clip. The wheel scrolls
+  the notes up and down, Shift+wheel (or a trackpad's sideways swipe)
+  scrolls through time, and Ctrl/Cmd+wheel zooms around the pointer, as do
+  the + and − buttons around the middle.
+- Press **Space** to play or stop. With **Follow** on (the default), the
+  view turns a page each time the playhead reaches its right edge. If you
+  scroll away while it plays, the view stays where you put it until the
+  playhead comes back into it.
 
 ### Effects
 
@@ -902,6 +913,8 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Ctrl/Cmd+C, Ctrl/Cmd+V | Copy / paste notes (at the insert marker, else the playhead) |
 | Esc | Remove the insert marker |
 | Space | Play / stop |
+| Shift+wheel | Scroll through time |
+| Ctrl/Cmd+wheel | Zoom around the pointer |
 
 ## How it works
 
@@ -1053,7 +1066,7 @@ trace of each failure (open a trace with `npx playwright show-trace`).
 - `e2e/`: the browser tests. They serve the built site and use it in
   Chromium the way a person would: every page of the website, the
   templates and the start screen, the transport, each track and clip
-  action, every effect's window, the instruments, recording (another
+  action, the piano roll's scrolling and zoom, every effect's window, the instruments, recording (another
   track, a fake microphone, the computer keyboard), autosave, saving and
   opening a project file, exporting, and the metronome, timed from the
   audio it plays. `studio.ts` finds things in the studio, `speakers.ts`

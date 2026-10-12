@@ -8,11 +8,14 @@ interface MeterProps {
 }
 
 const PEAK_DECAY_PER_SEC = 0.6;
+const SIDES = ["Left", "Right"] as const;
 
+/** A track's (or the master's) output level: two bars, left and right,
+ * each with a falling peak mark. */
 export function Meter({ channelId }: MeterProps) {
-  const fillRef = useRef<HTMLDivElement>(null);
-  const peakRef = useRef<HTMLDivElement>(null);
-  const peakLevel = useRef(0);
+  const fillRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const peakRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const peakLevels = useRef([0, 0]);
   const lastFrame = useRef<number | null>(null);
 
   useEffect(() => {
@@ -22,20 +25,16 @@ export function Meter({ channelId }: MeterProps) {
       const dt = lastFrame.current ? (now - lastFrame.current) / 1000 : 0;
       lastFrame.current = now;
 
-      const raw =
-        channelId === "master" ? audioEngine.getMasterLevel() : audioEngine.getLevel(channelId);
-      const level = Math.min(1, Math.max(0, raw));
-      peakLevel.current = Math.max(
-        level,
-        peakLevel.current - PEAK_DECAY_PER_SEC * dt
-      );
-
-      if (fillRef.current) {
-        fillRef.current.style.clipPath = `inset(${(1 - level) * 100}% 0 0 0)`;
-      }
-      if (peakRef.current) {
-        peakRef.current.style.bottom = `${peakLevel.current * 100}%`;
-      }
+      const levels = channelId === "master" ? audioEngine.getMasterLevels() : audioEngine.getLevels(channelId);
+      levels.forEach((raw, side) => {
+        const level = Math.min(1, Math.max(0, raw));
+        const peak = Math.max(level, peakLevels.current[side] - PEAK_DECAY_PER_SEC * dt);
+        peakLevels.current[side] = peak;
+        const fill = fillRefs.current[side];
+        if (fill) fill.style.clipPath = `inset(${(1 - level) * 100}% 0 0 0)`;
+        const mark = peakRefs.current[side];
+        if (mark) mark.style.bottom = `${peak * 100}%`;
+      });
 
       frame = requestAnimationFrame(tick);
     };
@@ -45,21 +44,28 @@ export function Meter({ channelId }: MeterProps) {
   }, [channelId]);
 
   return (
-    <div className="relative h-full w-3 overflow-hidden rounded-sm border border-border bg-black/50">
-      <div
-        ref={fillRef}
-        className="absolute inset-0"
-        style={{
-          clipPath: "inset(100% 0 0 0)",
-          background:
-            "linear-gradient(to top, #4ade80 0%, #4ade80 62%, #facc15 82%, #ff5a5a 100%)",
-        }}
-      />
-      <div
-        ref={peakRef}
-        className="absolute left-0 h-[2px] w-full bg-white/80"
-        style={{ bottom: "0%" }}
-      />
+    <div className="flex h-full w-3 gap-px overflow-hidden rounded-sm border border-border bg-black/50">
+      {SIDES.map((side, i) => (
+        <div key={side} title={side} className="relative h-full flex-1">
+          <div
+            ref={(el) => {
+              fillRefs.current[i] = el;
+            }}
+            className="absolute inset-0"
+            style={{
+              clipPath: "inset(100% 0 0 0)",
+              background: "linear-gradient(to top, #4ade80 0%, #4ade80 62%, #facc15 82%, #ff5a5a 100%)",
+            }}
+          />
+          <div
+            ref={(el) => {
+              peakRefs.current[i] = el;
+            }}
+            className="absolute left-0 h-[2px] w-full bg-white/80"
+            style={{ bottom: "0%" }}
+          />
+        </div>
+      ))}
     </div>
   );
 }

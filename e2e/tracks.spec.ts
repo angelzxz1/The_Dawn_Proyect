@@ -141,3 +141,53 @@ test("remove a track, and undo it", async ({ studio }) => {
   await studio.undo();
   await expect(studio.trackNames).toHaveText(["808 Drums", "Bass", "Pad", "Lead"]);
 });
+
+test("the meter shows left and right apart: a track panned right shows only on the right", async ({ page, studio }) => {
+  // The drums play from the first bar.
+  const drums = studio.header("808 Drums");
+  await drums.getByTitle("Solo", { exact: true }).click();
+  const bar = (side: string) => drums.locator(`[title="${side}"] > div`).first();
+  const level = async (side: string) => 1 - parseFloat((await bar(side).evaluate((el) => (el as HTMLElement).style.clipPath)).slice("inset(".length)) / 100;
+  /** The highest each of the drums' meter bars reaches over 2 s of playing,
+   * from silence. */
+  const peaks = async () => {
+    await expect.poll(async () => (await level("Left")) + (await level("Right"))).toBe(0);
+    await page.evaluate(() => {
+      const w = window as unknown as { __peaks: Record<string, number>; __raf: number };
+      w.__peaks = { Left: 0, Right: 0 };
+      const header = document.querySelector('[aria-label="Track 808 Drums"]')!;
+      const tick = () => {
+        for (const side of ["Left", "Right"]) {
+          const fill = header.querySelector<HTMLElement>(`[title="${side}"] > div`)!;
+          w.__peaks[side] = Math.max(w.__peaks[side], 1 - parseFloat(fill.style.clipPath.slice("inset(".length)) / 100);
+        }
+        w.__raf = requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    await page.getByTitle(/^Click or drag to move the playhead/).click({ position: { x: 1, y: 10 } });
+    await page.keyboard.press("Space");
+    await page.waitForTimeout(2000);
+    await page.getByTitle("Stop").click();
+    return page.evaluate(() => {
+      const w = window as unknown as { __peaks: Record<string, number>; __raf: number };
+      cancelAnimationFrame(w.__raf);
+      return w.__peaks;
+    });
+  };
+  const pan = async (value: string) => {
+    await drums.getByRole("slider", { name: "Pan" }).click();
+    await drums.getByRole("textbox").fill(value);
+    await drums.getByRole("textbox").press("Enter");
+  };
+
+  await pan("-1");
+  const left = await peaks();
+  expect(left.Left).toBeGreaterThan(0.005);
+  expect(left.Right).toBeLessThan(0.001);
+
+  await pan("1");
+  const right = await peaks();
+  expect(right.Right).toBeGreaterThan(0.005);
+  expect(right.Left).toBeLessThan(0.001);
+});

@@ -51,6 +51,25 @@ export function bumpEffectIdCounter(atLeast: number): void {
   effectIdCounter = Math.max(effectIdCounter, atLeast);
 }
 
+/** A level meter's reading: the left and right channels, 0-1 each. */
+export type StereoLevels = [left: number, right: number];
+
+/** A meter reading the left and right channels apart. Tone's default
+ * meter reads one channel, and its splitter keeps channel 0 - the left
+ * alone - so a track panned right, or the right side of anything wide,
+ * didn't show. Everything metered is stereo by then (after a channel
+ * strip, or the master limiter). It passes its input through unchanged. */
+function stereoMeter(): Tone.Meter {
+  return new Tone.Meter({ channelCount: 2, normalRange: true, smoothing: 0.8 });
+}
+
+function levelsOf(meter: Tone.Meter): StereoLevels {
+  const value = meter.getValue();
+  const [left, right] = Array.isArray(value) ? value : [value, value];
+  const level = (v: number | undefined) => (v !== undefined && Number.isFinite(v) ? v : 0);
+  return [level(left), level(right)];
+}
+
 class AudioEngine {
   private channels = new Map<string, ChannelNodes>();
   private buses = new Map<string, BusNodes>();
@@ -201,7 +220,7 @@ class AudioEngine {
 
   private ensureMaster(): { channel: Tone.Channel; limiter: LookaheadLimiter; meter: Tone.Meter } {
     if (!this.masterChannel || !this.masterLimiter || !this.masterMeter) {
-      this.masterMeter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
+      this.masterMeter = stereoMeter();
       this.masterLimiter = new LookaheadLimiter({ ceilingDb: -1 }).connect(this.masterMeter);
       this.masterMeter.toDestination();
       // channelCount: 2 - see the comment on the per-track Channel below;
@@ -438,11 +457,9 @@ class AudioEngine {
     this.ensureMaster().limiter.setCeiling(db);
   }
 
-  /** Current master output level, 0-1. */
-  getMasterLevel(): number {
-    const value = this.ensureMaster().meter.getValue();
-    const level = Array.isArray(value) ? value[0] : value;
-    return Number.isFinite(level) ? level : 0;
+  /** Current master output level, left and right, 0-1. */
+  getMasterLevels(): StereoLevels {
+    return levelsOf(this.ensureMaster().meter);
   }
 
   addChannel(
@@ -453,7 +470,7 @@ class AudioEngine {
   ): void {
     if (this.channels.has(id)) return;
 
-    const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
+    const meter = stereoMeter();
     // channelCount: 2 - Tone.Channel's Panner defaults to channelCount 1
     // with channelCountMode "explicit", which per the Web Audio spec means
     // *any* input, stereo included, gets downmixed to mono before panning.
@@ -987,7 +1004,7 @@ class AudioEngine {
   addBus(id: string): void {
     if (this.buses.has(id)) return;
     const input = new Tone.Gain(1);
-    const meter = new Tone.Meter({ normalRange: true, smoothing: 0.8 });
+    const meter = stereoMeter();
     const channel = new Tone.Channel({ volume: 0, pan: 0, channelCount: 2 }) // see addChannel's comment
       .connect(meter)
       .connect(this.ensureMaster().channel);
@@ -1033,12 +1050,9 @@ class AudioEngine {
     if (bus) bus.channel.pan.value = pan;
   }
 
-  getBusLevel(id: string): number {
+  getBusLevels(id: string): StereoLevels {
     const bus = this.buses.get(id);
-    if (!bus) return 0;
-    const value = bus.meter.getValue();
-    const level = Array.isArray(value) ? value[0] : value;
-    return Number.isFinite(level) ? level : 0;
+    return bus ? levelsOf(bus.meter) : [0, 0];
   }
 
   /** Sets (or, with `db === null`, removes) a channel's send to a bus, in
@@ -1099,13 +1113,10 @@ class AudioEngine {
     this.refreshMix();
   }
 
-  /** Current output level for the channel's meter, 0-1. */
-  getLevel(id: string): number {
+  /** Current output level for the channel's meter, left and right, 0-1. */
+  getLevels(id: string): StereoLevels {
     const nodes = this.channels.get(id);
-    if (!nodes) return 0;
-    const value = nodes.meter.getValue();
-    const level = Array.isArray(value) ? value[0] : value;
-    return Number.isFinite(level) ? level : 0;
+    return nodes ? levelsOf(nodes.meter) : [0, 0];
   }
 
   /** Live input/gain-reduction/output levels (all in dB) for one compressor

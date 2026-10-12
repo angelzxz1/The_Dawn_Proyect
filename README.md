@@ -465,7 +465,7 @@ The app works best in **Chrome** or **Edge** on a desktop computer.
 - **Header.** The **File** menu, the project's name (a dot means unsaved
   changes), the audio engine's load and latency, and **Export**.
 - **Transport.** Record, play/pause, stop, metronome, loop, tempo, time
-  signature and count-in.
+  signature, count-in, and the click's level.
 - **Effect browser** (left). Every effect and preset, with a search box.
 - **Arrangement.** The ruler, then one row per track: its header on the left
   (name, color, arm, monitor, mute, solo, FX, input, import and export) and
@@ -604,8 +604,10 @@ Everything the synth can do is described in
    beat by where you are in the song, wherever you start playing. Its clicks
    are made on the audio thread, each placed at its exact sample, so a busy
    moment on the page (like the start of a recording) or a tab in the
-   background can't delay or drop one. Recording always runs straight
-   through, even with the loop on.
+   background can't delay or drop one. **Click** next to the count-in sets
+   how loud the metronome and count-in are (from −30 to +3 dB, double-click
+   to reset); it's kept on this computer, not in the project. Recording
+   always runs straight through, even with the loop on.
 3. Click the ruler where you want to start (the marker), then press
    **Record**. Recording starts at the marker, like Ableton; the count-in
    plays the bars just before it, on the beat grid, so starting mid-bar
@@ -629,10 +631,16 @@ For audio:
   project never asks for the microphone).
 - A take recorded from another track is stereo (or mono, when both sides
   came out the same); the audio interface is recorded in mono.
-- Recordings are lined up with the beat automatically, using the latency the
-  browser reports. If they still land early or late on your hardware, set a
-  **recording offset** in the audio settings, next to the engine-load
-  display in the header.
+- Recordings are lined up with the beat automatically: each take is moved
+  earlier by your setup's round trip (the time from Dawn's output to the
+  speakers, and from the mic back into Dawn). Until you measure it, that's
+  the browser's estimate, which is often too short, so takes land a little
+  late. After a take from the audio interface, a note offers **Measure
+  latency…**, which opens the audio settings at it: point your speakers at
+  the mic (or connect the interface's output to its input with a cable) and
+  Dawn plays 5 clicks and times them. It's measured once per computer. To
+  nudge takes further, set a **recording offset** there too. Bluetooth
+  headphones add 100 ms or more; wired ones are better for recording.
 
 ### Editing clips
 
@@ -848,6 +856,8 @@ From there you can:
 - turn on **reduced latency when monitoring**, so the monitored or armed
   track (and the group or track it plays through) skips the wait added for
   other tracks' effects;
+- **measure the latency** (the round trip from output to input), which
+  lines recordings up better than the browser's estimate;
 - set the **recording offset**.
 
 ## Keyboard shortcuts

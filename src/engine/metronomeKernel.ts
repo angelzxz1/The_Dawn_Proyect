@@ -76,11 +76,13 @@ class MetronomeKernel {
     this.startTime = 0;
     // Clicks sounding: their samples, how far in, and when they started.
     this.voices = [];
+    // Loud enough to cut through a mix with drums (the level setting moves
+    // them both); the count-in a little louder still.
     this.sounds = {
-      accent: clickSound(sampleRate, 1046.5, -14),
-      beat: clickSound(sampleRate, 523.25, -14),
-      countAccent: clickSound(sampleRate, 1046.5, -8),
-      countBeat: clickSound(sampleRate, 523.25, -8),
+      accent: clickSound(sampleRate, 1046.5, -6),
+      beat: clickSound(sampleRate, 523.25, -6),
+      countAccent: clickSound(sampleRate, 1046.5, -3),
+      countBeat: clickSound(sampleRate, 523.25, -3),
     };
   }
 

@@ -126,4 +126,9 @@ export class Transport {
   setMetronome(enabled: boolean): void {
     this.metronome.setEnabled(enabled);
   }
+
+  /** The click's level, in dB from its standard level. */
+  setMetronomeLevel(db: number): void {
+    this.metronome.setLevel(db);
+  }
 }

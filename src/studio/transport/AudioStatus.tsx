@@ -1,14 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Cpu, Timer } from "lucide-react";
 import { audioEngine } from "@/engine/audioEngine";
 import { cpuReading, type CpuReading } from "@/engine/cpuMeter";
-import { loadAudioPrefs, saveAudioPrefs, type AudioPrefs } from "@/engine/audioPrefs";
+import { useAudioPrefs } from "./useAudioPrefs";
 import { useShortcuts } from "@/ui/shortcuts";
 import { noteIssue } from "@/services/issues";
 
 const ms = (seconds: number) => `${(seconds * 1000).toFixed(1)} ms`;
+
+const showRecordingListeners = new Set<() => void>();
+
+/** Opens the Audio panel at its Recording section (from the note offered
+ * after a take). */
+export function showRecordingSettings(): void {
+  showRecordingListeners.forEach((fn) => fn());
+}
 
 function loadColor(load: number): string {
   return load >= 0.85 ? "#FF6B6B" : load >= 0.6 ? "#E6AD5E" : "#6BD68B";
@@ -50,13 +58,16 @@ function Row({ label, value, title }: { label: string; value: string; title?: st
  * These settings belong to this computer, so they're kept in the browser
  * (audioPrefs.ts), not in the project. */
 export function AudioStatus() {
-  const [prefs, setPrefs] = useState<AudioPrefs>(() => loadAudioPrefs());
+  const [prefs, update] = useAudioPrefs();
   const [cpu, setCpu] = useState<CpuReading | null>(null);
   const [open, setOpen] = useState(false);
   const [, setLatencyTick] = useState(0);
   const [measure, setMeasure] = useState<{ state: "idle" | "running" | "failed" | "done"; message?: string }>({ state: "idle" });
   const [offsetDraft, setOffsetDraft] = useState(String(prefs.recordingOffsetMs));
   const rootRef = useRef<HTMLDivElement>(null);
+  const recordingRef = useRef<HTMLElement>(null);
+  /** Opened to show the Recording section: scrolled to it once it's drawn. */
+  const showRecording = useRef(false);
   const [deviceRates, setDeviceRates] = useState<{ output: number | null; input: number | null } | null>(null);
 
   // The engine follows the settings.
@@ -64,15 +75,24 @@ export function AudioStatus() {
     audioEngine.setDelayCompensation(prefs.delayCompensation);
     audioEngine.setReducedLatencyMonitoring(prefs.reducedLatencyMonitoring);
     audioEngine.setRecordingCorrection(prefs.measuredRoundTrip, prefs.recordingOffsetMs);
+    audioEngine.setMetronomeLevel(prefs.metronomeDb);
   }, [prefs]);
 
-  const update = useCallback((change: Partial<AudioPrefs>) => {
-    setPrefs((prev) => {
-      const next = { ...prev, ...change };
-      saveAudioPrefs(next);
-      return next;
-    });
+  useEffect(() => {
+    const show = () => {
+      showRecording.current = true;
+      setOpen(true);
+    };
+    showRecordingListeners.add(show);
+    return () => {
+      showRecordingListeners.delete(show);
+    };
   }, []);
+  useEffect(() => {
+    if (!open || !showRecording.current) return;
+    showRecording.current = false;
+    recordingRef.current?.scrollIntoView({ block: "nearest" });
+  }, [open]);
 
   useEffect(() => {
     const t = setInterval(() => setCpu(cpuReading()), 250);
@@ -143,7 +163,7 @@ export function AudioStatus() {
 
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-2 flex w-[360px] flex-col gap-3 rounded-xl p-4 shadow-2xl"
+          className="absolute right-0 top-full z-50 mt-2 flex max-h-[calc(100vh-140px)] w-[360px] flex-col gap-3 overflow-y-auto rounded-xl p-4 shadow-2xl"
           style={{ background: "#1B1C22", border: "1px solid #2E2F37" }}
           role="dialog"
           aria-label="Audio settings"
@@ -207,7 +227,7 @@ export function AudioStatus() {
             />
           </section>
 
-          <section className="flex flex-col gap-2 border-t border-border pt-3">
+          <section ref={recordingRef} className="flex flex-col gap-2 border-t border-border pt-3">
             <h3 className="text-[11px] font-bold uppercase tracking-wide text-muted">Recording</h3>
             <p className="text-[11px] leading-snug text-muted">
               Recordings are moved earlier by the round trip ({ms(roundTrip.seconds + info.effects)} in all) so they land on

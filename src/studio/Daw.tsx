@@ -42,6 +42,7 @@ import type { InstrumentSettings, InstrumentType } from "@/instruments/registry"
 import type { SidechainSource } from "@/effects/sidechain/SidechainPanel";
 import { SIDECHAIN_TAP_LABELS } from "@/effects/sidechain/sidechainModel";
 import { AudioStatus } from "@/studio/transport/AudioStatus";
+import { LatencyHint } from "@/studio/transport/LatencyHint";
 import { EffectBrowser } from "@/studio/rack/EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "@/studio/tracks/AutomationLane";
 import { audioEngine } from "@/engine/audioEngine";
@@ -75,7 +76,7 @@ import { openFeedback, PostExportNote } from "@/studio/dialogs/SupportViews";
 import { shouldAskAfterExport, supportLinks } from "@/services/support";
 import type { ProjectTemplate } from "@/project/templates";
 import { grooveById, grooveHits, grooveKit, type Groove } from "@/library/grooves";
-import { loadAudioPrefs } from "@/engine/audioPrefs";
+import { getAudioPrefs } from "@/engine/audioPrefs";
 import { type EffectType } from "@/effects/registry";
 import type { ScaleSetting } from "@/project/scales";
 import {
@@ -718,6 +719,8 @@ export function Daw() {
   const recordingChannelRef = useRef<string | null>(null);
   /** The same, as state, for drawing the take on its track. */
   const [recordingChannelId, setRecordingChannelId] = useState<string | null>(null);
+  /** The note offering to measure the latency, after a take (LatencyHint). */
+  const [latencyHint, setLatencyHint] = useState(false);
 
   const handleStop = useCallback(async () => {
     tourAfterListen();
@@ -728,11 +731,16 @@ export function Daw() {
         // The take starts where recording started (the marker).
         const takeFrom = audioEngine.recordingFrom ?? 0;
         if (channelTypeOf(recChannelId) === "audio") {
+          const fromInterface = audioEngine.recordingFromInterface;
           const blob = await audioEngine.finishAudioRecording();
           if (blob && blob.size > 0) {
             const decoded = await decodeAudioFile(blob);
             const channelName = channels.find((c) => c.id === recChannelId)?.name ?? "take";
             addAudioClip(recChannelId, decoded, takeFrom, `${channelName} recording`, blob);
+            // Its timing rests on the browser's latency estimate until it's
+            // measured: offer to.
+            const prefs = getAudioPrefs();
+            if (fromInterface && prefs.measuredRoundTrip === null && !prefs.latencyHintDismissed) setLatencyHint(true);
           }
         } else {
           const events = audioEngine.finishRecording();
@@ -1377,7 +1385,7 @@ export function Daw() {
       masterLimiterThreshold,
       masterEffects,
       contentEndSeconds: channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
-      delayCompensation: loadAudioPrefs().delayCompensation,
+      delayCompensation: getAudioPrefs().delayCompensation,
       monitored: [...monitoredChannelIds],
     }),
     [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds]
@@ -1711,7 +1719,7 @@ export function Daw() {
         </div>
       </header>
 
-      <div className="shrink-0" data-tour="transport">
+      <div className="relative shrink-0" data-tour="transport">
         <TransportBar
           status={<AudioStatus />}
           bpm={bpm}
@@ -1735,6 +1743,12 @@ export function Daw() {
           onStop={() => void handleStop()}
           onRecord={handleRecord}
         />
+        {latencyHint && (
+          // Over the timeline, so the take just recorded doesn't move.
+          <div className="absolute right-0 top-full z-40 mt-2 w-[min(640px,100%)] shadow-2xl">
+            <LatencyHint onClose={() => setLatencyHint(false)} />
+          </div>
+        )}
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">

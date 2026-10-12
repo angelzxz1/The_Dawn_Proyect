@@ -14,7 +14,7 @@ const test = base.extend<{ ear: Ear }>({
   ear: async ({ page, studio }, use) => {
     await wireSpeakers(page);
     await studio.open("Empty Project");
-    await page.getByTitle("Metronome").click();
+    await page.getByTitle("Metronome", { exact: true }).click();
     // Play once so the audio is running, then listen.
     await page.keyboard.press("Space");
     await expect(page.getByTitle("Pause (Space)")).toBeVisible();
@@ -58,14 +58,14 @@ test("follows a tempo change, being switched off and on, and a jump while playin
   });
 
   await test.step("off: silent", async () => {
-    await page.getByTitle("Metronome").click();
+    await page.getByTitle("Metronome", { exact: true }).click();
     const from = (await ear.now()) + 0.2;
     await page.waitForTimeout(2000);
     expect(await ear.clicks(from)).toHaveLength(0);
   });
 
   await test.step("back on: clicks again, on the grid", async () => {
-    await page.getByTitle("Metronome").click();
+    await page.getByTitle("Metronome", { exact: true }).click();
     const clicks = await heard(ear, await ear.now(), 3);
     expect(gaps(clicks).every((g) => onBeat(g, 2 / 3))).toBe(true);
   });
@@ -109,7 +109,7 @@ test("counts in before recording, louder, even with the metronome off", async ({
   const playing = await heard(ear, start, 3);
   await page.getByTitle("Stop").click();
 
-  await page.getByTitle("Metronome").click();
+  await page.getByTitle("Metronome", { exact: true }).click();
   await page.getByTitle(/^Bars of audible pre-roll/).selectOption("1");
   await studio.header("MIDI 1").getByTitle("Arm this channel for recording and note input").click();
   const from = await ear.now();
@@ -123,4 +123,25 @@ test("counts in before recording, louder, even with the metronome off", async ({
   expect(all).toHaveLength(4);
   expect(gaps(countIn).every((g) => onBeat(g, 0.5))).toBe(true);
   expect(Math.min(...countIn.map((c) => c.peak))).toBeGreaterThan(Math.max(...playing.map((c) => c.peak)));
+});
+
+test("the Click level sets how loud the clicks are", async ({ page, ear }) => {
+  /** The loudest click over a few beats of playing. */
+  const loudest = async () => {
+    const from = await ear.now();
+    await play(page);
+    const clicks = (await heard(ear, from, 4)).slice(1);
+    await page.getByTitle("Stop").click();
+    return Math.max(...clicks.map((c) => c.peak));
+  };
+  const standard = await loudest();
+  // Loud enough to hear over a mix with drums: about -6 dBFS.
+  expect(standard).toBeGreaterThan(0.4);
+
+  await page.getByRole("slider", { name: "Click", exact: true }).click();
+  const field = page.getByTitle("Metronome and count-in level").getByRole("textbox");
+  await field.fill("-12");
+  await field.press("Enter");
+  const quieter = await loudest();
+  expect(quieter / standard).toBeCloseTo(10 ** (-12 / 20), 1);
 });

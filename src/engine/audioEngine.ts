@@ -1383,6 +1383,12 @@ class AudioEngine {
     return this.recording?.from ?? this.audioRecording?.from ?? null;
   }
 
+  /** Recording audio from the interface (not another track) right now -
+   * the takes the round trip estimate decides the timing of. */
+  get recordingFromInterface(): boolean {
+    return !!this.audioRecording && !this.audioRecording.fromTrack;
+  }
+
   /** How far to move a recorded MIDI note earlier: a live (armed) track
    * skips delay compensation, so to sound in time you play it that much
    * after the beat. */
@@ -1592,6 +1598,12 @@ class AudioEngine {
 
   setMetronome(enabled: boolean): void {
     this.transport.setMetronome(enabled);
+  }
+
+  /** The metronome's and count-in's level, in dB from their standard
+   * level (a setting of this computer, audioPrefs.ts). */
+  setMetronomeLevel(db: number): void {
+    this.transport.setMetronomeLevel(db);
   }
 }
 

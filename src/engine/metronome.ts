@@ -50,6 +50,9 @@ type Command =
 
 export class Metronome {
   private node: AudioWorkletNode | null = null;
+  /** The click's level (setLevel), between the worklet and the output. */
+  private level: Tone.Gain | null = null;
+  private levelDb = 0;
   private loading: Promise<void> | null = null;
   /** What was said before the worklet loaded, passed on once it has. */
   private pending: Command[] = [];
@@ -71,6 +74,8 @@ export class Metronome {
         outputChannelCount: [1],
       });
       this.node = node;
+      this.level = new Tone.Gain(Tone.dbToGain(this.levelDb));
+      Tone.connect(node, this.level);
       this.connect();
       this.pending.forEach((command) => node.port.postMessage(command));
       this.pending = [];
@@ -79,11 +84,11 @@ export class Metronome {
   }
 
   private connect(): void {
-    if (!this.node) return;
+    if (!this.level) return;
     const output = this.output();
     if (output === this.connectedTo) return;
-    if (this.connectedTo) Tone.disconnect(this.node, this.connectedTo);
-    Tone.connect(this.node, output);
+    if (this.connectedTo) this.level.disconnect(this.connectedTo);
+    this.level.connect(output);
     this.connectedTo = output;
   }
 
@@ -114,6 +119,13 @@ export class Metronome {
 
   get running(): boolean {
     return this.isRunning;
+  }
+
+  /** The level of the clicks and the count-in, in dB from their standard
+   * level. */
+  setLevel(db: number): void {
+    this.levelDb = db;
+    this.level?.gain.rampTo(Tone.dbToGain(db), 0.02);
   }
 
   /** Clicks after the count-in sound only while it's on. */

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Circle, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/project/types";
+import { ClickLevel } from "./ClickLevel";
 
 const DENOMINATORS = [1, 2, 4, 8, 16, 32];
 const COUNT_IN_OPTIONS = [0, 1, 2, 4];
@@ -222,6 +223,8 @@ export function TransportBar({
           ))}
         </select>
       </label>
+
+      <ClickLevel />
 
       <div className="text-xs text-muted">
         {isPlaying

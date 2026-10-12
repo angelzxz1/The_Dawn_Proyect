@@ -35,6 +35,8 @@ test("record another track: the take is drawn as it comes in, then becomes a cli
   await page.getByTitle("Stop").click();
   await expect(studio.clipsOn("Audio 1")).toHaveCount(1);
   await expect.poll(() => inked(studio.clipsOn("Audio 1"))).toBeGreaterThan(0);
+  // Its timing is known exactly, so there's no latency to measure.
+  await expect(page.getByRole("status", { name: "Recording timing" })).toHaveCount(0);
 });
 
 test("record the microphone onto an audio track", async ({ page, studio }) => {
@@ -47,6 +49,35 @@ test("record the microphone onto an audio track", async ({ page, studio }) => {
   await expect(studio.clipsOn("Audio 1")).toHaveCount(1);
   // The fake microphone plays a beep, so the take isn't silent.
   await expect.poll(() => inked(studio.clipsOn("Audio 1"))).toBeGreaterThan(0);
+});
+
+test("after a take from the interface, a note offers to measure the latency", async ({ page, studio }) => {
+  await studio.addTrack("Audio");
+  await studio.header("Audio 1").getByTitle("Arm this channel for recording and note input").click();
+  const record = async () => {
+    const button = page.getByTitle("Record microphone input onto Audio 1");
+    await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+    await page.waitForTimeout(800);
+    await page.getByTitle("Stop").click();
+  };
+  const note = page.getByRole("status", { name: "Recording timing" });
+
+  // It opens the Audio panel at its Recording section.
+  await record();
+  await note.getByRole("button", { name: "Measure latency…" }).click();
+  await expect(note).toBeHidden();
+  const panel = page.getByRole("dialog", { name: "Audio settings" });
+  await expect(panel.getByRole("button", { name: "Measure latency", exact: true })).toBeInViewport();
+  await page.keyboard.press("Escape");
+
+  // Until it's measured, it comes back after each take - unless told not to.
+  await record();
+  await note.getByRole("button", { name: "Don't show again" }).click();
+  await expect(note).toBeHidden();
+  await record();
+  await expect(studio.clipsOn("Audio 1")).toHaveCount(3);
+  await expect(note).toHaveCount(0);
 });
 
 test("record MIDI from the computer keyboard", async ({ page, studio }) => {

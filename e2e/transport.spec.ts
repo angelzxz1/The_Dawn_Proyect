@@ -57,7 +57,7 @@ test("Ctrl+L and the loop button switch the loop", async ({ page }) => {
 });
 
 test("the metronome button switches the metronome", async ({ page }) => {
-  const metronome = page.getByTitle("Metronome");
+  const metronome = page.getByTitle("Metronome", { exact: true });
   const before = await metronome.getAttribute("aria-pressed");
   await metronome.click();
   await expect(metronome).not.toHaveAttribute("aria-pressed", before!);

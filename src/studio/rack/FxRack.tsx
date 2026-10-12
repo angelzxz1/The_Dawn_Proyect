@@ -103,6 +103,7 @@ function DropGap({
 }) {
   return (
     <div
+      data-drop-gap={index}
       onDragOver={(e) => {
         e.preventDefault();
         onDragOverGap(index);

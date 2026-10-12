@@ -632,12 +632,20 @@ export function PianoRollEditor({
         })
       );
     };
-    const onMove = (ev: PointerEvent) => applyMove(ev.clientX, ev.clientY);
-    const onUp = (ev: PointerEvent) => {
+    // A click without a drag only selects: the notes stay where they are,
+    // even off the grid (as recorded), and nothing changes.
+    let moved = false;
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startClientX) < DRAG_THRESHOLD_PX && Math.abs(ev.clientY - startClientY) < DRAG_THRESHOLD_PX) return;
+      moved = true;
       applyMove(ev.clientX, ev.clientY);
+    };
+    const onUp = (ev: PointerEvent) => {
       target.releasePointerCapture(e.pointerId);
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
+      if (!moved) return;
+      applyMove(ev.clientX, ev.clientY);
       commit(
         baseNotes.map((note) => {
           const gs = groupStart.get(note.id);
@@ -696,20 +704,25 @@ export function PianoRollEditor({
         })
       );
     };
+    // As with moving: a click on the edge leaves the length as it is.
+    let moved = false;
     // Batching the note-array update to at most once per animation frame
     // (rather than once per raw mousemove) avoids pushing two simultaneous
     // DOM style updates — one per selected note — on every single input
     // event, which can otherwise make the browser drop input mid-drag when
     // resizing more than one note at once.
     const onMove = (ev: MouseEvent) => {
+      if (!moved && Math.abs(ev.clientX - startClientX) < DRAG_THRESHOLD_PX) return;
+      moved = true;
       finalDelta = computeDelta(ev.clientX);
       if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; applyDelta(finalDelta); });
     };
     const onUp = (ev: MouseEvent) => {
       if (rafId) cancelAnimationFrame(rafId);
-      finalDelta = computeDelta(ev.clientX);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      if (!moved) return;
+      finalDelta = computeDelta(ev.clientX);
       commit(
         baseNotes.map((note) => {
           const orig = groupStart.get(note.id);

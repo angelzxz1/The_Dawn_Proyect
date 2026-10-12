@@ -1,5 +1,6 @@
-# Checks every push: the types, lint and unit tests in one job; in the
-# other, the site is built and tested in a browser (Playwright, e2e/).
+# Checks every push: the types, lint, unit and component tests in one job;
+# in the other, the site is built and tested in a browser (Playwright,
+# e2e/).
 # A failed browser run keeps its report and traces as a download on the
 # run's page.
 
@@ -20,7 +21,7 @@ permissions:
 
 jobs:
   checks:
-    name: Types, lint and unit tests
+    name: Types, lint, unit and component tests
     # A pull request from this repository was already tested by its push;
     # only one from a fork needs its own run.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -35,6 +36,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      - name: Install Chromium for the component tests
+        run: npx playwright install --with-deps chromium
       - run: npm test
 
   browser:

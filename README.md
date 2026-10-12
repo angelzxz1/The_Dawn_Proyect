@@ -983,7 +983,9 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 
 ```bash
 npm run dev       # start the dev server
-npm test          # unit tests (Vitest): DSP kernels, routing, latency, presets, project files
+npm test          # unit and component tests (Vitest)
+npm run test:unit # just the unit tests: DSP kernels, routing, latency, presets, project files
+npm run test:components # just the component tests: piano roll, track header, FX rack
 npm run test:e2e  # browser tests (Playwright) on the build in out/ - run npm run build first
 npm run typecheck # TypeScript
 npm run lint      # ESLint
@@ -991,11 +993,14 @@ npm run build     # static site in out/ (see docs/deploy.md)
 npm start         # serve out/ locally
 ```
 
-The browser tests need Chromium once: `npx playwright install chromium`.
+The unit tests run in Node. The component tests draw one component at a
+time in Chromium, with the app's styles, and check what clicking, dragging
+and typing on it does (`*.test.tsx`, next to the component). They and the
+browser tests need Chromium once: `npx playwright install chromium`.
 
 Every push is checked on GitHub (`.github/workflows/ci.yml`, the Actions
-tab): one job runs the typecheck, lint and unit tests, another builds the
-site and runs the browser tests. When the browser tests fail, the run's
+tab): one job runs the typecheck, lint, unit and component tests, another
+builds the site and runs the browser tests. When the browser tests fail, the run's
 page has their report to download, with a screenshot and a step-by-step
 trace of each failure (open a trace with `npx playwright show-trace`).
 
@@ -1063,13 +1068,16 @@ trace of each failure (open a trace with `npx playwright show-trace`).
 - `src/fonts/`: the fonts, from Google Fonts, kept here so building needs
   no network. `scripts/fonts.mjs` downloads them and writes the code that
   loads them (see `src/fonts/README.md`).
+- `src/test/`: what the component tests share: their setup (the app's
+  styles, and failing a test that logs an error), a stand-in for Next's
+  fonts, and mouse drags.
 - `e2e/`: the browser tests. They serve the built site and use it in
   Chromium the way a person would: every page of the website, the
   templates and the start screen, the transport, each track and clip
-  action, the piano roll's scrolling and zoom, every effect's window, the instruments, recording (another
-  track, a fake microphone, the computer keyboard), autosave, saving and
-  opening a project file, exporting, and the metronome, timed from the
-  audio it plays. `studio.ts` finds things in the studio, `speakers.ts`
+  action, the piano roll's scrolling and zoom, every effect's window, the
+  instruments, recording (another track, a fake microphone, the computer
+  keyboard), autosave, saving and opening a project file, exporting, and
+  the metronome, timed from the audio it plays. `studio.ts` finds things in the studio, `speakers.ts`
   listens to what reaches the speakers, and `fixtures.ts` fails a test on
   any error on the page and keeps it off the network.
 

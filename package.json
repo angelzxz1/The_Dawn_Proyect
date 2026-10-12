@@ -9,6 +9,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:components": "vitest run --project components",
     "test:e2e": "playwright test",
     "prebuild": "node scripts/build-sw.mjs"
   },
@@ -29,11 +31,13 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/browser": "3.2.7",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "vitest-browser-react": "1.0.1"
   },
   "license": "UNLICENSED",
   "author": "Angel Fernando Zuñiga Navarro"

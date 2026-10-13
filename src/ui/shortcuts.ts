@@ -87,6 +87,8 @@ export function matches(e: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "met
   if (c.mod !== (e.ctrlKey || e.metaKey) || c.shift !== e.shiftKey || c.alt !== e.altKey) return false;
   if (c.key === "space") return e.code === "Space";
   if (c.key === "delete") return e.key === "Delete" || e.key === "Backspace";
+  // A digit by its key, whatever it types with Shift or Alt ("!", "¡").
+  if (/^[0-9]$/.test(c.key)) return e.code === `Digit${c.key}` || e.key === c.key;
   return e.key.toLowerCase() === c.key;
 }
 

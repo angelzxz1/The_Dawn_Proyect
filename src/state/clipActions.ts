@@ -300,6 +300,11 @@ export const clipActions = {
     audioEngine.setAudioClipGain(channelId, clipId, gainDb);
   },
 
+  /** Where an audio clip's content starts in its file (the slip tool). */
+  setSourceOffset(channelId: string, clipId: string, sourceOffset: number): void {
+    updateClip(channelId, clipId, (c) => (c.kind === "audio" ? { ...c, sourceOffset } : c));
+  },
+
   // --- Clipboard (clipboard.ts) ---
 
   copy(clip: ClipInstance): void {

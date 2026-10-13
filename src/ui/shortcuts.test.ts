@@ -43,6 +43,14 @@ describe("matches", () => {
     expect(matches(key("Backspace").e, "delete")).toBe(true);
     expect(matches(key("ArrowLeft", { metaKey: true }).e, "mod+arrowleft")).toBe(true);
   });
+
+  it("knows a digit by its key, whatever Shift or Alt makes it type", () => {
+    const shifted = { ...key("!", { shiftKey: true }).e, code: "Digit1" } as KeyboardEvent;
+    expect(matches(shifted, "shift+1")).toBe(true);
+    expect(matches(shifted, "shift+2")).toBe(false);
+    expect(matches({ ...key("¡", { altKey: true }).e, code: "Digit1" } as KeyboardEvent, "alt+1")).toBe(true);
+    expect(matches({ ...key("1").e, code: "Digit1" } as KeyboardEvent, "shift+1")).toBe(false);
+  });
 });
 
 describe("ShortcutRegistry", () => {

@@ -646,6 +646,24 @@ For audio:
 
 ### Editing clips
 
+The **edit tools**, next to the zoom buttons above the tracks, set what a
+click or a drag does, as in Logic or FL Studio. Pick one there or with
+**Shift+1** to **Shift+5**; **Esc** goes back to the pointer.
+
+- **Pointer** (Shift+1): select, move and resize clips, as below.
+- **Split** (Shift+2): click a clip to cut it in two there. A line shows
+  where; the cut lands on the grid, unless that's the clip's end.
+- **Draw** (Shift+3): drag on an empty part of a MIDI lane to draw an empty
+  clip, from grid line to grid line; a click draws one bar.
+- **Erase** (Shift+4): click a clip to delete it, or drag across clips (on
+  any tracks) to delete them all, as one undo step.
+- **Slip** (Shift+5): drag inside a clip to slide what's in it, on the grid,
+  while the clip stays where it is: an audio clip shows an earlier or later
+  part of its recording, a MIDI clip's notes move. Notes slid out of the clip
+  don't play, and come back when slid back.
+
+With the pointer:
+
 - **Select.** Click a clip to select it. Ctrl/Cmd-click selects more.
 - **Move.** Drag the clip. Moves snap to the grid chosen in **Snap** (off,
   bar, 1/2, 1/4, 1/8 or 1/16).
@@ -892,6 +910,8 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Ctrl/Cmd+V | Paste the copied clip at the playhead |
 | Ctrl/Cmd+D | Duplicate the selected clips |
 | Ctrl/Cmd+L | Loop the selected clips, or switch the loop on/off |
+| Shift+1 … Shift+5 | Edit tool: pointer, split, draw, erase, slip |
+| Esc | Back to the pointer tool |
 | Ctrl/Cmd-click a track header | Pick tracks to group (Esc forgets them) |
 | Ctrl/Cmd+G | Group the picked tracks, or the selected one |
 | Up / Down (loop brace selected) | Move the loop by its own length |

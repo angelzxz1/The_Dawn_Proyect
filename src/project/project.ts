@@ -36,7 +36,8 @@ export interface ProjectState {
 export function notesWithinClip(clip: MidiClipInstance): NoteEvent[] {
   const unit = clip.loopLength && clip.loopLength > 0 ? clip.loopLength : clip.length;
   const clampToUnit = (n: NoteEvent) => ({ ...n, duration: Math.min(n.duration, unit - n.time) });
-  const unitNotes = clip.notes.filter((n) => n.time < unit).map(clampToUnit);
+  // Notes slid before the clip's start (the slip tool) don't play.
+  const unitNotes = clip.notes.filter((n) => n.time >= 0 && n.time < unit).map(clampToUnit);
 
   if (unit >= clip.length) {
     return unitNotes

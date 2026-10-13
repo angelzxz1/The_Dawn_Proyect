@@ -9,7 +9,26 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Download, ChevronsDownUp, Heart, Info, Loader2, MessageSquare, Redo2, Repeat, KeyboardMusic, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  Download,
+  ChevronsDownUp,
+  Eraser,
+  Heart,
+  Info,
+  Loader2,
+  MessageSquare,
+  MousePointer2,
+  MoveHorizontal,
+  Pencil,
+  Redo2,
+  Repeat,
+  KeyboardMusic,
+  Scissors,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import { CLIP_TOOLS, shortcutLabel, type ClipTool } from "@/studio/timeline/clipTools";
 import { TrackHeader, type TrackHeaderActions } from "@/studio/tracks/TrackHeader";
 import { TrackLane, type TrackLaneActions } from "@/studio/tracks/TrackLane";
 import { useStableActions } from "@/ui/useStableActions";
@@ -136,6 +155,13 @@ const setTimeSignature = projectSetter("timeSignature");
 /** A track with no clips (one shared empty list, so its lane can skip
  * redraws). */
 const NO_CLIPS: ClipInstance[] = [];
+const TOOL_ICONS: Record<ClipTool, typeof Pencil> = {
+  pointer: MousePointer2,
+  split: Scissors,
+  draw: Pencil,
+  erase: Eraser,
+  slip: MoveHorizontal,
+};
 
 export function Daw() {
   // The document lives in the project store (src/state/projectStore.ts),
@@ -398,10 +424,40 @@ export function Daw() {
     if (selectedClipIds.size > 0) setSelectedClipIds(clipActions.duplicate(selectedClipIds));
   }, [selectedClipIds]);
 
-  /** Splits a clip at the playhead and selects both halves. */
-  const handleSplitClipAtPlayhead = useCallback((channelId: string, clipId: string) => {
-    const halves = clipActions.split(channelId, clipId, audioEngine.getTransportSeconds());
+  /** Splits a clip at `seconds` (by default, the playhead) and selects
+   * both halves. */
+  const handleSplitClipAtPlayhead = useCallback((channelId: string, clipId: string, seconds = audioEngine.getTransportSeconds()) => {
+    const halves = clipActions.split(channelId, clipId, seconds);
     if (halves) setSelectedClipIds(new Set(halves));
+  }, []);
+
+  // --- Edit tools (clipTools.ts) ---
+  const [clipTool, setClipTool] = useState<ClipTool>("pointer");
+  /** Erase tool: the clips a drag has passed over, deleted as it ends. */
+  const [erasingIds, setErasingIds] = useState<ReadonlySet<string>>(() => new Set());
+  /** Erase tool: from the pointer going down (on a clip, or empty lane)
+   * until it comes up, every clip it passes over goes - as one undo step. */
+  const startErase = useCallback((clipId: string | null) => {
+    const pending = new Set<string>(clipId ? [clipId] : []);
+    setErasingIds(new Set(pending));
+    const onMove = (ev: PointerEvent) => {
+      const id = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-clip-id]")?.dataset.clipId;
+      if (!id || pending.has(id)) return;
+      pending.add(id);
+      setErasingIds(new Set(pending));
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      setErasingIds(new Set());
+      if (pending.size === 0) return;
+      clipActions.remove(pending);
+      setSelectedClipIds((prev) => new Set([...prev].filter((id) => !pending.has(id))));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
   }, []);
 
   const handleToggleLoopClip = clipActions.toggleLoop;
@@ -1187,12 +1243,14 @@ export function Daw() {
     },
     {
       keys: "escape",
-      label: "Forget the tracks picked for grouping",
+      label: "Back to the pointer tool, or forget the tracks picked for grouping",
       run: () => {
+        if (clipTool !== "pointer") return setClipTool("pointer");
         if (trackPicks.size === 0) return false;
         setTrackPicks(new Set());
       },
     },
+    ...CLIP_TOOLS.map((t) => ({ keys: t.keys, label: `The ${t.label.toLowerCase()} tool`, run: () => setClipTool(t.id) })),
   ]);
 
   /** Opening the piano roll editor is the undo checkpoint for everything
@@ -1603,6 +1661,18 @@ export function Daw() {
       const groove = grooveById(grooveId);
       if (groove) handleAddGroove(id, groove, atSeconds);
     },
+    splitClip: (id, clipId, seconds) => handleSplitClipAtPlayhead(id, clipId, seconds),
+    drawClip: (id, offset, length) => {
+      const clipId = clipActions.addMidi(id, offset, length);
+      setSelectedChannelId(id);
+      openFx(id);
+      setSelectedClipIds(new Set([clipId]));
+    },
+    startErase,
+    slipClip: (id, clipId, change) => {
+      if ("notes" in change) clipActions.setNotes(id, clipId, change.notes);
+      else clipActions.setSourceOffset(id, clipId, change.sourceOffset);
+    },
   });
   // A group's lane draws its members' clips; the same list while they don't
   // change, so its memoized lane can skip redraws too.
@@ -1798,6 +1868,26 @@ export function Daw() {
             >
               <ZoomIn size={12} />
             </button>
+          </div>
+          <div role="group" aria-label="Edit tool" className="flex overflow-hidden rounded border border-border">
+            {CLIP_TOOLS.map((t) => {
+              const Icon = TOOL_ICONS[t.id];
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setClipTool(t.id)}
+                  aria-pressed={clipTool === t.id}
+                  aria-label={t.label}
+                  title={`${t.label} (${shortcutLabel(t.keys)}): ${t.hint}${t.id === "pointer" ? "" : " · Esc for the pointer"}`}
+                  className={`flex h-6 w-7 items-center justify-center border-l border-border first:border-l-0 ${
+                    clipTool === t.id ? "bg-accent/20 text-accent" : "text-muted hover:bg-surface-raised hover:text-foreground"
+                  }`}
+                >
+                  <Icon size={12} />
+                </button>
+              );
+            })}
           </div>
           <label className="flex items-center gap-1.5">
             Snap
@@ -2026,6 +2116,9 @@ export function Daw() {
                   acceptsFileDrop={channel.type === "audio"}
                   acceptsGrooves={channel.type === "midi"}
                   hint={laneHint(channel, channel.id === armedChannelId)}
+                  tool={clipTool}
+                  canDraw={channel.type === "midi"}
+                  erasingIds={erasingIds}
                 />
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">

@@ -1,8 +1,9 @@
 "use client";
 
 import { memo, useState } from "react";
-import { ClipBlock } from "@/studio/timeline/ClipBlock";
+import { ClipBlock, type SlipChange } from "@/studio/timeline/ClipBlock";
 import { RecordingClip } from "@/studio/timeline/RecordingClip";
+import { TOOL_CURSORS, type ClipTool } from "@/studio/timeline/clipTools";
 import type { ClipInstance } from "@/project/types";
 import type { TrackColor } from "@/project/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
@@ -30,6 +31,15 @@ export interface TrackLaneActions {
   dropAudioFile(channelId: string, file: File, atSeconds: number): void;
   /** A groove dragged from the browser was dropped here. */
   dropGroove(channelId: string, grooveId: string, atSeconds: number): void;
+  /** Split tool: cut a clip at `seconds` on the timeline. */
+  splitClip(channelId: string, clipId: string, seconds: number): void;
+  /** Draw tool: a new, empty MIDI clip. */
+  drawClip(channelId: string, offset: number, length: number): void;
+  /** Erase tool: the pointer went down on a clip (or empty lane); the clips
+   * the drag passes over go when it ends. */
+  startErase(clipId: string | null): void;
+  /** Slip tool: a clip's content, slid. */
+  slipClip(channelId: string, clipId: string, change: SlipChange): void;
 }
 
 interface TrackLaneProps {
@@ -70,7 +80,17 @@ interface TrackLaneProps {
   /** A group's lane: its members' clips drawn faintly, one stripe per
    * member, instead of clips of its own. */
   overview?: { id: string; clips: ClipInstance[]; color: TrackColor }[];
+  /** The arrangement's edit tool (clipTools.ts). */
+  tool?: ClipTool;
+  /** Whether the draw tool can make a clip here (MIDI tracks). */
+  canDraw?: boolean;
+  /** Erase tool: the clips a drag has passed over, on any lane. */
+  erasingIds?: ReadonlySet<string>;
 }
+
+const NO_CLIPS: ReadonlySet<string> = new Set();
+/** The shortest clip the draw tool makes with the grid off (s). */
+const MIN_DRAWN = 0.25;
 
 /** One track's lane of clips. Memoized: it redraws only when its own props
  * change. */
@@ -94,6 +114,9 @@ export const TrackLane = memo(function TrackLane({
   hint,
   rowHeight = TRACK_ROW_HEIGHT,
   overview,
+  tool = "pointer",
+  canDraw = false,
+  erasingIds = NO_CLIPS,
 }: TrackLaneProps) {
   const onSelectTrack = () => actions.selectTrack(channelId);
   const onSelectClip = (clipId: string, additive: boolean) => actions.selectClip(channelId, clipId, additive);
@@ -117,11 +140,61 @@ export const TrackLane = memo(function TrackLane({
     return Math.max(0, (e.clientX - rect.left) / pxPerSecond);
   };
 
+  /** Draw tool: the clip being drawn (s on the timeline). */
+  const [drawing, setDrawing] = useState<{ start: number; end: number } | null>(null);
+  const drawsHere = tool === "draw" && canDraw;
+
+  /** Draw tool: from where the pointer goes down to where it comes up,
+   * snapped outward to the grid; a click makes a one-bar clip. Erase tool:
+   * a drag from empty space deletes the clips it crosses. */
+  const handleLanePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (tool === "erase") return actions.startErase(null);
+    if (!drawsHere) return;
+    const lane = e.currentTarget;
+    lane.setPointerCapture(e.pointerId);
+    const left = lane.getBoundingClientRect().left;
+    const at = (clientX: number) => Math.max(0, (clientX - left) / pxPerSecond);
+    const grid = snapSeconds > 0 ? snapSeconds : 0;
+    const bar = (60 / bpm) * beatsPerBar;
+    const anchor = at(e.clientX);
+    const span = (x: number) => {
+      const lo = Math.min(anchor, x);
+      const hi = Math.max(anchor, x);
+      const start = grid ? Math.floor(lo / grid) * grid : lo;
+      const end = grid ? Math.ceil(hi / grid) * grid : hi;
+      return { start, end: Math.max(end, start + (grid || MIN_DRAWN)) };
+    };
+    const firstBar = { start: grid ? Math.floor(anchor / grid) * grid : anchor, end: 0 };
+    firstBar.end = firstBar.start + bar;
+    let dragged = false;
+    let current = firstBar;
+    setDrawing(current);
+    const onMove = (ev: PointerEvent) => {
+      if (!dragged && Math.abs(ev.clientX - e.clientX) <= 3) return;
+      dragged = true;
+      current = span(at(ev.clientX));
+      setDrawing(current);
+    };
+    const onUp = () => {
+      lane.releasePointerCapture(e.pointerId);
+      lane.removeEventListener("pointermove", onMove);
+      lane.removeEventListener("pointerup", onUp);
+      setDrawing(null);
+      actions.drawClip(channelId, current.start, current.end - current.start);
+    };
+    lane.addEventListener("pointermove", onMove);
+    lane.addEventListener("pointerup", onUp);
+  };
+
   return (
     <div
       role="group"
       aria-label={`${name} lane`}
-      onClick={onSelectTrack}
+      onPointerDown={handleLanePointerDown}
+      // Drawing and erasing aren't a click on the lane (which would select
+      // the track, and so drop the clip just drawn from the selection).
+      onClick={drawsHere || tool === "erase" ? undefined : onSelectTrack}
       onContextMenu={(e) => {
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
@@ -170,8 +243,25 @@ export const TrackLane = memo(function TrackLane({
       className={`relative cursor-pointer border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
       } ${fileDragOver || grooveDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
-      style={{ height: rowHeight, width: totalSeconds * pxPerSecond }}
+      style={{
+        height: rowHeight,
+        width: totalSeconds * pxPerSecond,
+        cursor: drawsHere ? TOOL_CURSORS.draw : tool === "erase" ? TOOL_CURSORS.erase : undefined,
+      }}
     >
+      {drawing && (
+        <div
+          className="pointer-events-none absolute z-10 rounded-md border-2 border-dashed"
+          style={{
+            left: drawing.start * pxPerSecond,
+            width: (drawing.end - drawing.start) * pxPerSecond,
+            top: rowHeight < 60 ? 3 : 10,
+            bottom: rowHeight < 60 ? 3 : 10,
+            borderColor: color.accent,
+            background: color.accentSoft,
+          }}
+        />
+      )}
       {armed && (
         <div className="pointer-events-none absolute inset-0 z-0 border border-record/40" />
       )}
@@ -236,6 +326,12 @@ export const TrackLane = memo(function TrackLane({
           onContextMenu={(e) => onClipContextMenu(clip.id, e)}
           onDragStart={onClipDragStart}
           rowHeight={rowHeight}
+          clipId={clip.id}
+          tool={tool}
+          onSplitAt={(seconds) => actions.splitClip(channelId, clip.id, seconds)}
+          onEraseStart={() => actions.startErase(clip.id)}
+          onSlip={(change) => actions.slipClip(channelId, clip.id, change)}
+          erasing={erasingIds.has(clip.id)}
         />
       ))}
     </div>

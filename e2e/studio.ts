@@ -42,13 +42,13 @@ export class Studio {
 
   /** Every clip on the timeline, or the ones showing `text` ("12 notes"). */
   clips(text?: string | RegExp): Locator {
-    const all = this.page.locator('[title^="Drag to move"]');
+    const all = this.page.locator("[data-clip-id]");
     return text ? all.filter({ hasText: text }) : all;
   }
 
   /** The clips on one track. */
   clipsOn(track: string): Locator {
-    return this.lane(track).locator('[title^="Drag to move"]');
+    return this.lane(track).locator("[data-clip-id]");
   }
 
   /** Drags with the mouse from the middle of `from` by (dx, dy) pixels. */

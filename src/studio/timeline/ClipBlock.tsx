@@ -1,11 +1,16 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Repeat } from "lucide-react";
 import type { ClipType, NoteEvent } from "@/project/types";
 import type { TrackColor } from "@/project/colors";
 import { TRACK_ROW_HEIGHT } from "./layout";
 import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
+import { TOOL_CURSORS, type ClipTool } from "./clipTools";
+
+/** What the slip tool changes: where an audio clip's content starts in its
+ * file, or a MIDI clip's notes. */
+export type SlipChange = { sourceOffset: number } | { notes: NoteEvent[] };
 
 interface ClipBlockProps {
   clipType?: ClipType;
@@ -56,6 +61,21 @@ interface ClipBlockProps {
   onDragStart?: () => void;
   /** The lane's height; a short (folded) lane shows just the clip's bar. */
   rowHeight?: number;
+  /** The clip's id, on its element: an erase drag finds the clips it
+   * passes over by it. */
+  clipId?: string;
+  /** The arrangement's edit tool (clipTools.ts). */
+  tool?: ClipTool;
+  /** Split tool: cut the clip at this time on the timeline (snapped). */
+  onSplitAt?: (seconds: number) => void;
+  /** Erase tool: the pointer went down on the clip. */
+  onEraseStart?: () => void;
+  /** Slip tool: what's inside the clip, slid (an undo step was taken by
+   * onDragStart as the drag began). */
+  onSlip?: (change: SlipChange) => void;
+  /** Erase tool: a drag has passed over the clip; it goes when the drag
+   * ends. */
+  erasing?: boolean;
 }
 
 const MIN_MIDI = 36;
@@ -68,6 +88,15 @@ const DRAG_THRESHOLD_PX = 3;
 const MIN_RESIZE_SECONDS = 0.15;
 const FADE_HANDLE_PX = 10;
 const GAIN_DRAG_RANGE_PX = 100; // vertical pixels for a full +/-24dB sweep
+
+/** A clip's tooltip with each tool. */
+const TOOL_TITLES: Record<ClipTool, string> = {
+  pointer: "Drag to move · drag right edge to resize · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options",
+  draw: "Drag to move · drag right edge to resize · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options",
+  split: "Click to split the clip here",
+  erase: "Click to delete the clip, or drag across clips to delete them all",
+  slip: "Drag to slide what's in the clip; the clip stays where it is",
+};
 
 export function noteNameToMidi(name: string): number {
   const match = name.match(/^([A-G]#?)(-?\d+)$/);
@@ -109,6 +138,12 @@ export function ClipBlock({
   onContextMenu,
   onDragStart,
   rowHeight = TRACK_ROW_HEIGHT,
+  clipId,
+  tool = "pointer",
+  onSplitAt,
+  onEraseStart,
+  onSlip,
+  erasing = false,
 }: ClipBlockProps) {
   const compact = rowHeight < COMPACT_BELOW;
   const pad = compact ? 3 : LANE_PADDING;
@@ -118,10 +153,60 @@ export function ClipBlock({
   const grid = snapSeconds && snapSeconds > 0 ? snapSeconds : null;
   const snap = (seconds: number) => (grid ? Math.round(seconds / grid) * grid : seconds);
   const minLength = grid ?? MIN_RESIZE_SECONDS;
+  /** The pointer and draw tools keep the clip's own handles (resize,
+   * fades, gain); the others act on the whole clip. */
+  const handles = tool === "pointer" || tool === "draw";
+
+  /** Split tool: where a click at `clientX` cuts, as a time on the
+   * timeline - snapped to the grid, unless that lands on or outside the
+   * clip's ends. */
+  const splitPoint = (clientX: number, box: DOMRect) => {
+    const exact = offset + (clientX - box.left) / pxPerSecond;
+    const snapped = snap(exact);
+    return snapped > offset && snapped < offset + length ? snapped : exact;
+  };
+  /** Split tool: where the cut would go, from the clip's start (s). */
+  const [cutAt, setCutAt] = useState<number | null>(null);
+
+  /** Slip tool: drag to slide the clip's content; the clip stays put. */
+  const handleSlipPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startClientX = e.clientX;
+    const startSource = sourceOffset;
+    const startNotes = notes;
+    // An audio clip's content can slide until its file runs out.
+    const unit = loopLength && loopLength > 0 ? loopLength : length;
+    const maxSource = Math.max(0, durationSeconds - unit);
+    let moved = false;
+    const onMoveEvt = (ev: PointerEvent) => {
+      const dx = ev.clientX - startClientX;
+      if (!moved && Math.abs(dx) <= DRAG_THRESHOLD_PX) return;
+      if (!moved) onDragStart?.();
+      moved = true;
+      const shift = snap(dx / pxPerSecond);
+      if (clipType === "audio") onSlip?.({ sourceOffset: Math.min(maxSource, Math.max(0, startSource - shift)) });
+      else onSlip?.({ notes: startNotes.map((n) => ({ ...n, time: n.time + shift })) });
+    };
+    const onUp = () => {
+      target.releasePointerCapture(e.pointerId);
+      target.removeEventListener("pointermove", onMoveEvt);
+      target.removeEventListener("pointerup", onUp);
+    };
+    target.addEventListener("pointermove", onMoveEvt);
+    target.addEventListener("pointerup", onUp);
+  };
 
   const handleBodyPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (tool === "split") {
+      onSplitAt?.(splitPoint(e.clientX, e.currentTarget.getBoundingClientRect()));
+      return;
+    }
+    // No pointer capture: the drag goes on across other clips.
+    if (tool === "erase") return onEraseStart?.();
+    if (tool === "slip") return handleSlipPointerDown(e);
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
     const startClientX = e.clientX;
@@ -247,8 +332,10 @@ export function ClipBlock({
     target.addEventListener("pointerup", onUp);
   };
 
+  // Notes slid before the clip's start (slip tool) stay in the clip, unseen
+  // and unplayed, until they're slid back.
   const visibleNotes = useMemo(
-    () => notes.filter((n) => n.time < length),
+    () => notes.filter((n) => n.time >= 0 && n.time < length),
     [notes, length]
   );
 
@@ -262,15 +349,18 @@ export function ClipBlock({
     <div
       onPointerDown={handleBodyPointerDown}
       onClick={(e) => e.stopPropagation()}
+      onPointerMove={tool === "split" ? (e) => setCutAt(splitPoint(e.clientX, e.currentTarget.getBoundingClientRect()) - offset) : undefined}
+      onPointerLeave={() => setCutAt(null)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onContextMenu(e);
       }}
-      title="Drag to move · drag right edge to resize · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options"
+      data-clip-id={clipId}
+      title={TOOL_TITLES[tool]}
       className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
         selected ? "ring-2 ring-accent" : ""
-      }`}
+      } ${erasing ? "opacity-30 outline outline-2 outline-record" : ""}`}
       style={{
         left: offset * pxPerSecond,
         top: pad,
@@ -278,6 +368,7 @@ export function ClipBlock({
         height: rowHeight - pad * 2,
         borderColor: color.accent,
         background: color.accentSoft,
+        cursor: tool === "pointer" ? undefined : TOOL_CURSORS[tool],
       }}
     >
       <div
@@ -298,7 +389,7 @@ export function ClipBlock({
                 : "empty"}
           </span>
         </span>
-        {clipType === "audio" ? (
+        {clipType === "audio" && handles ? (
           <div
             onPointerDown={handleGainPointerDown}
             onDoubleClick={(e) => {
@@ -310,9 +401,9 @@ export function ClipBlock({
           >
             {formatGain(gainDb)}
           </div>
-        ) : (
+        ) : clipType === "midi" && handles ? (
           <span className="shrink-0 opacity-0 group-hover:opacity-100">dbl-click to edit</span>
-        )}
+        ) : null}
       </div>
       {!compact && (
       <div className="relative flex-1">
@@ -373,12 +464,17 @@ export function ClipBlock({
         )}
       </div>
       )}
-      <div
-        onPointerDown={handleResizePointerDown}
-        title="Drag to resize the clip length"
-        className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/0 hover:bg-black/30"
-      />
-      {clipType === "audio" && (
+      {tool === "split" && cutAt !== null && (
+        <div className="pointer-events-none absolute inset-y-0 z-10 w-px bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]" style={{ left: cutAt * pxPerSecond }} />
+      )}
+      {handles && (
+        <div
+          onPointerDown={handleResizePointerDown}
+          title="Drag to resize the clip length"
+          className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-black/0 hover:bg-black/30"
+        />
+      )}
+      {clipType === "audio" && handles && (
         <>
           <div
             onPointerDown={(e) => handleFadePointerDown(e, "in")}

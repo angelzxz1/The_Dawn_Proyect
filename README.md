@@ -8,7 +8,7 @@ and no account is needed: the sound is made on your machine with the Web
 Audio API.
 
 It's built with [Next.js](https://nextjs.org) and
-[Tone.js](https://tonejs.github.io/), and its workflow borrows from Ableton
+[Tone.js](https://www.npmjs.com/package/tone), and its workflow borrows from Ableton
 Live and Reaper.
 
 ## Contents
@@ -496,9 +496,11 @@ Project**, the start screen offers four templates:
 It also opens a project folder, lists recent projects, and links to this
 guide. Close it to keep what's on screen.
 
-The header's **Feedback** button opens a form (or a GitHub issue) with your
-browser and Dawn's version filled in, and **About** has the credits, privacy
-policy, license and **What's new**, which also opens once after an update.
+Feedback, bug reports and ideas go on Dawn's Discord. Once the site has a
+Discord invite, the header's **Feedback** button shows: it opens the Discord
+and copies your browser, Dawn's version and any recent problems, ready to
+paste into your post. **About** has the credits, privacy policy, license and
+**What's new**, which also opens once after an update.
 
 ### Projects
 
@@ -1085,12 +1087,12 @@ trace of each failure (open a trace with `npx playwright show-trace`).
 
 - [Next.js](https://nextjs.org) 16 (App Router), React 19, TypeScript and
   Tailwind CSS 4.
-- [Tone.js](https://tonejs.github.io/) for the Web Audio engine, transport
-  and instruments.
-- [@tonejs/midi](https://github.com/Tonejs/Midi) for reading and writing MIDI
-  files.
-- [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore)
-  (WebAssembly) for the NAM Amp. Its licenses are in `public/nam`.
+- [Tone.js](https://www.npmjs.com/package/tone) for the Web Audio engine,
+  transport and instruments.
+- [@tonejs/midi](https://www.npmjs.com/package/@tonejs/midi) for reading and
+  writing MIDI files.
+- [Neural Amp Modeler](https://www.neuralampmodeler.com) (WebAssembly) for
+  the NAM Amp. Its licenses are in `public/nam`.
 - [lucide-react](https://lucide.dev) for icons.
 
 ## License and credits

@@ -55,7 +55,6 @@ function FeatureCard({ eyebrow, title, text, children }: { eyebrow: string; titl
 export default function Home() {
   const others: [string, string][] = (
     [
-      ["github", "GitHub Sponsors"],
       ["kofi", "Ko-fi"],
       ["discord", "Join the Discord"],
     ] as const

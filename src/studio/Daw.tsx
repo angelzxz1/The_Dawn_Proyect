@@ -72,8 +72,8 @@ import { PacksWindow } from "@/studio/dialogs/PacksWindow";
 import { AppUpdater } from "@/studio/shell/AppUpdater";
 import { installPack, removePack } from "@/project/packStore";
 import { PACK_EXTENSION } from "@/project/dawnPack";
-import { openFeedback, PostExportNote } from "@/studio/dialogs/SupportViews";
-import { shouldAskAfterExport, supportLinks } from "@/services/support";
+import { FeedbackWindow, openFeedback, PostExportNote } from "@/studio/dialogs/SupportViews";
+import { communityLink, shouldAskAfterExport, supportLinks } from "@/services/support";
 import type { ProjectTemplate } from "@/project/templates";
 import { grooveById, grooveHits, grooveKit, type Groove } from "@/library/grooves";
 import { getAudioPrefs } from "@/engine/audioPrefs";
@@ -186,6 +186,8 @@ export function Daw() {
   /** The Sound Packs window, with the outcome of a pack dropped on the app. */
   const [packs, setPacks] = useState<{ message: { ok: boolean; text: string } | null } | null>(null);
   const hasSupportLinks = supportLinks().length > 0;
+  /** Feedback goes on the Discord: its buttons show once there's one. */
+  const hasDiscord = communityLink() !== null;
 
   // Usage statistics (only when set up for this deployment and allowed).
   useEffect(() => {
@@ -1683,16 +1685,18 @@ export function Daw() {
                   ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
                   : "loading piano sounds…"}
           </p>
-          <HelpMenu onTour={() => setTourOpen(true)} onFeedback={() => openFeedback("help")} />
-          <button
-            type="button"
-            onClick={() => openFeedback("header")}
-            title="Send feedback or report a problem (your browser and Dawn's version are filled in)"
-            className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted hover:bg-surface-raised hover:text-foreground"
-          >
-            <MessageSquare size={12} />
-            Feedback
-          </button>
+          <HelpMenu onTour={() => setTourOpen(true)} onFeedback={hasDiscord ? () => openFeedback("help") : undefined} />
+          {hasDiscord && (
+            <button
+              type="button"
+              onClick={() => openFeedback("header")}
+              title="Send feedback or report a problem on Dawn's Discord (your browser and Dawn's version, ready to paste)"
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted hover:bg-surface-raised hover:text-foreground"
+            >
+              <MessageSquare size={12} />
+              Feedback
+            </button>
+          )}
           {hasSupportLinks && (
             <button
               type="button"
@@ -2273,6 +2277,7 @@ export function Daw() {
       <AppUpdater />
 
       {supportAsk && <PostExportNote onClose={() => setSupportAsk(false)} />}
+      <FeedbackWindow />
 
       {aboutTab && <AboutWindow initialTab={aboutTab} onClose={() => setAboutTab(null)} privacyExtra={<TelemetrySwitch />} />}
 

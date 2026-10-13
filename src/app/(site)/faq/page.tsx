@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FaqBrowser } from "@/site/interactive";
 import { Container, CtaBand, Eyebrow, h1Class, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
-import { ISSUES_URL, supportLink } from "@/site/siteLinks";
+import { supportLink } from "@/site/siteLinks";
 
 export const metadata: Metadata = {
   title: "FAQ",
@@ -34,9 +34,11 @@ export default function FaqPage() {
               <p className={leadClass}>Ask in the Discord. Questions that come up often get added here.</p>
             </div>
             <div className="flex flex-wrap gap-2.5">
-              <a href={discord || ISSUES_URL} target="_blank" rel="noreferrer" className={primaryButton}>
-                {discord ? "Join the Discord" : "Ask on GitHub"}
-              </a>
+              {discord && (
+                <a href={discord} target="_blank" rel="noreferrer" className={primaryButton}>
+                  Join the Discord
+                </a>
+              )}
               <Link href="/how-it-works#setup" className={secondaryButton}>
                 Read the setup guide
               </Link>

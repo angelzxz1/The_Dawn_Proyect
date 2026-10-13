@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { startTelemetry } from "@/services/telemetry";
-import { REPO_URL } from "./siteLinks";
+import { supportLink } from "./siteLinks";
 import { Container, Logo, OpenDawn } from "./ui";
 
 const NAV: [string, string][] = [
@@ -53,6 +53,7 @@ export function SiteFooter() {
     ["/license", "License"],
     ["/privacy", "Privacy"],
   ];
+  const discord = supportLink("discord");
   return (
     <Container className="flex flex-wrap items-center justify-between gap-5 py-12">
       <div className="flex flex-col gap-2">
@@ -65,9 +66,11 @@ export function SiteFooter() {
             {label}
           </Link>
         ))}
-        <a href={REPO_URL} target="_blank" rel="noreferrer" className="text-[14px] text-soft no-underline hover:text-foreground">
-          GitHub
-        </a>
+        {discord && (
+          <a href={discord} target="_blank" rel="noreferrer" className="text-[14px] text-soft no-underline hover:text-foreground">
+            Discord
+          </a>
+        )}
       </nav>
     </Container>
   );

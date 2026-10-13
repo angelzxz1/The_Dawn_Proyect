@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { BookOpen, CircleHelp, Compass, LifeBuoy, MessageSquare, Wrench } from "lucide-react";
 import { useShortcuts } from "@/ui/shortcuts";
 
-/** Help in the header: the tour, and the guides on the website. */
-export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedback: () => void }) {
+/** Help in the header: the tour, the guides on the website, and (when
+ * there's a Discord to send it to) reporting a problem. */
+export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedback?: () => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -59,18 +60,22 @@ export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedbac
               <Icon size={13} className="text-muted" /> {label}
             </a>
           ))}
-          <div className="my-1 border-t border-border" />
-          <button
-            type="button"
-            role="menuitem"
-            className={item}
-            onClick={() => {
-              setOpen(false);
-              onFeedback();
-            }}
-          >
-            <MessageSquare size={13} className="text-muted" /> Report a problem
-          </button>
+          {onFeedback && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={() => {
+                  setOpen(false);
+                  onFeedback();
+                }}
+              >
+                <MessageSquare size={13} className="text-muted" /> Report a problem
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

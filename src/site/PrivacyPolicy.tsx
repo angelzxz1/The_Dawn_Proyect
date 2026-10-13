@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import { communityLink } from "@/services/support";
 
-export const PRIVACY_UPDATED = "October 2, 2026";
-export const ISSUES_URL = "https://github.com/angelzxz1/The_Dawn_Proyect/issues";
+export const PRIVACY_UPDATED = "October 13, 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -20,6 +20,7 @@ const A = ({ href, children }: { href: string; children: ReactNode }) => (
 
 /** The privacy policy: shown at /privacy and in the app's About window. */
 export function PrivacyPolicy({ settingsHint = "in the app, under About → Privacy" }: { settingsHint?: string }) {
+  const discord = communityLink();
   return (
     <div className="flex flex-col gap-4">
       <Section title="The short version">
@@ -61,15 +62,15 @@ export function PrivacyPolicy({ settingsHint = "in the app, under About → Priv
       </Section>
       <Section title="Other sites">
         <p>
-          The piano&rsquo;s samples are downloaded from the Tone.js website (hosted by GitHub Pages), which sees
-          your IP address like any website you visit. Links to support pages, Discord or GitHub take you to those
-          sites, which have their own privacy policies.
+          The piano&rsquo;s samples are downloaded from the Tone.js project&rsquo;s website, which sees your IP
+          address like any website you visit. Links to support pages or Discord take you to those sites, which have
+          their own privacy policies.
         </p>
       </Section>
       <Section title="Questions">
         <p>
-          Ask in the <A href={ISSUES_URL}>project&rsquo;s GitHub issues</A>. If this policy changes, the date below
-          changes with it.
+          Ask on {discord ? <A href={discord.url}>Dawn&rsquo;s Discord</A> : "Dawn\u2019s Discord"}. If this policy changes,
+          the date below changes with it.
         </p>
         <p className="text-[11.5px]">Last updated {PRIVACY_UPDATED}.</p>
       </Section>

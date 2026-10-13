@@ -17,7 +17,7 @@ export const FAQS: Faq[] = [
   { id: "free", category: "General", q: "Is Dawn really free?", a: "Yes. Dawn is free to use, with no account and no trial. Supporters get extras like sound packs and early access, but core features are never behind a paywall." },
   { id: "why-free", category: "General", q: "Why is it free?", a: "Anyone with an idea should be able to record it. Dawn is funded by people who choose to support it, not by ads or by locking features away." },
   { id: "who", category: "General", q: "Who makes Dawn?", a: "Dawn is built by Angel, one developer. Updates come out every month, and supporters vote on what gets built next." },
-  { id: "open-source", category: "General", q: "Is Dawn open source?", a: "No. The code is public on GitHub so anyone can read it, but it isn't licensed for reuse: you can't copy it, change it or host your own copy. Using the app to make music is free and always will be. The License page has the details." },
+  { id: "open-source", category: "General", q: "Is Dawn open source?", a: "No. Anyone can read its code, but it isn't licensed for reuse: you can't copy it, change it or host your own copy. Using the app to make music is free and always will be. The License page has the details." },
   { id: "release", category: "General", q: "Can I release and sell music I make with Dawn?", a: "Yes. The music you make is yours to share, sell and license, with no payment or credit needed. That includes Dawn's built-in sounds as they appear in your songs; you just can't pass those sounds on by themselves, as a sample pack." },
   { id: "need", category: "Recording & guitar", q: "What do I need to record guitar?", a: "A guitar, an audio interface or USB guitar cable, wired headphones, and Chrome or Edge on a desktop computer. The setup guide walks you through it." },
   { id: "delay", category: "Recording & guitar", q: "How much delay will I hear?", a: "It depends on your hardware. Dawn shows the measured latency in its audio panel in the header. Wired headphones, fewer open tabs and lighter amp captures all help." },
@@ -35,7 +35,7 @@ export const FAQS: Faq[] = [
   { id: "supporters", category: "Support & money", q: "What do supporters get?", a: "A monthly sound pack, early access to new features, a vote on what gets built next, and your name in the credits. See the Support page for each tier." },
   { id: "cancel", category: "Support & money", q: "Can I cancel at any time?", a: `Yes. Memberships are managed on ${membershipPlatforms().join(" or ")}, and you can cancel there whenever you like.` },
   { id: "one-time", category: "Support & money", q: "Can I support once instead of monthly?", a: "Yes. You can leave a one-time tip on Ko-fi." },
-  { id: "bugs", category: "Support & money", q: "How do I report a bug or suggest a feature?", a: "Post in #bug-reports or #feature-ideas on the Discord, or open an issue on GitHub. Include your browser and audio interface." },
+  { id: "bugs", category: "Support & money", q: "How do I report a bug or suggest a feature?", a: "Post in #bug-reports or #feature-ideas on the Discord. Include your browser and audio interface: the Feedback button in the studio has them ready to paste." },
 ];
 
 /** The questions on the landing page. */

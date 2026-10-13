@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LATEST_VERSION, RELEASES } from "../content/whatsNew";
 import pkg from "../../package.json";
-import { contactEmail, describeBrowser, feedbackUrl, membershipPlatforms, supportLinks } from "./support";
+import { communityLink, contactEmail, describeBrowser, feedbackDetails, membershipPlatforms, supportLinks } from "./support";
 
 const CHROME_WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 const EDGE_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0";
@@ -16,14 +16,13 @@ describe("support and feedback", () => {
     expect(describeBrowser(FIREFOX)).toBe("Firefox 131 on Linux");
   });
 
-  it("falls back to a GitHub issue with the browser filled in", () => {
-    const url = new URL(feedbackUrl(CHROME_WIN, true));
-    expect(url.hostname).toBe("github.com");
-    expect(url.searchParams.get("body")).toContain("Chrome 141 on Windows (Brave)");
+  it("gives the details to paste into a feedback post: version and browser", () => {
+    expect(feedbackDetails(CHROME_WIN, true)).toBe("Dawn dev · Chrome 141 on Windows (Brave)");
   });
 
-  it("shows no support buttons until a page is configured", () => {
+  it("shows no support buttons, and no Discord, until a page is configured", () => {
     expect(supportLinks()).toEqual([]);
+    expect(communityLink()).toBeNull();
     expect(membershipPlatforms()).toEqual(["Patreon"]);
     expect(contactEmail()).toBe("");
   });
@@ -34,9 +33,10 @@ describe("support and feedback", () => {
   });
 });
 
-describe("feedbackUrl with problems", () => {
-  it("adds the recent problem codes to the report", () => {
-    const url = new URL(feedbackUrl("Mozilla/5.0 (Windows NT 10.0) Chrome/120.0", false, "clip.load ×2"));
-    expect(url.searchParams.get("body") ?? url.searchParams.get("problems")).toContain("clip.load ×2");
+describe("feedbackDetails with problems", () => {
+  it("adds the recent problem codes", () => {
+    expect(feedbackDetails("Mozilla/5.0 (Windows NT 10.0) Chrome/120.0", false, "clip.load ×2")).toBe(
+      "Dawn dev · Chrome 120 on Windows\nRecent problems: clip.load ×2"
+    );
   });
 });

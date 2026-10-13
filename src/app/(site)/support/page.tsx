@@ -4,7 +4,7 @@ import { PERKS, TIERS } from "@/content/tiers";
 import { PackCover } from "@/site/illustrations";
 import { Tiers } from "@/site/interactive";
 import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
-import { ISSUES_URL, REPO_URL, supportLink } from "@/site/siteLinks";
+import { supportLink } from "@/site/siteLinks";
 import { contactEmail, membershipPlatforms } from "@/services/support";
 
 export const metadata: Metadata = {
@@ -29,18 +29,16 @@ const PACKS: [string, string][] = [
 
 export default function SupportPage() {
   const kofi = supportLink("kofi");
-  const sponsors = supportLink("github");
   const discord = supportLink("discord");
   const email = contactEmail();
   // Tone creators send files and give permission to use them, so email
   // (which keeps a record) comes first.
-  const tones = email ? `mailto:${email}?subject=${encodeURIComponent("Tones for Dawn")}` : discord || ISSUES_URL;
-  // Each card shows only once its page exists; the last two always work.
+  const tones = email ? `mailto:${email}?subject=${encodeURIComponent("Tones for Dawn")}` : discord;
+  // Each card shows only once its page exists; the last always does.
   const ways: { label: string; title: string; text: string; href: string; external?: boolean }[] = [
     { label: "Ko-fi", title: "Leave a one-time tip", text: "Prefer not to subscribe? A single tip helps just as much.", href: kofi, external: true },
-    { label: "GitHub Sponsors", title: "Sponsor on GitHub", text: "For developers who found Dawn through the code.", href: sponsors, external: true },
     { label: "Discord", title: "Share your demo", text: "Post it in #share-your-demos and join the monthly Demo Challenge.", href: discord, external: true },
-    { label: discord ? "Discord or GitHub" : "GitHub", title: "Report a bug", text: "Every clear bug report makes Dawn better for everyone.", href: discord || ISSUES_URL, external: true },
+    { label: "Discord", title: "Report a bug", text: "Every clear bug report makes Dawn better for everyone. Post it in #bug-reports.", href: discord, external: true },
     { label: "Creators", title: "Share your tones", text: "Make NAM captures or IRs? Let's feature them in Dawn, with credit.", href: tones, external: true },
     { label: "Anyone", title: "Tell a friend", text: 'Send Dawn to the bandmate who always says "record it later".', href: "/" },
   ].filter((w) => w.href);
@@ -203,9 +201,11 @@ export default function SupportPage() {
               <Link href="/faq" className={secondaryButton}>
                 Read the FAQ
               </Link>
-              <a href={REPO_URL} target="_blank" rel="noreferrer" className={secondaryButton}>
-                Dawn on GitHub
-              </a>
+              {discord && (
+                <a href={discord} target="_blank" rel="noreferrer" className={secondaryButton}>
+                  Join the Discord
+                </a>
+              )}
             </div>
           </div>
         </Container>

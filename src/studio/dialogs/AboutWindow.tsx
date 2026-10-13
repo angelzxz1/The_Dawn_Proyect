@@ -4,12 +4,11 @@ import { useState, type ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { CREDIT_KINDS, creditsOfKind } from "@/content/credits";
 import { PrivacyPolicy } from "@/site/PrivacyPolicy";
+import { communityLink } from "@/services/support";
 import { SupportSection, WhatsNew } from "./SupportViews";
 import { useShortcuts } from "@/ui/shortcuts";
 
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "dev";
-export const REPO_URL = "https://github.com/angelzxz1/The_Dawn_Proyect";
-const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE.md`;
 
 export type AboutTab = "about" | "news" | "credits" | "privacy" | "license";
 
@@ -30,6 +29,7 @@ function Link({ href, children }: { href: string; children: ReactNode }) {
 }
 
 function AboutTabBody({ extra }: { extra?: ReactNode }) {
+  const community = communityLink();
   return (
     <div className="flex flex-col gap-4 text-[12.5px] leading-relaxed text-muted">
       <div className="flex items-center gap-3">
@@ -50,9 +50,11 @@ function AboutTabBody({ extra }: { extra?: ReactNode }) {
         computer.
       </p>
       {extra}
-      <p>
-        Source code and bug reports: <Link href={REPO_URL}>GitHub</Link>.
-      </p>
+      {community && (
+        <p>
+          Questions, bug reports and ideas: <Link href={community.url}>Dawn&rsquo;s Discord</Link>.
+        </p>
+      )}
     </div>
   );
 }
@@ -107,8 +109,8 @@ export function LicenseTabBody() {
         as a sample pack or preset bank.
       </p>
       <p>
-        The libraries, fonts and sounds listed under Credits keep their own licenses. The full terms are in{" "}
-        <Link href={LICENSE_URL}>LICENSE.md</Link>.
+        The libraries, fonts and sounds listed under Credits keep their own licenses. The full terms are in the
+        LICENSE.md file that comes with Dawn&rsquo;s source code.
       </p>
     </div>
   );

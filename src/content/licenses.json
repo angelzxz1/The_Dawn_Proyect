@@ -11,7 +11,7 @@
       "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
       "url": "https://archive.org/details/SalamanderGrandPianoV3",
       "usedFor": "The Piano instrument (a Yamaha C5, sampled)",
-      "source": "MP3 conversion hosted by Tone.js at tonejs.github.io/audio/salamander; loaded on demand, not bundled",
+      "source": "MP3 conversion hosted by the Tone.js project; loaded on demand, not bundled",
       "added": "2026-09-18"
     },
     {
@@ -20,8 +20,8 @@
       "kind": "software",
       "author": "Steven Atkinson",
       "license": "MIT",
-      "licenseUrl": "https://github.com/sdatkinson/NeuralAmpModelerCore/blob/main/LICENSE",
-      "url": "https://github.com/sdatkinson/NeuralAmpModelerCore",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://www.neuralampmodeler.com",
       "usedFor": "The NAM Amp's neural network engine",
       "source": "Compiled to WebAssembly in neural-amp-modeler-wasm; license file in public/nam",
       "added": "2026-09-25"
@@ -44,8 +44,8 @@
       "kind": "software",
       "author": "Yotam Mann and contributors",
       "license": "MIT",
-      "licenseUrl": "https://github.com/Tonejs/Tone.js/blob/main/LICENSE.md",
-      "url": "https://tonejs.github.io/",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://www.npmjs.com/package/tone",
       "usedFor": "The audio engine, transport and timing"
     },
     {
@@ -54,8 +54,8 @@
       "kind": "software",
       "author": "Yotam Mann and contributors",
       "license": "MIT",
-      "licenseUrl": "https://github.com/Tonejs/Midi/blob/master/LICENSE",
-      "url": "https://github.com/Tonejs/Midi",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://www.npmjs.com/package/@tonejs/midi",
       "usedFor": "Reading and writing MIDI files"
     },
     {
@@ -64,8 +64,8 @@
       "kind": "software",
       "author": "Christoph Guttandin",
       "license": "MIT",
-      "licenseUrl": "https://github.com/chrisguttandin/standardized-audio-context/blob/master/LICENSE",
-      "url": "https://github.com/chrisguttandin/standardized-audio-context",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://www.npmjs.com/package/standardized-audio-context",
       "usedFor": "A consistent Web Audio API across browsers"
     },
     {
@@ -74,8 +74,8 @@
       "kind": "software",
       "author": "Alex Zhukov, the LAME project and contributors",
       "license": "LGPL-3.0",
-      "licenseUrl": "https://github.com/shijinyu/lamejs/blob/master/LICENSE",
-      "url": "https://github.com/shijinyu/lamejs",
+      "licenseUrl": "https://www.gnu.org/licenses/lgpl-3.0.html",
+      "url": "https://www.npmjs.com/package/@breezystack/lamejs",
       "usedFor": "MP3 export",
       "source": "Version 1.2.7, unmodified; runs in its own worker file (the MP3 encoder) that can be replaced"
     },
@@ -85,8 +85,8 @@
       "kind": "software",
       "author": "Arjun Barrett",
       "license": "MIT",
-      "licenseUrl": "https://github.com/101arrowz/fflate/blob/master/LICENSE",
-      "url": "https://github.com/101arrowz/fflate",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://www.npmjs.com/package/fflate",
       "usedFor": "ZIP files (stems)"
     },
     {
@@ -95,7 +95,7 @@
       "kind": "software",
       "author": "Vercel and contributors",
       "license": "MIT",
-      "licenseUrl": "https://github.com/vercel/next.js/blob/canary/license.md",
+      "licenseUrl": "https://opensource.org/license/mit",
       "url": "https://nextjs.org",
       "usedFor": "The app framework"
     },
@@ -105,7 +105,7 @@
       "kind": "software",
       "author": "Meta Platforms, Inc. and affiliates",
       "license": "MIT",
-      "licenseUrl": "https://github.com/facebook/react/blob/main/LICENSE",
+      "licenseUrl": "https://opensource.org/license/mit",
       "url": "https://react.dev",
       "usedFor": "The interface"
     },
@@ -125,7 +125,7 @@
       "kind": "font",
       "author": "Vercel",
       "license": "SIL OFL 1.1",
-      "licenseUrl": "https://github.com/vercel/geist-font/blob/main/OFL.txt",
+      "licenseUrl": "https://openfontlicense.org/open-font-license-official-text/",
       "url": "https://vercel.com/font",
       "usedFor": "The interface typeface"
     },
@@ -135,7 +135,7 @@
       "kind": "font",
       "author": "Florian Karsten",
       "license": "SIL OFL 1.1",
-      "licenseUrl": "https://github.com/floriankarsten/space-grotesk/blob/master/OFL.txt",
+      "licenseUrl": "https://openfontlicense.org/open-font-license-official-text/",
       "url": "https://fonts.google.com/specimen/Space+Grotesk",
       "usedFor": "The plugin windows and the website's text"
     },
@@ -145,7 +145,7 @@
       "kind": "font",
       "author": "Undercase Type (Phaedra Charles and Flavia Zimbardi)",
       "license": "SIL OFL 1.1",
-      "licenseUrl": "https://github.com/undercasetype/Fraunces/blob/master/OFL.txt",
+      "licenseUrl": "https://openfontlicense.org/open-font-license-official-text/",
       "url": "https://fonts.google.com/specimen/Fraunces",
       "usedFor": "Plugin window titles and the website's headings"
     },
@@ -155,7 +155,7 @@
       "kind": "font",
       "author": "JetBrains",
       "license": "SIL OFL 1.1",
-      "licenseUrl": "https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt",
+      "licenseUrl": "https://openfontlicense.org/open-font-license-official-text/",
       "url": "https://www.jetbrains.com/lp/mono/",
       "usedFor": "Numbers and file names on the website"
     },
@@ -165,7 +165,6 @@
       "kind": "original",
       "author": "Angel Fernando Zuñiga Navarro (The Dawn Project)",
       "license": "All rights reserved; free to use in your music",
-      "url": "https://github.com/angelzxz1/The_Dawn_Proyect",
       "usedFor": "Drum Rack kits (synthesized), the groove library, the cabinet IRs, Daybreak wavetables and presets, effect presets and chains",
       "source": "Made for Dawn; generated in code, no third-party recordings",
       "added": "2026-09-30"

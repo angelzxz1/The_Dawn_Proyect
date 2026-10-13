@@ -1,10 +1,10 @@
 // Where "Support Dawn" and "Feedback" go. The pages are set per deployment
 // with environment variables (docs/deploy.md): a button only shows once its
-// page exists. Feedback always works - without a form it opens a GitHub
-// issue - and arrives with the browser and Dawn's version filled in.
+// page exists. Feedback, bug reports and ideas all go to Dawn's Discord,
+// with the browser and Dawn's version ready to paste (feedbackDetails).
 
 export interface SupportLink {
-  id: "patreon" | "github" | "kofi" | "discord";
+  id: "patreon" | "kofi" | "discord";
   label: string;
   url: string;
   hint: string;
@@ -12,10 +12,8 @@ export interface SupportLink {
 
 const env = {
   patreon: process.env.NEXT_PUBLIC_PATREON_URL ?? "",
-  github: process.env.NEXT_PUBLIC_GITHUB_SPONSORS_URL ?? "",
   kofi: process.env.NEXT_PUBLIC_KOFI_URL ?? "",
   discord: process.env.NEXT_PUBLIC_DISCORD_URL ?? "",
-  feedback: process.env.NEXT_PUBLIC_FEEDBACK_URL ?? "",
   contact: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "",
   version: process.env.NEXT_PUBLIC_APP_VERSION ?? "dev",
 };
@@ -26,20 +24,16 @@ const https = (u: string) => (/^https:\/\//.test(u) ? u : "");
 export function supportLinks(): SupportLink[] {
   const all: SupportLink[] = [
     { id: "patreon", label: "Patreon", url: https(env.patreon), hint: "Monthly support, packs and early access" },
-    { id: "github", label: "GitHub Sponsors", url: https(env.github), hint: "Sponsor from your GitHub account" },
     { id: "kofi", label: "Ko-fi", url: https(env.kofi), hint: "A one-time tip" },
   ];
   return all.filter((l) => l.url);
 }
 
-/** Where memberships are run, for "Memberships run on ...": the membership
- * pages that are set, or Patreon until one is (its button reads "opening
- * soon" meanwhile). Ko-fi is for one-time tips, so it isn't one. */
+/** Where memberships are run, for "Memberships run on ...": Patreon (its
+ * button reads "opening soon" until its page is set). Ko-fi is for one-time
+ * tips, so it isn't one. */
 export function membershipPlatforms(): string[] {
-  const names = supportLinks()
-    .filter((l) => l.id === "patreon" || l.id === "github")
-    .map((l) => l.label);
-  return names.length ? names : ["Patreon"];
+  return ["Patreon"];
 }
 
 export function communityLink(): SupportLink | null {
@@ -52,8 +46,6 @@ export function communityLink(): SupportLink | null {
 export function contactEmail(): string {
   return /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i.test(env.contact) ? env.contact : "";
 }
-
-export const ISSUES_URL = "https://github.com/angelzxz1/The_Dawn_Proyect/issues";
 
 /** "Chrome 141 on Windows" from a user-agent string. */
 export function describeBrowser(ua: string): string {
@@ -80,21 +72,12 @@ export function describeBrowser(ua: string): string {
   return `${browser} on ${os}`;
 }
 
-/** The feedback page with the browser and version filled in: the
- * deployment's form (as query parameters a form tool can prefill from),
- * or a new GitHub issue. */
-export function feedbackUrl(ua: string, brave = false, problems = ""): string {
+/** What to paste into a Discord post about a problem or an idea: Dawn's
+ * version, the browser, and any problems Dawn noted lately. (A Discord
+ * invite can't carry text, so the feedback window offers to copy it.) */
+export function feedbackDetails(ua: string, brave = false, problems = ""): string {
   const browser = `${describeBrowser(ua)}${brave ? " (Brave)" : ""}`;
-  const form = https(env.feedback);
-  if (form) {
-    const url = new URL(form);
-    url.searchParams.set("browser", browser);
-    url.searchParams.set("version", env.version);
-    if (problems) url.searchParams.set("problems", problems);
-    return url.toString();
-  }
-  const body = `**What happened, or what would you like?**\n\n\n\n---\nDawn ${env.version} · ${browser}${problems ? `\nRecent problems: ${problems}` : ""}`;
-  return `${ISSUES_URL}/new?${new URLSearchParams({ title: "Feedback: ", body }).toString()}`;
+  return `Dawn ${env.version} · ${browser}${problems ? `\nRecent problems: ${problems}` : ""}`;
 }
 
 const POST_EXPORT_KEY = "dawn.supportAsked";

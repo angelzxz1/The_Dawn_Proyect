@@ -2,11 +2,9 @@
 // community pages are set per deployment (docs/deploy.md), and a button whose
 // page isn't set up yet isn't shown.
 
-import { communityLink, ISSUES_URL, supportLinks, type SupportLink } from "../services/support";
+import { communityLink, supportLinks, type SupportLink } from "../services/support";
 
 export const APP_PATH = "/app";
-export const REPO_URL = "https://github.com/angelzxz1/The_Dawn_Proyect";
-export { ISSUES_URL };
 
 const https = (u: string | undefined) => (u && /^https:\/\//.test(u) ? u : "");
 

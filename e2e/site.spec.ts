@@ -25,3 +25,22 @@ test("Open Dawn leads to the studio", async ({ page }) => {
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByRole("dialog", { name: "Start" })).toBeVisible();
 });
+
+test("no page links to or mentions GitHub: feedback goes to the Discord", async ({ page }) => {
+  for (const path of PAGES) {
+    await page.goto(path);
+    await expect(page.locator('a[href*="github"]'), path).toHaveCount(0);
+    expect(await page.locator("body").innerText(), path).not.toMatch(/github/i);
+  }
+});
+
+test("the studio's About window doesn't mention GitHub either", async ({ page, studio }) => {
+  await studio.open();
+  await page.getByRole("button", { name: "About", exact: true }).click();
+  const about = page.getByRole("dialog", { name: "About The Dawn Project" });
+  for (const tab of ["About", "What's new", "Credits", "Privacy", "License"]) {
+    await about.getByRole("tab", { name: tab }).click();
+    await expect(about.locator('a[href*="github"]'), tab).toHaveCount(0);
+    expect(await about.innerText(), tab).not.toMatch(/github/i);
+  }
+});

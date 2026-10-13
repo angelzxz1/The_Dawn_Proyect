@@ -155,6 +155,10 @@ appear once theirs are set. Keep the tiers and prices in
 After an export, Dawn thanks the person and offers the first support page,
 at most once per visit and never in the way of the download.
 
+Members' names go in `src/content/supporters.json` (Producer members under
+`producers`, Supporter and Studio members under `supporters`), not in an
+environment variable: the Credits show them from the next build.
+
 ## The demo song
 
 The plan's first-run experience opens a demo song on the very first visit.

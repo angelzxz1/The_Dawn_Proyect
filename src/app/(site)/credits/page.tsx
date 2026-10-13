@@ -4,7 +4,7 @@ import { LegalPage } from "@/site/LegalPage";
 
 export const metadata: Metadata = {
   title: "Credits",
-  description: "The libraries, sounds and fonts The Dawn Project is built on, and their licenses.",
+  description: "The members who keep The Dawn Project going, and the libraries, sounds and fonts it's built on, with their licenses.",
 };
 
 export default function CreditsPage() {

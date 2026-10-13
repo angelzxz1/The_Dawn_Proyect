@@ -44,3 +44,13 @@ test("the studio's About window doesn't mention GitHub either", async ({ page, s
     expect(await about.innerText(), tab).not.toMatch(/github/i);
   }
 });
+
+test("the credits thank the members, Producers first, before the software", async ({ page }) => {
+  await page.goto("/credits");
+  const top = async (name: string) => (await page.getByRole("region", { name }).boundingBox())!.y;
+  const producers = await top("Producers");
+  const supporters = await top("Supporters");
+  const software = (await page.getByRole("heading", { name: "Software", exact: true }).boundingBox())!.y;
+  expect(producers).toBeLessThan(supporters);
+  expect(supporters).toBeLessThan(software);
+});

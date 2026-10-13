@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { CREDIT_KINDS, creditsOfKind } from "@/content/credits";
+import { MEMBERS } from "@/content/supporters";
 import { PrivacyPolicy } from "@/site/PrivacyPolicy";
 import { communityLink } from "@/services/support";
 import { SupportSection, WhatsNew } from "./SupportViews";
@@ -59,12 +60,51 @@ function AboutTabBody({ extra }: { extra?: ReactNode }) {
   );
 }
 
+/** The members thanked by name: Producers, then Supporters (supporters.json),
+ * each with an invitation while it's empty. */
+function Members() {
+  const lists = [
+    { title: "Producers", names: MEMBERS.producers, invite: "Producer members are thanked here, first, by name.", big: true },
+    { title: "Supporters", names: MEMBERS.supporters, invite: "Supporter and Studio members are thanked here by name.", big: false },
+  ];
+  return (
+    <>
+      {lists.map(({ title, names, invite, big }) => (
+        <section key={title} aria-label={title} className="flex flex-col gap-2">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted">{title}</h3>
+          {names.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5">
+              {names.map((name) => (
+                <li
+                  key={name}
+                  className={
+                    big
+                      ? "rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-[14px] font-semibold text-foreground"
+                      : "rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-foreground"
+                  }
+                >
+                  {name}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[11.5px] text-muted">
+              {invite} <Link href="/support#tiers">See the memberships</Link>.
+            </p>
+          )}
+        </section>
+      ))}
+    </>
+  );
+}
+
 export function CreditsTabBody() {
   return (
     <div className="flex flex-col gap-5">
       <p className="text-[12.5px] leading-relaxed text-muted">
-        Dawn is built on the work of these people and projects. Thank you.
+        Dawn is kept going by its members, and built on the work of these people and projects. Thank you.
       </p>
+      <Members />
       {CREDIT_KINDS.map(({ kind, title }) => {
         const list = creditsOfKind(kind);
         if (list.length === 0) return null;

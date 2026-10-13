@@ -1115,3 +1115,9 @@ new sound (captures, IRs, samples, kits); a unit test checks the list is
 complete. Licensed amp captures and IRs go in `public/tones/` and are listed
 in `public/tones/manifest.json` (see [docs/tones.md](docs/tones.md)). The
 privacy policy is at `/privacy` and under **About → Privacy**.
+
+The Credits also thank the members by name, as their tiers promise:
+**Producers** first, then **Supporters** (Supporter and Studio members). Add
+names to [`src/content/supporters.json`](src/content/supporters.json), the
+way each person wants to be credited; they show in the app and at `/credits`
+from the next build.

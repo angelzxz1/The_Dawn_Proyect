@@ -2,7 +2,7 @@
 // a long song encodes. Receives { channels, sampleRate, kbps } and posts
 // { progress } updates, then { parts } (or { error }).
 
-import { encodeMp3Frames } from "../lib/mp3Encode";
+import { encodeMp3Frames } from "../export/mp3Encode";
 
 self.onmessage = (e: MessageEvent<{ channels: Float32Array[]; sampleRate: number; kbps: number }>) => {
   const { channels, sampleRate, kbps } = e.data;

@@ -3,10 +3,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { LANDING_FAQ_IDS } from "@/content/faq";
 import { TIERS } from "@/content/tiers";
-import { ChainChips, EqCurve, FileTree } from "@/components/site/illustrations";
-import { FaqAccordion, OpenStudioIfInstalled, Tiers } from "@/components/site/interactive";
-import { CheckIcon, Container, CtaBand, Eyebrow, OpenDawn, SectionHead, Sun, h2Class, leadClass, secondaryButton } from "@/components/site/ui";
-import { DEMO_VIDEO_URL, supportLink } from "@/lib/siteLinks";
+import { ChainChips, EqCurve, FileTree } from "@/site/illustrations";
+import { FaqAccordion, OpenStudioIfInstalled, Tiers } from "@/site/interactive";
+import { CheckIcon, Container, CtaBand, Eyebrow, OpenDawn, SectionHead, Sun, h2Class, leadClass, secondaryButton } from "@/site/ui";
+import { DEMO_VIDEO_URL, supportLink } from "@/site/siteLinks";
 
 export const metadata: Metadata = {
   title: { absolute: "The Dawn Project — Your studio, one tab away" },
@@ -55,7 +55,6 @@ function FeatureCard({ eyebrow, title, text, children }: { eyebrow: string; titl
 export default function Home() {
   const others: [string, string][] = (
     [
-      ["github", "GitHub Sponsors"],
       ["kofi", "Ko-fi"],
       ["discord", "Join the Discord"],
     ] as const

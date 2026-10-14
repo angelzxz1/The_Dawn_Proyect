@@ -19,7 +19,7 @@ export default function StudioError({
   useEffect(() => {
     console.error(error);
     // Loaded on demand, like the recovery code below.
-    void import("@/lib/telemetry").then((t) => {
+    void import("@/services/telemetry").then((t) => {
       t.startTelemetry();
       t.reportError(error, "crash");
       t.track("error_shown", { area: "crash" });
@@ -31,7 +31,7 @@ export default function StudioError({
     try {
       // Loaded on demand so this fallback stays tiny and can't be broken by
       // the same code that just crashed.
-      const { startFreshKeepingBackup } = await import("@/lib/projectRecovery");
+      const { startFreshKeepingBackup } = await import("@/project/projectRecovery");
       await startFreshKeepingBackup(`The studio crashed: ${error.message || "unknown error"}.`);
     } catch {
       setResetting(false);

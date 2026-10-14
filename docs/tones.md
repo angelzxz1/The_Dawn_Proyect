@@ -55,7 +55,7 @@ entries, checks every file loads in the NAM Amp or IR Loader, and commits.
 ## 2. Supporter packs (Patreon)
 
 Monthly packs shouldn't go in the public repository. They're `.dawnpack`
-files (see `src/lib/dawnPack.ts` for the format) that supporters download
+files (see `src/project/dawnPack.ts` for the format) that supporters download
 from Patreon and install with **File → Sound Packs**: captures go in
 `nam/`, IRs in `irs/`, plus any presets, kits and grooves. Ask Claude to
 build one from a folder of files.

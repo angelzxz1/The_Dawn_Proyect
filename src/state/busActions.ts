@@ -2,7 +2,7 @@
 // undo step. (Its effects are effectActions'; a track's send level to it
 // is trackActions.setSend.)
 
-import { audioEngine } from "@/lib/audioEngine";
+import { audioEngine } from "@/engine/audioEngine";
 import { newBusId } from "./ids";
 import { projectStore } from "./projectStore";
 

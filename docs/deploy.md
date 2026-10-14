@@ -118,37 +118,46 @@ The events, their properties, and what they answer:
 | `support_link_clicked`, `feedback_opened` | `where` | Is the support ask visible? |
 | `error_shown` | `area` | What's breaking? |
 
-`src/lib/telemetry.ts` only accepts these property names, each holding a
+`src/services/telemetry.ts` only accepts these property names, each holding a
 short code, so names, paths and typed text can't end up in an event. Error
 reports carry the error message with file names and quoted text removed,
 the stack, the browser string and the release, and at most ten are sent per
 visit. People can switch both off in **About → Privacy**, and nothing is
 sent when the browser sends Do Not Track or Global Privacy Control. If you
 change what's collected, update the privacy policy
-(`src/components/PrivacyPolicy.tsx`) and its date.
+(`src/site/PrivacyPolicy.tsx`) and its date.
 
 ## Support, community and feedback links
 
 These are optional too. A Support button (in the header, the About window and
-the note after an export) appears once at least one page is set, and the
-Discord button once its invite is. Use full `https://` addresses.
+the note after an export) appears once at least one page is set. Use full
+`https://` addresses.
+
+Feedback, bug reports and ideas all go to the Discord: the studio's
+**Feedback** button and **Help → Report a problem**, and the website's Discord
+buttons, appear once `NEXT_PUBLIC_DISCORD_URL` is set. Feedback opens the
+Discord and copies the person's browser, Dawn's version and any recent
+problems, ready to paste into their post.
 
 On the website, the membership buttons go to the Patreon page and read
-"Memberships open soon" until it's set; the Ko-fi, GitHub Sponsors and
-Discord buttons only appear once theirs are set. Keep the tiers and prices in
+"Memberships open soon" until it's set; the Ko-fi and Discord buttons only
+appear once theirs are set. Keep the tiers and prices in
 `src/content/tiers.ts` in step with Patreon.
 
 | Variable | Page |
 | --- | --- |
 | `NEXT_PUBLIC_PATREON_URL` | Patreon (shown first) |
-| `NEXT_PUBLIC_GITHUB_SPONSORS_URL` | GitHub Sponsors |
 | `NEXT_PUBLIC_KOFI_URL` | Ko-fi |
-| `NEXT_PUBLIC_DISCORD_URL` | The Discord invite |
+| `NEXT_PUBLIC_DISCORD_URL` | The Discord invite, where feedback and bug reports go |
 | `NEXT_PUBLIC_DEMO_VIDEO_URL` | The 60-second demo video (YouTube or similar). The landing page's "Watch the demo" button and video card only show once it's set. |
-| `NEXT_PUBLIC_FEEDBACK_URL` | A feedback form (Tally, Google Forms…). Dawn adds `browser` and `version` query parameters, which Tally can use as hidden fields. Without it, **Feedback** opens a new GitHub issue with the same details filled in. |
+| `NEXT_PUBLIC_CONTACT_EMAIL` | An address people can write to, for example `hello@thedawnproject.app`. The Support page's **Share your tones** opens an email to it (creators send files and permission that way); without it, that card goes to the Discord. |
 
 After an export, Dawn thanks the person and offers the first support page,
 at most once per visit and never in the way of the download.
+
+Members' names go in `src/content/supporters.json` (Producer members under
+`producers`, Supporter and Studio members under `supporters`), not in an
+environment variable: the Credits show them from the next build.
 
 ## The demo song
 

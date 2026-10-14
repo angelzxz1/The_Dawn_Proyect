@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PERKS, TIERS } from "@/content/tiers";
-import { PackCover } from "@/components/site/illustrations";
-import { Tiers } from "@/components/site/interactive";
-import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/components/site/ui";
-import { ISSUES_URL, REPO_URL, supportLink } from "@/lib/siteLinks";
+import { PackCover } from "@/site/illustrations";
+import { Tiers } from "@/site/interactive";
+import { CheckIcon, Container, CtaBand, Eyebrow, PageIntro, SectionHead, h2Class, leadClass, primaryButton, secondaryButton } from "@/site/ui";
+import { supportLink } from "@/site/siteLinks";
+import { contactEmail, membershipPlatforms } from "@/services/support";
 
 export const metadata: Metadata = {
   title: "Support",
@@ -28,15 +29,17 @@ const PACKS: [string, string][] = [
 
 export default function SupportPage() {
   const kofi = supportLink("kofi");
-  const sponsors = supportLink("github");
   const discord = supportLink("discord");
-  // Each card shows only once its page exists; the last two always work.
+  const email = contactEmail();
+  // Tone creators send files and give permission to use them, so email
+  // (which keeps a record) comes first.
+  const tones = email ? `mailto:${email}?subject=${encodeURIComponent("Tones for Dawn")}` : discord;
+  // Each card shows only once its page exists; the last always does.
   const ways: { label: string; title: string; text: string; href: string; external?: boolean }[] = [
     { label: "Ko-fi", title: "Leave a one-time tip", text: "Prefer not to subscribe? A single tip helps just as much.", href: kofi, external: true },
-    { label: "GitHub Sponsors", title: "Sponsor on GitHub", text: "For developers who found Dawn through the code.", href: sponsors, external: true },
     { label: "Discord", title: "Share your demo", text: "Post it in #share-your-demos and join the monthly Demo Challenge.", href: discord, external: true },
-    { label: discord ? "Discord or GitHub" : "GitHub", title: "Report a bug", text: "Every clear bug report makes Dawn better for everyone.", href: discord || ISSUES_URL, external: true },
-    { label: "Creators", title: "Share your tones", text: "Make NAM captures or IRs? Let's feature them in Dawn, with credit.", href: discord || ISSUES_URL, external: true },
+    { label: "Discord", title: "Report a bug", text: "Every clear bug report makes Dawn better for everyone. Post it in #bug-reports.", href: discord, external: true },
+    { label: "Creators", title: "Share your tones", text: "Make NAM captures or IRs? Let's feature them in Dawn, with credit.", href: tones, external: true },
     { label: "Anyone", title: "Tell a friend", text: 'Send Dawn to the bandmate who always says "record it later".', href: "/" },
   ].filter((w) => w.href);
 
@@ -88,7 +91,7 @@ export default function SupportPage() {
         <Container className="flex flex-col gap-6">
           <SectionHead id="tiers-h" eyebrow="Memberships" title="Pick what feels right." />
           <Tiers tiers={TIERS} variant="billing" />
-          <p className="text-[14px] text-muted">Memberships run on Patreon and GitHub Sponsors. Cancel any time. Prices in USD; taxes may apply.</p>
+          <p className="text-[14px] text-muted">Memberships run on {membershipPlatforms().join(" and ")}. Cancel any time. Prices in USD; taxes may apply.</p>
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full min-w-[640px] border-collapse text-left">
               <caption className="px-4 pt-4 text-left font-display text-[20px] font-semibold text-foreground">Compare tiers</caption>
@@ -172,7 +175,7 @@ export default function SupportPage() {
               );
               const className = "flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 no-underline hover:border-accent";
               return w.external ? (
-                <a key={w.title} href={w.href} target="_blank" rel="noreferrer" className={className}>
+                <a key={w.title} href={w.href} {...(w.href.startsWith("mailto:") ? {} : { target: "_blank", rel: "noreferrer" })} className={className}>
                   {inner}
                 </a>
               ) : (
@@ -198,9 +201,11 @@ export default function SupportPage() {
               <Link href="/faq" className={secondaryButton}>
                 Read the FAQ
               </Link>
-              <a href={REPO_URL} target="_blank" rel="noreferrer" className={secondaryButton}>
-                Dawn on GitHub
-              </a>
+              {discord && (
+                <a href={discord} target="_blank" rel="noreferrer" className={secondaryButton}>
+                  Join the Discord
+                </a>
+              )}
             </div>
           </div>
         </Container>

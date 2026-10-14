@@ -8,7 +8,7 @@ and no account is needed: the sound is made on your machine with the Web
 Audio API.
 
 It's built with [Next.js](https://nextjs.org) and
-[Tone.js](https://tonejs.github.io/), and its workflow borrows from Ableton
+[Tone.js](https://www.npmjs.com/package/tone), and its workflow borrows from Ableton
 Live and Reaper.
 
 ## Contents
@@ -465,7 +465,7 @@ The app works best in **Chrome** or **Edge** on a desktop computer.
 - **Header.** The **File** menu, the project's name (a dot means unsaved
   changes), the audio engine's load and latency, and **Export**.
 - **Transport.** Record, play/pause, stop, metronome, loop, tempo, time
-  signature and count-in.
+  signature, count-in, and the click's level.
 - **Effect browser** (left). Every effect and preset, with a search box.
 - **Arrangement.** The ruler, then one row per track: its header on the left
   (name, color, arm, monitor, mute, solo, FX, input, import and export) and
@@ -496,9 +496,11 @@ Project**, the start screen offers four templates:
 It also opens a project folder, lists recent projects, and links to this
 guide. Close it to keep what's on screen.
 
-The header's **Feedback** button opens a form (or a GitHub issue) with your
-browser and Dawn's version filled in, and **About** has the credits, privacy
-policy, license and **What's new**, which also opens once after an update.
+Feedback, bug reports and ideas go on Dawn's Discord. Once the site has a
+Discord invite, the header's **Feedback** button shows: it opens the Discord
+and copies your browser, Dawn's version and any recent problems, ready to
+paste into your post. **About** has the credits, privacy policy, license and
+**What's new**, which also opens once after an update.
 
 ### Projects
 
@@ -602,9 +604,12 @@ Everything the synth can do is described in
 2. Optionally, set a **count-in** (bars of clicks before recording starts)
    and turn on the **metronome**. The metronome accents each bar's first
    beat by where you are in the song, wherever you start playing. Its clicks
-   are queued ahead on the audio clock, so a busy moment on the page (like
-   the start of a recording) can't delay or drop one. Recording always runs
-   straight through, even with the loop on.
+   are made on the audio thread, each placed at its exact sample, so a busy
+   moment on the page (like the start of a recording) or a tab in the
+   background can't delay or drop one. **Click** next to the count-in sets
+   how loud the metronome and count-in are (from −30 to +3 dB, double-click
+   to reset); it's kept on this computer, not in the project. Recording
+   always runs straight through, even with the loop on.
 3. Click the ruler where you want to start (the marker), then press
    **Record**. Recording starts at the marker, like Ableton; the count-in
    plays the bars just before it, on the beat grid, so starting mid-bar
@@ -628,12 +633,36 @@ For audio:
   project never asks for the microphone).
 - A take recorded from another track is stereo (or mono, when both sides
   came out the same); the audio interface is recorded in mono.
-- Recordings are lined up with the beat automatically, using the latency the
-  browser reports. If they still land early or late on your hardware, set a
-  **recording offset** in the audio settings, next to the engine-load
-  display in the header.
+- Recordings are lined up with the beat automatically: each take is moved
+  earlier by your setup's round trip (the time from Dawn's output to the
+  speakers, and from the mic back into Dawn). Until you measure it, that's
+  the browser's estimate, which is often too short, so takes land a little
+  late. After a take from the audio interface, a note offers **Measure
+  latency…**, which opens the audio settings at it: point your speakers at
+  the mic (or connect the interface's output to its input with a cable) and
+  Dawn plays 5 clicks and times them. It's measured once per computer. To
+  nudge takes further, set a **recording offset** there too. Bluetooth
+  headphones add 100 ms or more; wired ones are better for recording.
 
 ### Editing clips
+
+The **edit tools**, next to the zoom buttons above the tracks, set what a
+click or a drag does, as in Logic or FL Studio. Pick one there or with
+**Shift+1** to **Shift+5**; **Esc** goes back to the pointer.
+
+- **Pointer** (Shift+1): select, move and resize clips, as below.
+- **Split** (Shift+2): click a clip to cut it in two there. A line shows
+  where; the cut lands on the grid, unless that's the clip's end.
+- **Draw** (Shift+3): drag on an empty part of a MIDI lane to draw an empty
+  clip, from grid line to grid line; a click draws one bar.
+- **Erase** (Shift+4): click a clip to delete it, or drag across clips (on
+  any tracks) to delete them all, as one undo step.
+- **Slip** (Shift+5): drag inside a clip to slide what's in it, on the grid,
+  while the clip stays where it is: an audio clip shows an earlier or later
+  part of its recording, a MIDI clip's notes move. Notes slid out of the clip
+  don't play, and come back when slid back.
+
+With the pointer:
 
 - **Select.** Click a clip to select it. Ctrl/Cmd-click selects more.
 - **Move.** Drag the clip. Moves snap to the grid chosen in **Snap** (off,
@@ -688,7 +717,8 @@ Double-click a MIDI clip to open it.
 - **Draw mode** (pencil): click and drag on the grid to draw a note.
 - **Select mode** (arrow): drag a box around notes to select them, then drag
   them to move them.
-- Press **B** to switch between the two modes.
+- Switch between the two with the **Draw** and **Select** buttons in the
+  toolbar, or press **B**.
 - **Arrow keys** nudge the selected notes by a semitone or a 1/16 note.
 - **Q** quantizes the notes to the chosen resolution (1/4 to 1/32).
 - **Shift-click** notes to add them to (or take them out of) the selection.
@@ -702,7 +732,17 @@ Double-click a MIDI clip to open it.
   of them by the same amount, and the **Velocity** box in the toolbar shows
   the selection's velocity (or its range) and sets them all to a typed
   value. The dotted line marks velocity 100.
-- **Zoom** with the + and − buttons, and press **Space** to play or stop.
+- The **overview** above the ruler shows the whole clip, with a box around
+  the part on screen, as in Ableton. Drag the box to scroll, drag either of
+  its edges to zoom in or out (the other edge stays put), click outside it to
+  jump there, and double-click it to see the whole clip. The wheel scrolls
+  the notes up and down, Shift+wheel (or a trackpad's sideways swipe)
+  scrolls through time, and Ctrl/Cmd+wheel zooms around the pointer, as do
+  the + and − buttons around the middle.
+- Press **Space** to play or stop. With **Follow** on (the default), the
+  view turns a page each time the playhead reaches its right edge. If you
+  scroll away while it plays, the view stays where you put it until the
+  playhead comes back into it.
 
 ### Effects
 
@@ -847,11 +887,13 @@ From there you can:
 - turn on **reduced latency when monitoring**, so the monitored or armed
   track (and the group or track it plays through) skips the wait added for
   other tracks' effects;
+- **measure the latency** (the round trip from output to input), which
+  lines recordings up better than the browser's estimate;
 - set the **recording offset**.
 
 ## Keyboard shortcuts
 
-They all go through one place (`src/lib/shortcuts.ts`), in layers: a menu
+They all go through one place (`src/ui/shortcuts.ts`), in layers: a menu
 takes a key before the window under it, and a dialog, the piano roll or the
 tour keeps the studio's keys (Space, R...) from acting behind it. Ctrl/Cmd+S
 and Ctrl/Cmd+O work everywhere but in the tour.
@@ -868,6 +910,8 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Ctrl/Cmd+V | Paste the copied clip at the playhead |
 | Ctrl/Cmd+D | Duplicate the selected clips |
 | Ctrl/Cmd+L | Loop the selected clips, or switch the loop on/off |
+| Shift+1 … Shift+5 | Edit tool: pointer, split, draw, erase, slip |
+| Esc | Back to the pointer tool |
 | Ctrl/Cmd-click a track header | Pick tracks to group (Esc forgets them) |
 | Ctrl/Cmd+G | Group the picked tracks, or the selected one |
 | Up / Down (loop brace selected) | Move the loop by its own length |
@@ -891,12 +935,14 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Ctrl/Cmd+C, Ctrl/Cmd+V | Copy / paste notes (at the insert marker, else the playhead) |
 | Esc | Remove the insert marker |
 | Space | Play / stop |
+| Shift+wheel | Scroll through time |
+| Ctrl/Cmd+wheel | Zoom around the pointer |
 
 ## How it works
 
 ### Audio engine
 
-- **Tone.js runs the core.** `src/lib/audioEngine.ts` owns the transport,
+- **Tone.js runs the core.** `src/engine/audioEngine.ts` owns the transport,
   each track's signal chain (instrument → effects → volume/pan → sends), the
   buses and the master.
 - **Scheduling.** Clips are scheduled on the Tone transport. MIDI you play
@@ -958,33 +1004,115 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 ## Development
 
 ```bash
-npm run dev     # start the dev server
-npm test        # unit tests (Vitest): DSP kernels, routing, latency, presets, project files
-npm run lint    # ESLint
-npm run build   # static site in out/ (see docs/deploy.md)
-npm start       # serve out/ locally
+npm run dev       # start the dev server
+npm test          # unit and component tests (Vitest)
+npm run test:unit # just the unit tests: DSP kernels, routing, latency, presets, project files
+npm run test:components # just the component tests: piano roll, track header, FX rack
+npm run test:e2e  # browser tests (Playwright) on the build in out/ - run npm run build first
+npm run typecheck # TypeScript
+npm run lint      # ESLint
+npm run build     # static site in out/ (see docs/deploy.md)
+npm start         # serve out/ locally
 ```
 
-- `src/app/`: the Next.js App Router entry (the whole app is one client page).
-- `src/components/`:
-  - `Daw.tsx`, which holds the app's state;
-  - the arrangement, transport, piano roll and FX rack;
-  - each plugin's rack card, window and graphs.
-- `src/lib/`:
-  - the audio engine and each effect's engine node;
-  - DSP models (`*Model.ts`) with their tests;
-  - the project schema, persistence, project files, MIDI and WAV I/O.
+The unit tests run in Node. The component tests draw one component at a
+time in Chromium, with the app's styles, and check what clicking, dragging
+and typing on it does (`*.test.tsx`, next to the component). They and the
+browser tests need Chromium once: `npx playwright install chromium`.
+
+Every push is checked on GitHub (`.github/workflows/ci.yml`, the Actions
+tab): one job runs the typecheck, lint, unit and component tests, another
+builds the site and runs the browser tests. When the browser tests fail, the run's
+page has their report to download, with a screenshot and a step-by-step
+trace of each failure (open a trace with `npx playwright show-trace`).
+
+- `src/app/`: the Next.js App Router entry: the website's pages and the
+  app itself (`/app`, one client page).
+- `src/studio/`: the DAW screen. `Daw.tsx` puts it together; the rest is
+  grouped by area: `transport/`, `timeline/` (ruler, clips, playhead, row
+  and zoom sizes), `tracks/` (track headers and lanes, meters, the master
+  and bus row), `rack/` (the FX rack, effect windows, effect and groove
+  browsers), `notes/` (piano roll, on-screen keyboard, note input),
+  `dialogs/` (export, project menu, start screen, packs, about and
+  support) and `shell/` (tour, updates, the phone notice, the context
+  menu).
+- `src/state/`: the project store and its actions (tracks, clips, effects,
+  buses), with undo and redo, and the copy/paste clipboard.
+- `src/effects/`: every audio effect, one folder each (`compressor/`,
+  `delay/`, `furnace/`, `nam-amp/`...). A folder holds the effect's DSP
+  model and kernel, its audio node, its rack card, window and graphs, and
+  their tests, plus three small files that describe it to the rest of the
+  app:
+  - `index.ts`: what it is (its saved key, name, browser group,
+    parameters, and whether it takes a sidechain or a file);
+  - `audio.ts`: how its audio node is built and a parameter applied;
+  - `ui.ts`: its rack card, window and card width.
+
+  They're collected by `registry.ts` (effect types, groups, labels and
+  parameters), `nodes.ts` (builds any effect's node) and `ui/registry.ts`
+  (cards and windows). To add an effect, give it a folder with those three
+  files and add one line to each of the three collectors; leaving one out
+  is a type error. Alongside them: `types.ts` and `format.ts` (shared
+  shapes and value formatting), `presets.ts`, `chains.ts`, `effectFiles.ts`,
+  `ui/` (what their cards and windows share: window chrome, preset menu,
+  file slot) and `sidechain/`.
+- `src/instruments/`: the instruments, one folder each (`synth/`,
+  `drum-rack/`, `piano/`), holding their DSP, presets or kits, windows and
+  rack cards. Like the effects, each describes itself in three files:
+  `index.ts` (its saved key, name, and the settings it keeps on the track:
+  the synth's patch, the Drum Rack's kit), `audio.ts` (how its sound source
+  is built and new settings applied) and `ui.tsx` (its picker icon, rack
+  card and window). `registry.ts`, `nodes.ts` and `ui/registry.ts` collect
+  them; `instrument.ts` is the interface the engine plays them through.
+- `src/engine/`: the audio engine (`audioEngine.ts`): transport, track
+  strips, inputs and recording, mixing and routing, delay compensation,
+  the metronome, decoding audio files and their waveforms, and
+  `engineSync.ts`, which makes it match the project.
+- `src/project/`: what a project is made of and how it's kept: its types
+  (`types.ts`: tracks, clips, notes, automation), musical time and the snap
+  grid, the arrangement loop, scales, track colors and automation targets;
+  the schema, saving and loading (autosave, project files, recovery),
+  packs, templates and the demo song.
+- `src/export/`: rendering the mix offline (`bounce.ts`), WAV and MP3
+  encoding, and MIDI files; `src/workers/` runs the MP3 encoder.
+- `src/library/`: the groove library and the bundled tones.
+- `src/site/`: the website's shared parts (header and footer, legal pages,
+  the privacy policy the app shows too, fonts, links).
+- `src/content/`: text and data the site and app show (FAQ, membership
+  tiers, licenses and credits, what's new).
+- `src/ui/`: controls shared by the studio, effects and instruments: the
+  keyboard shortcut layers, knob dragging and wheel input, the plugin knob
+  and fonts, and `useStableActions` (handlers that keep memoized rows like
+  the track headers and lanes from redrawing).
+- `src/services/`: what reaches outside the app: usage statistics and error
+  reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
+  and feedback links set per deployment (`support.ts`).
+- `src/fonts/`: the fonts, from Google Fonts, kept here so building needs
+  no network. `scripts/fonts.mjs` downloads them and writes the code that
+  loads them (see `src/fonts/README.md`).
+- `src/test/`: what the component tests share: their setup (the app's
+  styles, and failing a test that logs an error), a stand-in for Next's
+  fonts, and mouse drags.
+- `e2e/`: the browser tests. They serve the built site and use it in
+  Chromium the way a person would: every page of the website, the
+  templates and the start screen, the transport, each track and clip
+  action, the piano roll's scrolling and zoom, every effect's window, the
+  instruments, recording (another track, a fake microphone, the computer
+  keyboard), autosave, saving and opening a project file, exporting, and
+  the metronome, timed from the audio it plays. `studio.ts` finds things in the studio, `speakers.ts`
+  listens to what reaches the speakers, and `fixtures.ts` fails a test on
+  any error on the page and keeps it off the network.
 
 ### Stack
 
 - [Next.js](https://nextjs.org) 16 (App Router), React 19, TypeScript and
   Tailwind CSS 4.
-- [Tone.js](https://tonejs.github.io/) for the Web Audio engine, transport
-  and instruments.
-- [@tonejs/midi](https://github.com/Tonejs/Midi) for reading and writing MIDI
-  files.
-- [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore)
-  (WebAssembly) for the NAM Amp. Its licenses are in `public/nam`.
+- [Tone.js](https://www.npmjs.com/package/tone) for the Web Audio engine,
+  transport and instruments.
+- [@tonejs/midi](https://www.npmjs.com/package/@tonejs/midi) for reading and
+  writing MIDI files.
+- [Neural Amp Modeler](https://www.neuralampmodeler.com) (WebAssembly) for
+  the NAM Amp. Its licenses are in `public/nam`.
 - [lucide-react](https://lucide.dev) for icons.
 
 ## License and credits
@@ -1007,3 +1135,9 @@ new sound (captures, IRs, samples, kits); a unit test checks the list is
 complete. Licensed amp captures and IRs go in `public/tones/` and are listed
 in `public/tones/manifest.json` (see [docs/tones.md](docs/tones.md)). The
 privacy policy is at `/privacy` and under **About → Privacy**.
+
+The Credits also thank the members by name, as their tiers promise:
+**Producers** first, then **Supporters** (Supporter and Studio members). Add
+names to [`src/content/supporters.json`](src/content/supporters.json), the
+way each person wants to be credited; they show in the app and at `/credits`
+from the next build.

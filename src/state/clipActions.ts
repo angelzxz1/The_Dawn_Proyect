@@ -5,12 +5,12 @@
 // Which clips are selected is the view's: actions that change it take the
 // selection and return the new one.
 
-import { audioEngine } from "@/lib/audioEngine";
-import type { DecodedAudioClip } from "@/lib/audioFile";
-import { copyClip, getCopiedClip } from "@/lib/clipboard";
-import { grooveBeats, grooveKit, grooveNotes, type Groove } from "@/lib/grooves";
-import { audioClipTiming, midiTimeline } from "@/lib/engineSync";
-import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, NoteEvent } from "@/lib/types";
+import { audioEngine } from "@/engine/audioEngine";
+import type { DecodedAudioClip } from "@/engine/audioFile";
+import { copyClip, getCopiedClip } from "./clipboard";
+import { grooveBeats, grooveKit, grooveNotes, type Groove } from "@/library/grooves";
+import { audioClipTiming, midiTimeline } from "@/engine/engineSync";
+import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, NoteEvent } from "@/project/types";
 import { audioBlobs } from "./audioBlobs";
 import { newClipId } from "./ids";
 import { projectStore } from "./projectStore";
@@ -118,7 +118,7 @@ export const clipActions = {
     projectStore.push();
     if (channel.instrument !== "drums") {
       const drumParams = channel.drumParams ?? structuredClone(grooveKit(groove));
-      audioEngine.setInstrument(channelId, "drums", channel.synthParams, drumParams);
+      audioEngine.setInstrument(channelId, "drums", { ...channel, drumParams });
       projectStore.set("channels", (prev) => prev.map((c) => (c.id === channelId ? { ...c, instrument: "drums", drumParams } : c)));
     }
     const clip: MidiClipInstance = {
@@ -298,6 +298,11 @@ export const clipActions = {
   setGain(channelId: string, clipId: string, gainDb: number): void {
     updateClip(channelId, clipId, (c) => (c.kind === "audio" ? { ...c, gainDb } : c), false);
     audioEngine.setAudioClipGain(channelId, clipId, gainDb);
+  },
+
+  /** Where an audio clip's content starts in its file (the slip tool). */
+  setSourceOffset(channelId: string, clipId: string, sourceOffset: number): void {
+    updateClip(channelId, clipId, (c) => (c.kind === "audio" ? { ...c, sourceOffset } : c));
   },
 
   // --- Clipboard (clipboard.ts) ---

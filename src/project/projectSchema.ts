@@ -34,10 +34,12 @@ import type {
  * how to read the older shape. */
 export const PROJECT_VERSION = 2;
 
-/** What any clip may be given: a name and a color. */
+/** What any clip may be given: a name and a color; and on a track's lane,
+ * the take it came from. */
 interface SerializedClipLabel {
   name?: string;
   color?: string;
+  take?: string;
 }
 
 interface SerializedMidiClip extends SerializedClipLabel {
@@ -66,11 +68,20 @@ interface SerializedAudioClip extends SerializedClipLabel {
 
 export type SerializedClip = SerializedMidiClip | SerializedAudioClip;
 
+/** A take lane (takes.ts). */
+export interface SerializedTakeLane {
+  id: string;
+  name: string;
+  clips: SerializedClip[];
+}
+
 export interface SerializedProject {
   version: number;
   savedAt: number;
   channels: ChannelConfig[];
   clipsByChannel: Record<string, SerializedClip[]>;
+  /** Each track's takes, top to bottom (none on most). */
+  takesByChannel: Record<string, SerializedTakeLane[]>;
   channelEffects: Record<string, EffectInstance[]>;
   buses: BusConfig[];
   busEffects: Record<string, EffectInstance[]>;
@@ -85,6 +96,9 @@ export interface SerializedProject {
   snapResolution: SnapResolution;
   countInBars: number;
   metronomeEnabled: boolean;
+  /** MIDI recordings add to what's on a track (rather than replace it, as
+   * a new take). */
+  midiOverdub: boolean;
   /** The arrangement loop, in beats. */
   loop: ArrangementLoop;
   /** Audio tracks monitoring their input (ids). */
@@ -270,6 +284,7 @@ function normalizeChannel(
     ...(typeof r.output === "string" && r.output ? { output: r.output } : {}),
     ...(type === "audio" && normalizeTrackInput(r.input) ? { input: normalizeTrackInput(r.input)! } : {}),
     ...(r.folded === true ? { folded: true } : {}),
+    ...(r.showTakes === true && type !== "group" ? { showTakes: true } : {}),
     sends,
     automationLanes,
   };
@@ -290,6 +305,7 @@ function clipLabelOf(r: Raw): SerializedClipLabel {
   return {
     ...(name ? { name } : {}),
     ...(typeof r.color === "string" && HEX_COLOR.test(r.color) ? { color: r.color.toLowerCase() } : {}),
+    ...(nonEmptyId(r.take) ? { take: nonEmptyId(r.take)! } : {}),
   };
 }
 
@@ -414,6 +430,40 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     );
   });
 
+  // Takes: lanes of clips like the track's own; a group has none. A clip
+  // marked as from a take that isn't there isn't marked.
+  const takesByChannel: Record<string, SerializedTakeLane[]> = {};
+  const rawTakes = obj(r.takesByChannel);
+  const laneIds = new Set<string>();
+  channels.forEach((c) => {
+    if (c.type === "group") return;
+    const lanes = arr(rawTakes[c.id]).flatMap((raw, i): SerializedTakeLane[] => {
+      const lr = obj(raw);
+      const id = nonEmptyId(lr.id);
+      if (!id || laneIds.has(id)) return [];
+      laneIds.add(id);
+      const clips = uniqueById(
+        arr(lr.clips).map((clip) => normalizeClip(clip, c.type as "midi" | "audio")),
+        clipIds
+      ).map((clip) => {
+        const { take: _t, ...rest } = clip;
+        void _t;
+        return rest as SerializedClip;
+      });
+      return [{ id, name: str(lr.name, `Take ${i + 1}`) || `Take ${i + 1}`, clips }];
+    });
+    if (lanes.length > 0) takesByChannel[c.id] = lanes;
+  });
+  Object.entries(clipsByChannel).forEach(([id, clips]) => {
+    const lanesHere = new Set((takesByChannel[id] ?? []).map((l) => l.id));
+    clipsByChannel[id] = clips.map((clip) => {
+      if (clip.take === undefined || lanesHere.has(clip.take)) return clip;
+      const { take: _t, ...rest } = clip;
+      void _t;
+      return rest as SerializedClip;
+    });
+  });
+
   const rawBusEffects = obj(r.busEffects);
   const busEffects: Record<string, EffectInstance[]> = {};
   busList.forEach((b) => {
@@ -429,6 +479,7 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     savedAt: num(r.savedAt, 0, 0),
     channels,
     clipsByChannel,
+    takesByChannel,
     channelEffects,
     buses: busList,
     busEffects,
@@ -450,6 +501,7 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     snapResolution: oneOf(r.snapResolution, SNAP_RESOLUTIONS, "bar"),
     countInBars: oneOf(r.countInBars, [0, 1, 2, 4], 0),
     metronomeEnabled: bool(r.metronomeEnabled, false),
+    midiOverdub: bool(r.midiOverdub, false),
     loop: normalizeArrangementLoop(
       r.loop,
       quarterNotesPerBar(int(ts.numerator, 4, 1, 32), oneOf(ts.denominator, [1, 2, 4, 8, 16], 4))

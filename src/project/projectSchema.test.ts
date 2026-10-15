@@ -303,6 +303,40 @@ describe("groups, routing and colors", () => {
     expect(synth.color).toBeUndefined();
   });
 
+  it("keeps a track's takes, and drops broken ones and marks of takes that aren't there", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const clip = (id: string, extra = {}) => ({ id, kind: "midi", offset: 0, length: 1, notes: [], ...extra });
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [
+        { ...base, id: "m", name: "Keys", type: "midi", showTakes: true },
+        { ...base, id: "g", name: "Group", type: "group", showTakes: true },
+      ],
+      clipsByChannel: { m: [clip("a", { take: "take-1" }), clip("b", { take: "take-9" })] },
+      takesByChannel: {
+        m: [
+          { id: "take-1", name: "Take 1", clips: [clip("t1", { take: "take-1" }), clip("a")] },
+          { id: "take-1", name: "Again", clips: [] },
+          { name: "No id", clips: [] },
+        ],
+        g: [{ id: "take-2", name: "Take 2", clips: [] }],
+        nowhere: [{ id: "take-3", name: "Take 3", clips: [] }],
+      },
+    })!;
+    expect(Object.keys(project.takesByChannel)).toEqual(["m"]);
+    const [lane] = project.takesByChannel.m;
+    expect(project.takesByChannel.m).toHaveLength(1);
+    // A take's clip isn't marked, and its id can't be one the track has.
+    expect(lane.clips.map((c) => [c.id, c.take])).toEqual([["t1", undefined]]);
+    expect(project.clipsByChannel.m.map((c) => [c.id, c.take])).toEqual([
+      ["a", "take-1"],
+      ["b", undefined],
+    ]);
+    expect(project.channels.find((c) => c.id === "m")!.showTakes).toBe(true);
+    expect(project.channels.find((c) => c.id === "g")!.showTakes).toBeUndefined();
+  });
+
   it("keeps a clip's name (one line, not too long) and color, and drops bad ones", () => {
     const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
     const project = normalizeProject({

@@ -18,6 +18,7 @@ import {
   FolderInput,
   FolderOutput,
   FolderPlus,
+  Layers,
   Pencil,
   Repeat,
   Scissors,
@@ -68,6 +69,10 @@ export interface MenuActions {
   toggleFold: (id: string) => void;
   /** Removes a track (ungroups a group). */
   removeTrack: (id: string) => void;
+  /** Shows or hides a track's take lanes. */
+  toggleTakes: (id: string) => void;
+  /** Deletes a track's takes, keeping what it plays. */
+  deleteAllTakes: (id: string) => void;
   /** What's done to the time selection (rangeActions.ts). */
   time: TimeSelectionActions;
 }
@@ -91,6 +96,8 @@ export interface MenuContext {
   selectedClips: number;
   /** Tracks Ctrl/Cmd-clicked for grouping. */
   trackPicks: ReadonlySet<string>;
+  /** How many takes a track has (takes.ts). */
+  takeCount: (channelId: string) => number;
   /** For the fade presets: a beat and a bar. */
   bpm: number;
   beatsPerBar: number;
@@ -230,6 +237,14 @@ function headerMenu(id: string, ctx: MenuContext, actions: MenuActions): MenuIte
         ...groups.map((g) => ({ label: `Move into “${g.name}”`, icon: <FolderInput size={13} />, onSelect: () => actions.setTrackGroup(id, g.id) })),
         ...(channel.groupId ? [{ label: "Take out of the group", icon: <FolderOutput size={13} />, onSelect: () => actions.setTrackGroup(id, null) }] : []),
       ];
+  const takes = ctx.takeCount(id);
+  const takeItems: ContextMenuItem[] =
+    takes > 0
+      ? [
+          { label: channel.showTakes ? "Hide take lanes" : `Show take lanes (${takes})`, icon: <Layers size={13} />, onSelect: () => actions.toggleTakes(id) },
+          { label: "Delete all takes (keep what plays)", icon: <Trash2 size={13} />, onSelect: () => actions.deleteAllTakes(id) },
+        ]
+      : [];
   const foldItem: ContextMenuItem = {
     label: channel.folded ? (isGroup ? "Unfold the group" : "Unfold track") : isGroup ? "Fold the group (hide its tracks)" : "Fold track",
     icon: <ChevronsDownUp size={13} />,
@@ -239,5 +254,13 @@ function headerMenu(id: string, ctx: MenuContext, actions: MenuActions): MenuIte
     channels.length > 1 && !isGroup
       ? ["separator", { label: "Remove track", icon: <X size={13} />, danger: true, onSelect: () => actions.removeTrack(id) }]
       : [];
-  return [...clipItems, ...(clipItems.length ? ["separator" as const] : []), ...groupItems, foldItem, ...removeItems];
+  return [
+    ...clipItems,
+    ...(clipItems.length ? ["separator" as const] : []),
+    ...takeItems,
+    ...(takeItems.length ? ["separator" as const] : []),
+    ...groupItems,
+    foldItem,
+    ...removeItems,
+  ];
 }

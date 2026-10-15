@@ -83,6 +83,9 @@ interface ClipBlockProps {
   renaming?: boolean;
   /** The name typed (Enter or leaving the field), or null (Esc). */
   onRename?: (name: string | null) => void;
+  /** Only drawn (a take's clip): no handles, and the pointer goes through
+   * to what's under it. */
+  passive?: boolean;
 }
 
 const MIN_MIDI = 36;
@@ -154,6 +157,7 @@ export function ClipBlock({
   name,
   renaming = false,
   onRename,
+  passive = false,
 }: ClipBlockProps) {
   const compact = rowHeight < COMPACT_BELOW;
   const pad = compact ? 3 : LANE_PADDING;
@@ -165,7 +169,7 @@ export function ClipBlock({
   const minLength = grid ?? MIN_RESIZE_SECONDS;
   /** The pointer and draw tools keep the clip's own handles (resize,
    * fades, gain); the others act on the whole clip. */
-  const handles = tool === "pointer" || tool === "draw";
+  const handles = !passive && (tool === "pointer" || tool === "draw");
 
   /** Split tool: where a click at `clientX` cuts, as a time on the
    * timeline - snapped to the grid, unless that lands on or outside the
@@ -368,9 +372,10 @@ export function ClipBlock({
         e.stopPropagation();
         onContextMenu(e);
       }}
-      data-clip-id={clipId}
-      title={clipType === "audio" && handles ? TOOL_TITLES[tool].replace("click twice to edit", "click twice to rename") : TOOL_TITLES[tool]}
-      className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
+      data-clip-id={passive ? undefined : clipId}
+      data-take-clip={passive ? clipId : undefined}
+      title={passive ? undefined : clipType === "audio" && handles ? TOOL_TITLES[tool].replace("click twice to edit", "click twice to rename") : TOOL_TITLES[tool]}
+      className={`group absolute flex flex-col overflow-hidden rounded-md border transition-colors ${passive ? "pointer-events-none" : "cursor-grab active:cursor-grabbing"} ${
         selected ? "ring-2 ring-accent" : ""
       } ${erasing ? "opacity-30 outline outline-2 outline-record" : ""}`}
       style={{

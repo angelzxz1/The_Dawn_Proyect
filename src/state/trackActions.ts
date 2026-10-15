@@ -50,6 +50,12 @@ export const trackActions = {
       delete next[id];
       return next;
     });
+    projectStore.set("takesByChannel", (prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     projectStore.set("channelEffects", (prev) => {
       const next = { ...prev };
       delete next[id];

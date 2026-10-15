@@ -5,6 +5,7 @@ import {
   SAMPLES_DIR,
   decodeBundle,
   deserializeClips,
+  deserializeTakes,
   encodeBundle,
   fileNameFor,
   loadFromFolder,
@@ -13,11 +14,12 @@ import {
   safeName,
   saveToFolder,
   serializeClips,
+  serializeTakes,
   type ProjectDocument,
   type ProjectFolder,
 } from "./projectFiles";
 import { normalizeProject, type SerializedProject } from "./projectSchema";
-import type { ClipInstance } from "./types";
+import type { ClipInstance, TakeLane } from "./types";
 
 /** An in-memory folder with the File System Access API's shape. */
 class FakeDir {
@@ -137,6 +139,32 @@ describe("project files (one file)", () => {
     expect(opened.blobs.get("clip-2")!.type).toBe("audio/wav");
   });
 
+  it("keeps a file that several clips play once, and gives it back to each", async () => {
+    const shared = wav([9, 9, 9, 9, 9]);
+    const p = project({ "ch-1": [audioClip("clip-1"), audioClip("clip-2")] });
+    const withTakes = normalizeProject({ ...p, takesByChannel: { "ch-1": [{ id: "take-1", name: "Take 1", clips: [audioClip("clip-3")] }] } })!;
+    const blobs = new Map([
+      ["clip-1", shared],
+      ["clip-2", shared],
+      ["clip-3", shared],
+    ]);
+    const bundle = await encodeBundle({ name: "Takes", project: withTakes, history: null, blobs });
+    // The five bytes are in it once: after the magic, the header's length
+    // and the header, there are just five.
+    const headerLength = new DataView(await bundle.slice(8, 12).arrayBuffer()).getUint32(0, true);
+    expect(bundle.size - 12 - headerLength).toBe(5);
+    const opened = await decodeBundle(bundle);
+    expect(opened.project.takesByChannel["ch-1"][0].clips[0].id).toBe("clip-3");
+    expect(opened.blobs.get("clip-1")).toBe(opened.blobs.get("clip-3"));
+    expect(await bytes(opened.blobs.get("clip-2")!)).toEqual([9, 9, 9, 9, 9]);
+
+    const dir = new FakeDir("Takes");
+    await saveToFolder(dir as unknown as ProjectFolder, { name: "Takes", project: withTakes, history: null, blobs });
+    expect([...(await dir.getDirectoryHandle(SAMPLES_DIR)).files.keys()]).toEqual(["clip-1.wav"]);
+    const fromFolder = await loadFromFolder(dir as unknown as ProjectFolder);
+    expect(fromFolder.blobs.get("clip-3")).toBe(fromFolder.blobs.get("clip-1"));
+  });
+
   it("refuses anything else", async () => {
     await expect(decodeBundle(new Blob(["hello world, not a project"]))).rejects.toThrow(/isn't a project file/);
   });
@@ -156,6 +184,18 @@ describe("helpers", () => {
     expect(fileNameFor("ir/../x", new Blob([], { type: "audio/mpeg" }))).toBe("ir_.._x.mp3");
     expect(safeName('  My: "Song"/ 2 ')).toBe("My- -Song- 2");
     expect(safeName("   ")).toBe("Untitled");
+  });
+
+  it("saves take lanes and gets them back", () => {
+    const lanes: Record<string, TakeLane[]> = {
+      a: [{ id: "take-1", name: "Take 1", clips: [{ id: "c9", kind: "audio", offset: 2, length: 1, url: "blob:x", fileName: "x.wav", durationSeconds: 4, peaks: [], sourceOffset: 1, fadeIn: 0, fadeOut: 0, gainDb: 0, loopLength: null }] }],
+    };
+    const back = deserializeTakes(serializeTakes(lanes), (id) => `blob:${id}`);
+    expect(back.a[0]).toMatchObject({ id: "take-1", name: "Take 1" });
+    expect(back.a[0].clips[0]).toMatchObject({ id: "c9", url: "blob:c9", sourceOffset: 1 });
+    // A track's clip keeps which take it came from.
+    const comp: Record<string, ClipInstance[]> = { a: [{ ...lanes.a[0].clips[0], id: "c10", take: "take-1" }] };
+    expect(deserializeClips(serializeClips(comp), () => "blob:y").a[0].take).toBe("take-1");
   });
 
   it("saves a clip's name and color, and gets them back", () => {

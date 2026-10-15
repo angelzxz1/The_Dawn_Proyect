@@ -57,12 +57,15 @@ export class Transport {
   /** Starts at `fromSeconds` after `countInBeats` beats of count-in (which
    * the metronome plays), both scheduled ahead on the audio clock so
    * nothing the page does meanwhile can delay them. Recording plays
-   * straight through, without the loop. Returns the context time the
-   * transport starts at. */
-  startRecording(countInBeats: number, fromSeconds: number): number {
+   * straight through - or round `loop` (s), for a loop recording, each time
+   * round a take. Returns the context time the transport starts at. */
+  startRecording(countInBeats: number, fromSeconds: number, loop: { start: number; end: number } | null = null): number {
     this.tone.stop();
-    this.tone.loop = false;
-    this.metronome.setLoop(null);
+    if (loop) this.setLoop(true, loop.start, loop.end);
+    else {
+      this.tone.loop = false;
+      this.metronome.setLoop(null);
+    }
     this.tone.seconds = Math.max(0, fromSeconds);
     const pos = this.positionBeats;
     const startTime = Tone.immediate() + START_LEAD + countInBeats * (60 / this.tone.bpm.value);

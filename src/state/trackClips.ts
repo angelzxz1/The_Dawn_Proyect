@@ -8,19 +8,26 @@ import { syncClips } from "@/engine/engineSync";
 import type { ProjectState } from "@/project/project";
 import type { ClipInstance } from "@/project/types";
 import { audioBlobs } from "./audioBlobs";
-import { projectStore } from "./projectStore";
+import { audioClipsOf, projectStore } from "./projectStore";
 
-/** Each audio file still in use, by URL - what a new part of an audio clip
- * keeps for saving. */
+/** Each audio file still in use (on the tracks or in their takes), by URL
+ * - what a new part of an audio clip keeps for saving. */
 export function audioByUrl(state: ProjectState): Map<string, Blob> {
   const byUrl = new Map<string, Blob>();
-  Object.values(state.clipsByChannel).forEach((clips) =>
-    clips.forEach((c) => {
-      const blob = c.kind === "audio" ? audioBlobs.get(c.id) : undefined;
-      if (blob && c.kind === "audio") byUrl.set(c.url, blob);
-    })
-  );
+  audioClipsOf(state).forEach((c) => {
+    const blob = audioBlobs.get(c.id);
+    if (blob) byUrl.set(c.url, blob);
+  });
   return byUrl;
+}
+
+/** Gives each new audio clip in `clips` the audio it plays, by its URL. */
+export function keepAudio(clips: ClipInstance[], byUrl: Map<string, Blob>): void {
+  clips.forEach((c) => {
+    if (c.kind !== "audio" || audioBlobs.get(c.id)) return;
+    const blob = byUrl.get(c.url);
+    if (blob) audioBlobs.set(c.id, blob);
+  });
 }
 
 /** Changes some tracks' clips as one undo step; returns whether anything
@@ -37,14 +44,8 @@ export function changeTracks(channelIds: string[], change: (clips: ClipInstance[
     return true;
   });
   if (changed.length === 0) return false;
-  const byUrl = audioByUrl(state);
-  changed.forEach((id) =>
-    next[id].forEach((c) => {
-      if (c.kind !== "audio" || audioBlobs.get(c.id)) return;
-      const blob = byUrl.get(c.url) ?? audio?.get(c.url);
-      if (blob) audioBlobs.set(c.id, blob);
-    })
-  );
+  const byUrl = new Map([...(audio ?? []), ...audioByUrl(state)]);
+  changed.forEach((id) => keepAudio(next[id], byUrl));
   projectStore.push();
   projectStore.set("clipsByChannel", next);
   changed.forEach((id) => {

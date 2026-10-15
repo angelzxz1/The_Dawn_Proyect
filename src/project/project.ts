@@ -8,6 +8,7 @@ import type {
   ClipInstance,
   MidiClipInstance,
   NoteEvent,
+  TakeLane,
   TimeSignature,
 } from "./types";
 import type { EffectInstance } from "../effects/registry";
@@ -15,6 +16,8 @@ import type { EffectInstance } from "../effects/registry";
 export interface ProjectState {
   channels: ChannelConfig[];
   clipsByChannel: Record<string, ClipInstance[]>;
+  /** Each track's takes (takes.ts), top to bottom; most tracks have none. */
+  takesByChannel: Record<string, TakeLane[]>;
   channelEffects: Record<string, EffectInstance[]>;
   buses: BusConfig[];
   busEffects: Record<string, EffectInstance[]>;

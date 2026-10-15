@@ -119,8 +119,8 @@ export class Studio {
     await this.page.getByTitle("Undo (Ctrl/Cmd+Z)").click();
   }
 
-  /** The clips in the autosaved working copy, each with whether its audio
-   * was saved with it. */
+  /** The clips in the autosaved working copy (on the tracks' lanes, or in
+   * a take with `lane`), each with whether its audio was saved with it. */
   autosavedClips(): Promise<SavedClip[]> {
     return this.page.evaluate(
       () =>
@@ -130,16 +130,47 @@ export class Studio {
           open.onsuccess = () => {
             const tx = open.result.transaction(["meta", "audioBlobs"]);
             const meta = tx.objectStore("meta").get("current");
+            const aliasesReq = tx.objectStore("meta").get("current:aliases");
             const keys = tx.objectStore("audioBlobs").getAllKeys();
             tx.oncomplete = () => {
-              const project = meta.result as { clipsByChannel: Record<string, Omit<SavedClip, "audio">[]> } | undefined;
-              const saved = new Set(keys.result as string[]);
+              type Raw = Omit<SavedClip, "audio" | "lane">;
+              const project = meta.result as
+                | { clipsByChannel: Record<string, Raw[]>; takesByChannel?: Record<string, { id: string; clips: Raw[] }[]> }
+                | undefined;
+              // A file clips share is stored once, under one of them.
+              const stored = new Set(keys.result as string[]);
+              const aliases = (aliasesReq.result ?? {}) as Record<string, string>;
+              const saved = (id: string) => stored.has(id) || stored.has(aliases[id]);
+              const takes = Object.values(project?.takesByChannel ?? {}).flatMap((lanes) => lanes.flatMap((lane) => lane.clips.map((c) => ({ ...c, lane: lane.id }))));
               resolve(
-                Object.values(project?.clipsByChannel ?? {})
-                  .flat()
-                  .map(({ id, kind, name, color, fileName }) => ({ id, kind, name, color, fileName, audio: saved.has(id) }))
+                [...Object.values(project?.clipsByChannel ?? {}).flat(), ...takes].map(({ id, kind, name, color, fileName, durationSeconds, lane }: Raw & { lane?: string }) => ({
+                  id,
+                  kind,
+                  name,
+                  color,
+                  fileName,
+                  durationSeconds,
+                  ...(lane ? { lane } : {}),
+                  audio: saved(id),
+                }))
               );
             };
+          };
+        })
+    );
+  }
+
+  /** How many audio files autosave keeps. */
+  autosavedFileCount(): Promise<number> {
+    return this.page.evaluate(
+      () =>
+        new Promise<number>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const count = open.result.transaction("audioBlobs").objectStore("audioBlobs").count();
+            count.onsuccess = () => resolve(count.result);
+            count.onerror = () => reject(count.error);
           };
         })
     );
@@ -154,10 +185,18 @@ export class Studio {
           const open = indexedDB.open("dawn-project-db");
           open.onerror = () => reject(open.error);
           open.onsuccess = () => {
-            const get = open.result.transaction("audioBlobs").objectStore("audioBlobs").get(id);
-            get.onerror = () => reject(get.error);
-            get.onsuccess = async () => {
-              const blob = get.result as Blob | undefined;
+            const tx = open.result.transaction(["meta", "audioBlobs"]);
+            const aliases = tx.objectStore("meta").get("current:aliases");
+            const own = tx.objectStore("audioBlobs").get(id);
+            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => {
+              const owner = ((aliases.result ?? {}) as Record<string, string>)[id];
+              if (own.result || !owner) return void finish(own.result as Blob | undefined);
+              const again = open.result.transaction("audioBlobs").objectStore("audioBlobs").get(owner);
+              again.onsuccess = () => void finish(again.result as Blob | undefined);
+              again.onerror = () => reject(again.error);
+            };
+            const finish = async (blob: Blob | undefined) => {
               if (!blob) return resolve(null);
               const buffer = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(await blob.arrayBuffer());
               let peak = 0;
@@ -183,8 +222,12 @@ export interface SavedClip {
   name?: string;
   color?: string;
   fileName?: string;
+  /** How long its file is (audio clips). */
+  durationSeconds?: number;
   /** Its audio was saved with it (audio clips). */
   audio: boolean;
+  /** The take lane it's in, if it's a take's. */
+  lane?: string;
 }
 
 function escape(text: string): string {

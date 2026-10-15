@@ -10,6 +10,7 @@ import {
   Download,
   FileAudio,
   Headphones,
+  Layers,
   Sliders,
   Trash2,
   Upload,
@@ -100,6 +101,8 @@ export interface TrackHeaderActions {
   toggleFold(id: string, all: boolean): void;
   /** Ctrl/Cmd-click: picks the track to be grouped with the other picked ones. */
   pick(id: string): void;
+  /** Shows or hides the track's take lanes. */
+  toggleTakes(id: string): void;
 }
 
 interface TrackHeaderProps {
@@ -122,6 +125,9 @@ interface TrackHeaderProps {
   canMoveDown?: boolean;
   /** Whether this track's automation lane is currently expanded below it. */
   showAutomation?: boolean;
+  /** How many takes the track has (takes.ts): its take lanes show under it
+   * when `channel.showTakes`. */
+  takeCount?: number;
   /** The browser's available audio input devices, and which one this
    * track records from - shown in place of the "Audio" badge on an audio
    * track so a device can be picked right on the track, without needing
@@ -203,6 +209,7 @@ export const TrackHeader = memo(function TrackHeader({
   canMoveUp,
   canMoveDown,
   showAutomation,
+  takeCount = 0,
   inputDevices,
   selectedInputDeviceId,
   rowHeight = TRACK_ROW_HEIGHT,
@@ -588,6 +595,15 @@ export const TrackHeader = memo(function TrackHeader({
           >
             <ActivitySquare size={12} />
           </IconButton>
+          {takeCount > 0 && (
+            <IconButton
+              title={`${channel.showTakes ? "Hide" : "Show"} the ${takeCount} take${takeCount === 1 ? "" : "s"} (take lanes)`}
+              onClick={() => actions.toggleTakes(id)}
+              active={!!channel.showTakes}
+            >
+              <Layers size={12} />
+            </IconButton>
+          )}
           {!isMidi && !isGroup && !inputName && channel.armed ? <InputMeter /> : <div className="flex-1" />}
           {canRemove && (
             <IconButton title={isGroup ? "Remove the group (its tracks stay)" : "Remove channel"} onClick={() => onRemove()} danger>

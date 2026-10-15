@@ -76,6 +76,9 @@ class AudioEngine {
   private started = false;
   private startPromise: Promise<void> | null = null;
   private recording: MidiTake | null = null;
+  /** The take being recorded (MIDI or audio): when the transport started
+   * (context time), and the loop it goes round (s), if it does. */
+  private take: { startTime: number; loop: { start: number; end: number } | null } | null = null;
   /** Tone's transport and the metronome (transport.ts). */
   private transport = new Transport(() => this.ensureClickOut());
   private pendingLoads = 0;
@@ -1369,12 +1372,33 @@ class AudioEngine {
    * clips still play back). `countInBeats` > 0 plays that many audible
    * clicks first and only starts the transport/recording once they finish,
    * like a real DAW's pre-roll. */
-  async startRecording(channelId: string, countInBeats = 0, fromSeconds = 0, beforeStart?: () => void): Promise<void> {
+  async startRecording(
+    channelId: string,
+    countInBeats = 0,
+    fromSeconds = 0,
+    beforeStart?: () => void,
+    loop: { start: number; end: number } | null = null
+  ): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
     beforeStart?.();
-    const startTime = this.transport.startRecording(countInBeats, fromSeconds);
-    this.recording = new MidiTake(channelId, fromSeconds, startTime, () => this.transport.seconds - this.midiRecordShift(channelId) - fromSeconds);
+    const startTime = this.transport.startRecording(countInBeats, fromSeconds, loop);
+    this.take = { startTime, loop };
+    // Going round a loop, the transport jumps back each time: the notes
+    // are timed on the audio clock instead, from the start, and cut into
+    // takes after (takes.ts).
+    const clock = loop
+      ? () => Tone.immediate() - startTime - this.midiRecordShift(channelId)
+      : () => this.transport.seconds - this.midiRecordShift(channelId) - fromSeconds;
+    this.recording = new MidiTake(channelId, fromSeconds, startTime, clock);
+  }
+
+  /** How long the take being recorded has gone (s, from where it started,
+   * round the loop and all), and the loop it goes round; null when not
+   * recording. */
+  get recordingProgress(): { seconds: number; loop: { start: number; end: number } | null } | null {
+    if (!this.take || !this.isRecording) return null;
+    return { seconds: Math.max(0, Tone.immediate() - this.take.startTime), loop: this.take.loop };
   }
 
   /** Where on the timeline the take being recorded starts (s), for
@@ -1501,7 +1525,13 @@ class AudioEngine {
    * transport starts (the page shows it's recording then, so its redraw
    * doesn't land on the first beat).
    */
-  async startAudioRecording(channelId: string, countInBeats = 0, fromSeconds = 0, beforeStart?: () => void): Promise<void> {
+  async startAudioRecording(
+    channelId: string,
+    countInBeats = 0,
+    fromSeconds = 0,
+    beforeStart?: () => void,
+    loop: { start: number; end: number } | null = null
+  ): Promise<void> {
     await this.ensureStarted();
     if (!this.channels.has(channelId)) return;
     // From another track ("Audio From"), or the audio interface.
@@ -1517,7 +1547,8 @@ class AudioEngine {
       return;
     }
     beforeStart?.();
-    const startTime = this.transport.startRecording(countInBeats, fromSeconds);
+    const startTime = this.transport.startRecording(countInBeats, fromSeconds, loop);
+    this.take = { startTime, loop };
     // A track's audio reaches its tap a known time after the beat (its
     // delay compensation and effects); the interface's comes back after the
     // round trip.

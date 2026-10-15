@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Circle, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
+import { Circle, Layers, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/project/types";
 import { ClickLevel } from "./ClickLevel";
@@ -34,6 +34,10 @@ interface TransportBarProps {
    * starts - 0 disables count-in. */
   countInBars: number;
   onCountInChange: (bars: number) => void;
+  /** MIDI overdub: a MIDI recording adds to what's on the track rather
+   * than replace it (as a new take). */
+  midiOverdub?: boolean;
+  onToggleMidiOverdub?: () => void;
   onPlay: () => void;
   onPause: () => void;
   onStop: () => void;
@@ -59,6 +63,8 @@ export function TransportBar({
   onToggleLoop,
   countInBars,
   onCountInChange,
+  midiOverdub = false,
+  onToggleMidiOverdub,
   onPlay,
   onPause,
   onStop,
@@ -155,6 +161,24 @@ export function TransportBar({
         >
           <Repeat size={15} />
         </button>
+        {onToggleMidiOverdub && (
+          <button
+            type="button"
+            onClick={onToggleMidiOverdub}
+            aria-pressed={midiOverdub}
+            aria-label="MIDI overdub"
+            title={
+              midiOverdub
+                ? "MIDI overdub on: recording MIDI adds to what's on the track"
+                : "MIDI overdub off: recording MIDI over a clip replaces it, keeping it as a take"
+            }
+            className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors ${
+              midiOverdub ? "border-accent bg-accent/20 text-accent" : "border-border text-muted hover:bg-surface-raised"
+            }`}
+          >
+            <Layers size={15} />
+          </button>
+        )}
       </div>
 
       <TransportClock />

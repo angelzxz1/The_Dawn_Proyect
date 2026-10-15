@@ -277,6 +277,7 @@ function base(): ProjectState {
       track("ch-3", "midi", { instrument: "drums", drumParams: { kit: "a" } as never }),
     ],
     clipsByChannel: { "ch-1": [midiClip("clip-1", 0)], "ch-2": [audioClip("clip-2", 0), audioClip("clip-3", 2)] },
+    takesByChannel: {},
     channelEffects: {
       "ch-1": [fx("fx-1", "reverb"), fx("fx-2", "delay"), fx("fx-3", "compressor")],
       "ch-2": [fx("fx-4", "namAmp", { gain: 1 }, { file: { id: "file-1" } as never }), fx("fx-5", "irLoader", { mix: 1 }, { file: { id: "file-2" } as never })],

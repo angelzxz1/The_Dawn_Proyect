@@ -8,6 +8,8 @@ export const TRACK_HEADER_WIDTH = 202;
 export const TRACK_ROW_HEIGHT = 118;
 /** A folded track: one short row (name, mute, solo), clips as thin bars. */
 export const FOLDED_ROW_HEIGHT = 30;
+/** A take lane under a track (takes.ts). */
+export const TAKE_LANE_HEIGHT = 64;
 
 /** A track's row height in the arrangement. */
 export function rowHeightOf(track: { folded?: boolean }): number {

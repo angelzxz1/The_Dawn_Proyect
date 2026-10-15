@@ -38,6 +38,9 @@ Live and Reaper.
   or drum pads, or a MIDI controller. Record audio from a microphone or an
   audio interface, with a count-in and a metronome. Each clip is drawn on
   its track while you record it.
+- **Takes and comping**: loop recording makes a take each time round, and
+  recording over a clip keeps it as a take; put the comp together by
+  dragging across the takes.
 - **Clip names and colors**, and **consolidate**, **reverse**, **normalize**
   and **fade presets** from a clip's right-click menu.
 - **Time selection**, like Ableton's: drag across lanes to select a span of
@@ -613,14 +616,19 @@ Everything the synth can do is described in
    moment on the page (like the start of a recording) or a tab in the
    background can't delay or drop one. **Click** next to the count-in sets
    how loud the metronome and count-in are (from −30 to +3 dB, double-click
-   to reset); it's kept on this computer, not in the project. Recording
-   always runs straight through, even with the loop on.
+   to reset); it's kept on this computer, not in the project. With the
+   **loop** on, recording from before the loop's end goes round it, and each
+   time round is a take (see "Takes and comping" below).
 3. Click the ruler where you want to start (the marker), then press
    **Record**. Recording starts at the marker, like Ableton; the count-in
    plays the bars just before it, on the beat grid, so starting mid-bar
    counts in correctly. The take appears on its track as a red clip that
    grows while you play.
-4. Press **Stop**. The take becomes a normal clip.
+4. Press **Stop**. The take becomes a normal clip. Recorded over a clip, it
+   replaces it, and the clip is kept as a take you can go back to.
+   **MIDI overdub** (the layers button in the transport) makes a MIDI
+   recording add to what's on the track instead, as before; round the loop,
+   every time round goes into one clip.
 
 For audio:
 
@@ -648,6 +656,33 @@ For audio:
   Dawn plays 5 clicks and times them. It's measured once per computer. To
   nudge takes further, set a **recording offset** there too. Bluetooth
   headphones add 100 ms or more; wired ones are better for recording.
+
+### Takes and comping
+
+A track keeps the takes recorded on it, in **take lanes** under it, like
+Ableton's take lanes or Logic's take folders. Takes don't play: the track's
+own lane does. It's the **comp**, put together from the best parts of the
+takes.
+
+- **Making takes.** Recording over a clip makes the clip **Take 1** and the
+  new recording **Take 2**, and so on. With the loop on, each time round the
+  loop is a take (a last one under a beat long, from stopping just after the
+  loop came round, is dropped; for MIDI, so is a time round you didn't play
+  in). The track plays the latest take at each point.
+- **Showing them.** The take lanes open under the track the first time it
+  gets takes. The layers button in the track header (it shows how many)
+  hides and shows them; so does the header's right-click menu.
+- **Comping.** Drag across a take to put that part of it in the track, on
+  the grid (turn **Snap** off for any part). Click one of a take's clips to
+  put all of it in. **Use** in the take's header puts in the whole take. The
+  parts of a take the track plays are lit, with a bar along the top; the rest
+  is darker. Each change is one undo step.
+- **Deleting takes.** The **×** in a take's header deletes it, and **Delete
+  all takes (keep what plays)** in the track header's menu deletes them all.
+  What the track plays stays either way.
+- Inserting silence or deleting time across a track (see "Editing a span of
+  time") moves its takes too. Takes are saved with the project; a recording
+  is saved once, however many takes and parts of the comp play it.
 
 ### Editing clips
 
@@ -1062,6 +1097,10 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   save writes only new sample files, removes ones nothing uses anymore, and
   writes `project.dawn.json` last. The single-file `.dawnproject` format is a
   small header followed by the same JSON and files.
+- **Shared files.** Clips often play the same file: the parts of a split
+  clip, a recording's takes and the comp made from them. Each file is saved
+  once, under the first clip that has it, and the others point to it
+  (`sharedFiles.ts`), in autosave, folders and `.dawnproject` files alike.
 
 ## Development
 

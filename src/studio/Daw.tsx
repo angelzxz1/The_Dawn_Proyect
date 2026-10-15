@@ -52,6 +52,10 @@ import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
 import { rangeActions, tracksOf, type TimeSelection } from "@/state/rangeActions";
 import { clipEditActions } from "@/state/clipEditActions";
 import { spansOfClips, type FadePreset } from "@/project/clipEdits";
+import { compSpans, mergedMidiTake, midiPassTakes, recordingPasses } from "@/project/takes";
+import { TakeLaneHeader, TakeLaneRow } from "@/studio/tracks/TakeLanes";
+import type { TimeRange } from "@/project/timeRange";
+import { takeActions } from "@/state/takeActions";
 import { getCopiedRange } from "@/state/clipboard";
 import { DrumPads } from "@/instruments/drum-rack/DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "@/studio/transport/LoopBar";
@@ -108,6 +112,7 @@ import {
   MIN_PX_PER_SECOND,
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
+  TAKE_LANE_HEIGHT,
   TRACK_HEADER_WIDTH,
   rowHeightOf,
   snapUnitFor,
@@ -121,7 +126,8 @@ import {
   snapSecondsForResolution,
   type SnapResolution,
 } from "@/project/musicTime";
-import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TimeSignature } from "@/project/types";
+import type { AudioClipInstance, AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TakeLane, TimeSignature } from "@/project/types";
+import { newClipId } from "@/state/ids";
 import { noteIssue } from "@/services/issues";
 import { flushSync } from "react-dom";
 import { microphoneAllowed } from "@/engine/inputs";
@@ -159,6 +165,7 @@ const setTimeSignature = projectSetter("timeSignature");
 /** A track with no clips (one shared empty list, so its lane can skip
  * redraws). */
 const NO_CLIPS: ClipInstance[] = [];
+const NO_TAKES: TakeLane[] = [];
 const TOOL_ICONS: Record<ClipTool, typeof Pencil> = {
   pointer: MousePointer2,
   split: Scissors,
@@ -174,6 +181,7 @@ export function Daw() {
   // Every track can hold any number of independent clips, each its own box
   // on the timeline - not a single clip slot per track.
   const clipsByChannel = useProjectValue("clipsByChannel");
+  const takesByChannel = useProjectValue("takesByChannel");
   const channelEffects = useProjectValue("channelEffects");
   const buses = useProjectValue("buses");
   const busEffects = useProjectValue("busEffects");
@@ -652,10 +660,18 @@ export function Daw() {
     audioEngine.setMasterLimiterThreshold(masterLimiterThreshold);
   }, [masterLimiterThreshold]);
 
+  /** The loop the take being recorded goes round (s), or null. */
+  const recordLoopRef = useRef<TimeRange | null>(null);
   useEffect(() => {
-    // Recording runs straight through (a take is one pass).
-    const looping =
-      transportState !== "recording" && (transportState === "stopped" ? loop.on : loopsFrom(loop, secondsToBeats(playFromSeconds, bpm)));
+    // A recording goes round the loop it started with (each time round a
+    // take), or straight through; moving the loop meanwhile waits for Stop.
+    if (transportState === "recording") {
+      const recLoop = recordLoopRef.current;
+      if (recLoop) audioEngine.setLoop(true, recLoop.start, recLoop.end);
+      else audioEngine.setLoop(false, beatsToSeconds(loop.start, bpm), beatsToSeconds(loop.end, bpm));
+      return;
+    }
+    const looping = transportState === "stopped" ? loop.on : loopsFrom(loop, secondsToBeats(playFromSeconds, bpm));
     audioEngine.setLoop(looping, beatsToSeconds(loop.start, bpm), beatsToSeconds(loop.end, bpm));
   }, [loop, bpm, transportState, playFromSeconds]);
 
@@ -839,6 +855,9 @@ export function Daw() {
   const recordingChannelRef = useRef<string | null>(null);
   /** The same, as state, for drawing the take on its track. */
   const [recordingChannelId, setRecordingChannelId] = useState<string | null>(null);
+  /** MIDI overdub: a MIDI recording adds to what's on the track instead of
+   * replacing it (as a new take). Saved with the project. */
+  const [midiOverdub, setMidiOverdub] = useState(false);
   /** The note offering to measure the latency, after a take (LatencyHint). */
   const [latencyHint, setLatencyHint] = useState(false);
 
@@ -847,16 +866,39 @@ export function Daw() {
     if (transportState === "recording") {
       const recChannelId = recordingChannelRef.current;
       recordingChannelRef.current = null;
+      const recLoop = recordLoopRef.current;
+      recordLoopRef.current = null;
       if (recChannelId) {
-        // The take starts where recording started (the marker).
+        // The take starts where recording started (the marker); round the
+        // loop, each time round is a take (takes.ts), but for a last one
+        // under a beat long (stopped just after the loop came round).
         const takeFrom = audioEngine.recordingFrom ?? 0;
+        const recordedFor = audioEngine.recordingProgress?.seconds ?? 0;
+        const minLast = 60 / bpm;
         if (channelTypeOf(recChannelId) === "audio") {
           const fromInterface = audioEngine.recordingFromInterface;
           const blob = await audioEngine.finishAudioRecording();
           if (blob && blob.size > 0) {
             const decoded = await decodeAudioFile(blob);
             const channelName = channels.find((c) => c.id === recChannelId)?.name ?? "take";
-            addAudioClip(recChannelId, decoded, takeFrom, `${channelName} recording`, blob);
+            const takes = recordingPasses(takeFrom, decoded.durationSeconds, recLoop, minLast).map(
+              (pass): AudioClipInstance => ({
+                id: newClipId(),
+                kind: "audio",
+                offset: pass.start,
+                length: pass.end - pass.start,
+                url: decoded.url,
+                fileName: `${channelName} recording`,
+                durationSeconds: decoded.durationSeconds,
+                peaks: decoded.peaks,
+                sourceOffset: pass.at,
+                fadeIn: 0,
+                fadeOut: 0,
+                gainDb: 0,
+                loopLength: null,
+              })
+            );
+            takeActions.record(recChannelId, takes, blob);
             // Its timing rests on the browser's latency estimate until it's
             // measured: offer to.
             const prefs = getAudioPrefs();
@@ -865,12 +907,22 @@ export function Daw() {
         } else {
           const events = audioEngine.finishRecording();
           if (events.length > 0) {
-            const lastEnd = events.reduce(
-              (m, n) => Math.max(m, n.time + n.duration),
-              0
-            );
-            addMidiClip(recChannelId, takeFrom, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
+            const lastEnd = events.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
+            // Straight through, the take runs to the end of the bar.
+            const passes = recLoop
+              ? recordingPasses(takeFrom, recordedFor, recLoop, minLast)
+              : [{ start: takeFrom, end: takeFrom + roundUpToBar(lastEnd, bpm, beatsPerBar), at: 0 }];
+            if (midiOverdub) {
+              const merged = mergedMidiTake(events, passes, newClipId);
+              if (merged) addMidiClip(recChannelId, merged.offset, merged.length, merged.notes);
+            } else {
+              takeActions.record(recChannelId, midiPassTakes(events, passes, newClipId));
+            }
           }
+          // The engine played the take as recorded; now the track's clips
+          // (also when nothing was kept: notes only in a last time round
+          // too short to keep).
+          rebuildMidiPart(recChannelId, (projectStore.get().clipsByChannel[recChannelId] ?? []).filter(isMidiClip));
         }
       }
     }
@@ -879,7 +931,7 @@ export function Daw() {
     audioEngine.stopAll();
     audioEngine.seekTo(cursorSeconds);
     setActiveNotes(new Set());
-  }, [transportState, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip, cursorSeconds]);
+  }, [transportState, bpm, beatsPerBar, channelTypeOf, channels, addMidiClip, cursorSeconds, midiOverdub]);
 
   // Play always starts from the marker (the last point you clicked on the
   // ruler) - pausing doesn't change where the next Play picks up from, it
@@ -930,14 +982,19 @@ export function Daw() {
     if (!armedChannelId) return;
     recordingChannelRef.current = armedChannelId;
     setRecordingChannelId(armedChannelId);
+    // With the loop on, recording from before its end goes round it (like
+    // playing), a take each time round.
+    const recLoop = loopsFrom(loop, secondsToBeats(cursorSeconds, bpm)) ? { start: beatsToSeconds(loop.start, bpm), end: beatsToSeconds(loop.end, bpm) } : null;
+    recordLoopRef.current = recLoop;
     if (channelTypeOf(armedChannelId) === "audio") {
       try {
-        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording);
+        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording, recLoop);
         track("recording_started", { kind: "audio" });
         refreshInputDevices();
       } catch (error) {
         noteIssue("record.audio", error, { report: false });
         recordingChannelRef.current = null;
+        recordLoopRef.current = null;
         setRecordingChannelId(null);
         setMicError(
           "Couldn't access the microphone - check the browser's permission prompt or site settings."
@@ -946,8 +1003,8 @@ export function Daw() {
       return;
     }
     track("recording_started", { kind: "midi" });
-    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording);
-  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds, showRecording]);
+    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording, recLoop);
+  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds, showRecording, loop, bpm]);
 
   const handleAddChannel = trackActions.add;
 
@@ -1461,7 +1518,15 @@ export function Daw() {
       contextMenu
         ? contextMenuItems(
             contextMenu,
-            { channels, clipsOf, selectedClips: selectedClipIds.size, trackPicks, bpm, beatsPerBar },
+            {
+              channels,
+              clipsOf,
+              selectedClips: selectedClipIds.size,
+              trackPicks,
+              takeCount: (id) => (takesByChannel[id] ?? NO_TAKES).length,
+              bpm,
+              beatsPerBar,
+            },
             {
               editClip: handleEditClip,
               copyClip: handleCopyClip,
@@ -1484,6 +1549,8 @@ export function Daw() {
               reverseSelected: clipEdits.reverse,
               normalizeSelected: clipEdits.normalize,
               fadeSelected: clipEdits.fades,
+              toggleTakes: takeActions.toggleShowTakes,
+              deleteAllTakes: takeActions.deleteAllTakes,
               time: timeEdits,
             }
           )
@@ -1512,6 +1579,7 @@ export function Daw() {
       clipEdits,
       bpm,
       beatsPerBar,
+      takesByChannel,
     ]
   );
 
@@ -1555,25 +1623,29 @@ export function Daw() {
       // Setting it here first, synchronously, avoids that double-shift.
       audioEngine.setBpm(value);
       const ratio = bpm / value;
+      const rescale = (c: ClipInstance): ClipInstance =>
+        c.kind === "midi"
+          ? {
+              ...c,
+              offset: c.offset * ratio,
+              length: c.length * ratio,
+              loopLength: c.loopLength ? c.loopLength * ratio : c.loopLength,
+              notes: c.notes.map((n) => ({
+                ...n,
+                time: n.time * ratio,
+                duration: n.duration * ratio,
+              })),
+            }
+          : c;
       const rescaled: Record<string, ClipInstance[]> = {};
       Object.entries(clipsByChannel).forEach(([chId, clips]) => {
-        rescaled[chId] = clips.map((c) =>
-          c.kind === "midi"
-            ? {
-                ...c,
-                offset: c.offset * ratio,
-                length: c.length * ratio,
-                loopLength: c.loopLength ? c.loopLength * ratio : c.loopLength,
-                notes: c.notes.map((n) => ({
-                  ...n,
-                  time: n.time * ratio,
-                  duration: n.duration * ratio,
-                })),
-              }
-            : c
-        );
+        rescaled[chId] = clips.map(rescale);
       });
       setClipsByChannel(rescaled);
+      // MIDI takes follow the tempo too.
+      projectStore.set("takesByChannel", (prev) =>
+        Object.fromEntries(Object.entries(prev).map(([chId, lanes]) => [chId, lanes.map((lane) => ({ ...lane, clips: lane.clips.map(rescale) }))]))
+      );
       channels.forEach((c) => {
         if (c.type === "midi") rebuildMidiPart(c.id, (rescaled[c.id] ?? []).filter(isMidiClip));
       });
@@ -1619,6 +1691,7 @@ export function Daw() {
     setSnapResolution(project.snapResolution);
     setCountInBars(project.countInBars);
     setMetronomeEnabled(project.metronomeEnabled);
+    setMidiOverdub(project.midiOverdub);
     restoreMonitoring(project.monitoredTracks, state.channels);
     setLoop(project.loop);
     setSelectedClipIds(new Set());
@@ -1652,7 +1725,7 @@ export function Daw() {
     loadDemo: handleLoadDemo,
     startNew,
   } = useProjectFiles(
-    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop, monitoredTracks },
+    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, midiOverdub, loop, monitoredTracks },
     {
       beforeOpen: () => {
         audioEngine.stopAll();
@@ -1751,8 +1824,10 @@ export function Daw() {
       .forEach((t) => options.push({ value: t.id, label: `${t.type === "group" ? "Group" : "Track"}: ${t.name}` }));
     return options;
   };
+  /** A track's take lanes, when they're showing (not while it's folded). */
+  const shownTakes = (c: ChannelConfig) => (c.showTakes && !c.folded ? takesByChannel[c.id] ?? NO_TAKES : NO_TAKES);
   const lanesHeight =
-    visibleChannels.reduce((sum, c) => sum + rowHeightOf(c), 0) +
+    visibleChannels.reduce((sum, c) => sum + rowHeightOf(c) + shownTakes(c).length * TAKE_LANE_HEIGHT, 0) +
     (automationChannelId && visibleChannels.some((c) => c.id === automationChannelId) ? AUTOMATION_LANE_HEIGHT : 0);
 
 
@@ -1789,6 +1864,7 @@ export function Daw() {
     requestInputDevices: handleRequestInputDevices,
     toggleFold: (id, all) => (all ? handleFoldAll(!channels.find((c) => c.id === id)?.folded) : handleToggleFold(id)),
     pick: handlePickTrack,
+    toggleTakes: takeActions.toggleShowTakes,
   });
   const laneActions = useStableActions<TrackLaneActions>({
     selectTrack: (id) => {
@@ -1981,6 +2057,8 @@ export function Daw() {
           onToggleLoop={toggleLoop}
           countInBars={countInBars}
           onCountInChange={setCountInBars}
+          midiOverdub={midiOverdub}
+          onToggleMidiOverdub={() => setMidiOverdub((v) => !v)}
           onPlay={handlePlay}
           onPause={handlePause}
           onStop={() => void handleStop()}
@@ -2204,8 +2282,18 @@ export function Daw() {
                   inputDevices={inputDevices}
                   selectedInputDeviceId={selectedInputDeviceId}
                   monitoring={monitoredChannelIds.has(channel.id)}
+                  takeCount={(takesByChannel[channel.id] ?? NO_TAKES).length}
                   actions={headerActions}
                 />
+                {shownTakes(channel).map((lane) => (
+                  <TakeLaneHeader
+                    key={lane.id}
+                    lane={lane}
+                    inUse={clipsOf(channel.id).some((c) => c.take === lane.id)}
+                    onUse={() => takeActions.useTake(channel.id, lane.id)}
+                    onDelete={() => takeActions.deleteTake(channel.id, lane.id)}
+                  />
+                ))}
                 {automationChannelId === channel.id && (
                   <div
                     className="flex shrink-0 items-center border-b border-r border-border bg-surface px-2"
@@ -2291,6 +2379,18 @@ export function Daw() {
                   timeSelection={timeSelection?.channelIds.includes(channel.id) ? selectionSpan : undefined}
                   renamingClipId={renamingClip?.channelId === channel.id ? renamingClip.clipId : undefined}
                 />
+                {shownTakes(channel).map((lane) => (
+                  <TakeLaneRow
+                    key={lane.id}
+                    lane={lane}
+                    used={compSpans(clipsOf(channel.id), lane.id)}
+                    color={trackColorOf(channel)}
+                    pxPerSecond={pxPerSecond}
+                    totalSeconds={totalSeconds}
+                    snapSeconds={snapSeconds}
+                    onComp={(laneId, range) => takeActions.comp(channel.id, laneId, range)}
+                  />
+                ))}
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">
                     <AutomationLaneEditor

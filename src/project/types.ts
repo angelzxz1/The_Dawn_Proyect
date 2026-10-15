@@ -59,6 +59,8 @@ export interface ChannelConfig extends InstrumentSettings {
   /** Folded: a short row in the arrangement (for a group: its members are
    * hidden too). */
   folded?: boolean;
+  /** Its take lanes are showing under it (when it has takes). */
+  showTakes?: boolean;
   /** Automation lanes recorded for this channel's volume/pan/effect knobs.
    * Each lane's points are edited on the arrangement timeline's automation
    * strip and replayed by the engine during playback. */
@@ -131,6 +133,9 @@ interface ClipBase {
   name?: string;
   /** A color given to the clip ("#rrggbb"). Unset, it has its track's. */
   color?: string;
+  /** On a track's own lane: the take lane (its id) this part of the comp
+   * was taken from (takes.ts). */
+  take?: string;
   /** When set and > 0, the clip's content (its notes, or its audio source
    * region) repeats every `loopLength` seconds to fill the box's full
    * `length` - lets you drag the clip's right edge out past its natural
@@ -168,6 +173,15 @@ export interface AudioClipInstance extends ClipBase {
   fadeOut: number;
   /** This clip's own gain, in dB, independent of the channel fader. */
   gainDb: number;
+}
+
+/** One of a track's takes, in a lane under it: what was recorded in one go
+ * (or one pass of a loop recording). Takes don't play; the track's own
+ * lane - the comp - is put together from parts of them (takes.ts). */
+export interface TakeLane {
+  id: string;
+  name: string;
+  clips: ClipInstance[];
 }
 
 /** One clip box placed on a track - a track can hold any number of these,

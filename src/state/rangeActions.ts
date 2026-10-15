@@ -11,7 +11,33 @@ import type { ProjectState } from "@/project/project";
 import { copyRange, getCopiedRange } from "./clipboard";
 import { newClipId } from "./ids";
 import { projectStore } from "./projectStore";
-import { audioByUrl, changeTracks } from "./trackClips";
+import { audioByUrl, changeTracks, keepAudio } from "./trackClips";
+import type { ClipInstance } from "@/project/types";
+
+/** Moves the tracks' takes along with an edit that moves time (inserting
+ * or taking it out), in the same undo step - which it takes when the edit
+ * didn't change the tracks' own lanes. */
+function moveTakes(channelIds: string[], change: (clips: ClipInstance[]) => ClipInstance[], stepTaken: boolean): void {
+  const state = projectStore.get();
+  const next = { ...state.takesByChannel };
+  let changed = false;
+  channelIds.forEach((id) => {
+    const lanes = state.takesByChannel[id];
+    if (!lanes) return;
+    const moved = lanes.map((lane) => {
+      const clips = change(lane.clips);
+      return clips === lane.clips ? lane : { ...lane, clips };
+    });
+    if (moved.every((lane, i) => lane === lanes[i])) return;
+    next[id] = moved;
+    changed = true;
+  });
+  if (!changed) return;
+  const byUrl = audioByUrl(state);
+  Object.values(next).forEach((lanes) => lanes.forEach((lane) => keepAudio(lane.clips, byUrl)));
+  if (!stepTaken) projectStore.push();
+  projectStore.set("takesByChannel", next);
+}
 
 /** A time selection: a span of time on some tracks' lanes. */
 export interface TimeSelection extends TimeRange {
@@ -86,11 +112,19 @@ export const rangeActions = {
   /** Opens a gap as long as the range at its start: everything from there
    * on moves later. */
   insertSilence(selection: TimeSelection): boolean {
-    return changeTracks(tracksOf(selection.channelIds), (clips) => insertTime(clips, selection.start, lengthOf(selection), newClipId));
+    const tracks = tracksOf(selection.channelIds);
+    const edit = (clips: ClipInstance[]) => insertTime(clips, selection.start, lengthOf(selection), newClipId);
+    const changed = changeTracks(tracks, edit);
+    moveTakes(tracks, edit, changed);
+    return changed;
   },
 
   /** Takes the range out: everything after it moves earlier. */
   deleteTime(selection: TimeSelection): boolean {
-    return changeTracks(tracksOf(selection.channelIds), (clips) => deleteTime(clips, selection, newClipId));
+    const tracks = tracksOf(selection.channelIds);
+    const edit = (clips: ClipInstance[]) => deleteTime(clips, selection, newClipId);
+    const changed = changeTracks(tracks, edit);
+    moveTakes(tracks, edit, changed);
+    return changed;
   },
 };

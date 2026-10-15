@@ -38,6 +38,9 @@ Live and Reaper.
   or drum pads, or a MIDI controller. Record audio from a microphone or an
   audio interface, with a count-in and a metronome. Each clip is drawn on
   its track while you record it.
+- **Time selection**, like Ableton's: drag across lanes to select a span of
+  time, then cut, copy, paste, duplicate, empty it, insert silence or delete
+  the time, on every track at once.
 - **Arrangement loop**, like Ableton's: a loop brace under the ruler you
   draw, drag and resize, Ctrl+L to loop the selected clips, start and length
   fields, and the arrow keys to move it. It stays on its bars when the tempo
@@ -675,11 +678,37 @@ With the pointer:
   **Export .mid** for MIDI clips.
 - **Right-click an empty part of a lane** to add an empty MIDI clip, import
   an audio clip there, or paste.
+- **Select time** by dragging on an empty part of a lane, as in Ableton: the
+  span you drag, on the grid, on every lane you cross (see below).
 - **Import audio** by dropping a file onto a track, or with the import button
   in the track's header. The same buttons import and export `.mid` files.
 - **Move the playhead** by clicking or dragging on the ruler. Play always
   starts from there.
 - **Loop part of the song** with the arrangement loop (see below).
+
+### Editing a span of time
+
+With the pointer, drag on an empty part of a lane to select a span of time
+on the lanes you cross. It snaps to the grid and shows as a band across
+those lanes. A group's lane counts as all of its tracks. These act on it,
+each as one undo step:
+
+- **Delete** empties it: clips that cross its edges are cut there, and what
+  was inside is gone.
+- **Ctrl+X** cuts it and **Ctrl+C** copies it. **Ctrl+V** pastes it on the
+  tracks it came from, at the start of the time selection or else at the
+  playhead, over what's there. What was pasted is then selected.
+- **Ctrl+D** copies it right after itself, over what's there, and selects
+  the copy, so pressing it again carries on.
+- **Ctrl+I** inserts silence as long as the selection at its start:
+  everything after moves later.
+- **Shift+Delete** deletes the time: what's in it is gone, and everything
+  after moves earlier to close the gap.
+- **Ctrl+L** loops it.
+
+Use Cmd instead of Ctrl on a Mac. Right-click inside the selection, on a
+clip or not, for the same actions. **Esc**, a click on a lane or a click on
+a clip ends the selection.
 
 ### The arrangement loop
 
@@ -906,18 +935,21 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Esc | Close the topmost menu, dialog or window |
 | Ctrl/Cmd+Z | Undo |
 | Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | Redo |
-| Ctrl/Cmd+C | Copy the clip under the playhead on the selected track |
-| Ctrl/Cmd+V | Paste the copied clip at the playhead |
-| Ctrl/Cmd+D | Duplicate the selected clips |
-| Ctrl/Cmd+L | Loop the selected clips, or switch the loop on/off |
+| Ctrl/Cmd+C | Copy the time selection, or the clip under the playhead on the selected track |
+| Ctrl/Cmd+X | Cut the time selection |
+| Ctrl/Cmd+V | Paste the copied time at the time selection or the playhead, or the copied clip at the playhead |
+| Ctrl/Cmd+D | Duplicate the time selection, or the selected clips |
+| Ctrl/Cmd+I | Insert silence as long as the time selection |
+| Shift+Delete | Delete the time selected (what's after it moves earlier) |
+| Ctrl/Cmd+L | Loop the time selection or the selected clips, or switch the loop on/off |
 | Shift+1 … Shift+5 | Edit tool: pointer, split, draw, erase, slip |
-| Esc | Back to the pointer tool |
+| Esc | Back to the pointer tool, then end the time selection |
 | Ctrl/Cmd-click a track header | Pick tracks to group (Esc forgets them) |
 | Ctrl/Cmd+G | Group the picked tracks, or the selected one |
 | Up / Down (loop brace selected) | Move the loop by its own length |
 | Left / Right (loop brace selected) | Move the loop by one grid step |
 | Ctrl/Cmd+Left / Right (loop brace selected) | Shorten / lengthen the loop |
-| Delete / Backspace | Delete the selected clips |
+| Delete / Backspace | Empty the time selection, or delete the selected clips |
 | Ctrl/Cmd+S | Save |
 | Ctrl/Cmd+Shift+S | Save As |
 | Ctrl/Cmd+O | Open a project |

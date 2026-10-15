@@ -49,6 +49,8 @@ import { useShortcuts } from "@/ui/shortcuts";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
+import { rangeActions, type TimeSelection } from "@/state/rangeActions";
+import { getCopiedRange } from "@/state/clipboard";
 import { DrumPads } from "@/instruments/drum-rack/DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "@/studio/transport/LoopBar";
 import { ExpressionControls } from "@/studio/notes/ExpressionControls";
@@ -481,6 +483,64 @@ export function Daw() {
       rulerViewportRef.current.scrollLeft = e.currentTarget.scrollLeft;
     }
   }, []);
+
+  // --- Time selection (rangeActions.ts) ---
+  /** A span of time on some lanes, dragged out on empty lane space with the
+   * pointer tool: what Delete, Ctrl+X/C/V/D/I/L and Shift+Delete act on
+   * while it's there. A lane picked, or a clip, ends it. */
+  const [timeSelection, setTimeSelection] = useState<TimeSelection | null>(null);
+  /** The lanes, top to bottom, and where on the timeline a screen x is. */
+  const laneRows = useCallback(() => [...(lanesScrollRef.current?.querySelectorAll<HTMLElement>("[data-channel-id]") ?? [])], []);
+  const secondsAtX = useCallback(
+    (clientX: number) => Math.max(0, (clientX - (laneRows()[0]?.getBoundingClientRect().left ?? 0)) / pxPerSecond),
+    [laneRows, pxPerSecond]
+  );
+  /** From where the pointer goes down to where it is, on the grid, on the
+   * lanes from the one it went down on to the one it's over. */
+  const startTimeSelection = useCallback(
+    (clientX: number, clientY: number) => {
+      const rows = laneRows();
+      const rowAt = (y: number) => Math.max(0, rows.findLastIndex((r) => r.getBoundingClientRect().top <= y));
+      const snap = (t: number) => (snapSeconds > 0 ? Math.round(t / snapSeconds) * snapSeconds : t);
+      const anchor = secondsAtX(clientX);
+      const anchorRow = rowAt(clientY);
+      let dragged = false;
+      const onMove = (ev: PointerEvent) => {
+        if (!dragged && Math.hypot(ev.clientX - clientX, ev.clientY - clientY) <= 3) return;
+        if (!dragged) setSelectedClipIds(new Set());
+        dragged = true;
+        const at = secondsAtX(ev.clientX);
+        const row = rowAt(ev.clientY);
+        const [top, bottom] = anchorRow <= row ? [anchorRow, row] : [row, anchorRow];
+        const start = snap(Math.min(anchor, at));
+        const end = snap(Math.max(anchor, at));
+        const channelIds = rows.slice(top, bottom + 1).map((r) => r.dataset.channelId!);
+        setTimeSelection(end - start > 1e-6 ? { start, end, channelIds } : null);
+      };
+      const onEnd = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        if (!dragged) setTimeSelection(null);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onEnd);
+      window.addEventListener("pointercancel", onEnd);
+    },
+    [laneRows, secondsAtX, snapSeconds]
+  );
+  /** The selection on one lane (the same object while it doesn't change,
+   * for the memoized lanes). */
+  const selectionSpan = useMemo(
+    () => (timeSelection ? { start: timeSelection.start, end: timeSelection.end } : undefined),
+    [timeSelection]
+  );
+  /** Whether a point on a lane is in the time selection. */
+  const selectionHas = useCallback(
+    (channelId: string, seconds: number) =>
+      !!timeSelection && timeSelection.channelIds.includes(channelId) && seconds >= timeSelection.start && seconds <= timeSelection.end,
+    [timeSelection]
+  );
 
   // Suppress the browser's native right-click menu everywhere in the app -
   // only our own context menus (clip/lane/header, and any added later)
@@ -1182,6 +1242,36 @@ export function Daw() {
 
   const handleAutomationPointsChange = trackActions.setAutomation;
 
+  /** What can be done to the time selection, for its keys and its menu.
+   * Each is false when there's nothing to do it to (so the key goes on to
+   * the clip shortcuts). The same object on every redraw. */
+  const onSelection = (act: (sel: TimeSelection) => void) => () => {
+    if (!timeSelection) return false;
+    act(timeSelection);
+  };
+  const timeEdits = useStableActions({
+    cut: onSelection((sel) => rangeActions.cut(sel)),
+    copy: onSelection((sel) => rangeActions.copy(sel)),
+    clear: onSelection((sel) => rangeActions.clear(sel)),
+    /** The copy is selected, so it can be duplicated again. */
+    duplicate: onSelection((sel) => setTimeSelection(rangeActions.duplicate(sel))),
+    insertSilence: onSelection((sel) => rangeActions.insertSilence(sel)),
+    deleteTime: onSelection((sel) => rangeActions.deleteTime(sel)),
+    loop: onSelection((sel) => {
+      setLoop({ on: true, start: secondsToBeats(sel.start, bpm), end: secondsToBeats(sel.end, bpm) });
+      setLoopSelected(true);
+    }),
+    /** Copied time, at the selection's start or else the playhead (on the
+     * grid), on the tracks it came from; what it covers is selected. */
+    paste: () => {
+      if (!getCopiedRange()) return false;
+      const playhead = audioEngine.getTransportSeconds();
+      const at = timeSelection?.start ?? (snapSeconds > 0 ? Math.round(playhead / snapSeconds) * snapSeconds : playhead);
+      const pasted = rangeActions.paste(at);
+      if (pasted) setTimeSelection(pasted);
+    },
+  });
+
   // The studio's keys (shortcuts.ts). The piano roll, dialogs and the note
   // keys sit above them: while the note keys play a MIDI track, R is a note
   // and Shift+R records.
@@ -1198,6 +1288,15 @@ export function Daw() {
     { keys: ["r", "shift+r"], label: "Record", run: () => void handleRecord() },
     { keys: "mod+z", label: "Undo", run: () => undo() },
     { keys: ["mod+shift+z", "mod+y"], label: "Redo", run: () => redo() },
+    // With a time selection, these act on it.
+    { keys: "mod+x", label: "Cut the time selection", run: timeEdits.cut },
+    { keys: "mod+c", label: "Copy the time selection", run: timeEdits.copy },
+    { keys: "mod+v", label: "Paste copied time at the selection or the playhead", run: timeEdits.paste },
+    { keys: "mod+d", label: "Duplicate the time selection after itself", run: timeEdits.duplicate },
+    { keys: "delete", label: "Empty the time selection", run: timeEdits.clear },
+    { keys: "shift+delete", label: "Delete the time selected (what's after it moves earlier)", run: timeEdits.deleteTime },
+    { keys: "mod+i", label: "Insert silence as long as the time selection", run: timeEdits.insertSilence },
+    { keys: "mod+l", label: "Loop the time selection", run: timeEdits.loop },
     { keys: "mod+c", label: "Copy the clip under the playhead", run: () => handleCopyAtPlayhead() },
     { keys: "mod+v", label: "Paste the copied clip at the playhead", run: () => handlePasteClip() },
     {
@@ -1243,9 +1342,10 @@ export function Daw() {
     },
     {
       keys: "escape",
-      label: "Back to the pointer tool, or forget the tracks picked for grouping",
+      label: "Back to the pointer tool, or clear the time selection, or forget the tracks picked for grouping",
       run: () => {
         if (clipTool !== "pointer") return setClipTool("pointer");
+        if (timeSelection) return setTimeSelection(null);
         if (trackPicks.size === 0) return false;
         setTrackPicks(new Set());
       },
@@ -1288,18 +1388,21 @@ export function Daw() {
    * just this clip, matching how most apps handle right-click on a list. */
   const openClipMenu = useCallback(
     (channelId: string, clipId: string, e: React.MouseEvent) => {
+      // Inside the time selection: what can be done to it.
+      if (selectionHas(channelId, secondsAtX(e.clientX))) return setContextMenu({ kind: "range", x: e.clientX, y: e.clientY });
       setSelectedClipIds((prev) => (prev.has(clipId) ? prev : new Set([clipId])));
       setSelectedChannelId(channelId);
       setContextMenu({ kind: "clip", channelId, clipId, x: e.clientX, y: e.clientY });
     },
-    []
+    [selectionHas, secondsAtX]
   );
 
   const openLaneMenu = useCallback(
     (channelId: string, e: React.MouseEvent, atSeconds: number) => {
+      if (selectionHas(channelId, atSeconds)) return setContextMenu({ kind: "range", x: e.clientX, y: e.clientY });
       setContextMenu({ kind: "lane", channelId, x: e.clientX, y: e.clientY, atSeconds });
     },
-    []
+    [selectionHas]
   );
 
   const openHeaderMenu = useCallback((channelId: string, e: React.MouseEvent) => {
@@ -1330,6 +1433,7 @@ export function Daw() {
               setTrackGroup: handleSetTrackGroup,
               toggleFold: handleToggleFold,
               removeTrack: handleRemoveChannel,
+              time: timeEdits,
             }
           )
         : [],
@@ -1354,6 +1458,7 @@ export function Daw() {
       handleSetTrackGroup,
       handleToggleFold,
       handleRemoveChannel,
+      timeEdits,
     ]
   );
 
@@ -1464,6 +1569,7 @@ export function Daw() {
     restoreMonitoring(project.monitoredTracks, state.channels);
     setLoop(project.loop);
     setSelectedClipIds(new Set());
+    setTimeSelection(null);
     setEditingClip(null);
     setExpandedEffectId(null);
     setFxBusId(null);
@@ -1603,6 +1709,7 @@ export function Daw() {
     select: (id) => {
       setSelectedChannelId(id);
       setSelectedClipIds(new Set());
+      setTimeSelection(null);
       setTrackPicks(new Set());
       openFx(id);
     },
@@ -1637,6 +1744,7 @@ export function Daw() {
     },
     selectClip: (id, clipId, additive) => {
       setSelectedChannelId(id);
+      setTimeSelection(null);
       openFx(id);
       setSelectedClipIds((prev) => {
         if (additive) {
@@ -1665,6 +1773,7 @@ export function Daw() {
     drawClip: (id, offset, length) => {
       const clipId = clipActions.addMidi(id, offset, length);
       setSelectedChannelId(id);
+      setTimeSelection(null);
       openFx(id);
       setSelectedClipIds(new Set([clipId]));
     },
@@ -1673,6 +1782,7 @@ export function Daw() {
       if ("notes" in change) clipActions.setNotes(id, clipId, change.notes);
       else clipActions.setSourceOffset(id, clipId, change.sourceOffset);
     },
+    startTimeSelection,
   });
   // A group's lane draws its members' clips; the same list while they don't
   // change, so its memoized lane can skip redraws too.
@@ -2119,6 +2229,7 @@ export function Daw() {
                   tool={clipTool}
                   canDraw={channel.type === "midi"}
                   erasingIds={erasingIds}
+                  timeSelection={timeSelection?.channelIds.includes(channel.id) ? selectionSpan : undefined}
                 />
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">

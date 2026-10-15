@@ -1,5 +1,5 @@
 // The arrangement's right-click menus: on a clip, on an empty spot of a
-// track's lane, and on a track's header. Each is built from where it was
+// track's lane, in the time selection, and on a track's header. Each is built from where it was
 // opened and what the studio can do there (MenuActions).
 
 import {
@@ -8,8 +8,10 @@ import {
   Copy,
   CopyPlus,
   Download,
+  Eraser,
   FileAudio,
   FilePlus2,
+  FoldHorizontal,
   FolderInput,
   FolderOutput,
   FolderPlus,
@@ -17,16 +19,19 @@ import {
   Repeat,
   Scissors,
   Trash2,
+  UnfoldHorizontal,
   X,
 } from "lucide-react";
 import { audioEngine } from "@/engine/audioEngine";
-import { getCopiedClip } from "@/state/clipboard";
+import { getCopiedClip, getCopiedRange } from "@/state/clipboard";
 import type { ChannelConfig, ClipInstance } from "@/project/types";
 import type { ContextMenuItem } from "@/studio/shell/ContextMenu";
 
 export type ContextMenuState =
   | { kind: "clip"; channelId: string; clipId: string; x: number; y: number }
   | { kind: "lane"; channelId: string; x: number; y: number; atSeconds: number }
+  /** In the time selection: acts on it. */
+  | { kind: "range"; x: number; y: number }
   | { kind: "header"; channelId: string; x: number; y: number };
 
 type MenuItems = (ContextMenuItem | "separator")[];
@@ -50,6 +55,19 @@ export interface MenuActions {
   toggleFold: (id: string) => void;
   /** Removes a track (ungroups a group). */
   removeTrack: (id: string) => void;
+  /** What's done to the time selection (rangeActions.ts). */
+  time: TimeSelectionActions;
+}
+
+export interface TimeSelectionActions {
+  cut: () => void;
+  copy: () => void;
+  paste: () => void;
+  duplicate: () => void;
+  clear: () => void;
+  insertSilence: () => void;
+  deleteTime: () => void;
+  loop: () => void;
 }
 
 export interface MenuContext {
@@ -67,6 +85,7 @@ export function contextMenuItems(menu: ContextMenuState, ctx: MenuContext, actio
   const canPaste = (channelId: string) => !!copied && copied.kind === typeOf(channelId);
   if (menu.kind === "clip") return clipMenu(menu.channelId, menu.clipId, ctx, actions, canPaste(menu.channelId));
   if (menu.kind === "lane") return laneMenu(menu.channelId, menu.atSeconds, typeOf(menu.channelId), actions, canPaste(menu.channelId));
+  if (menu.kind === "range") return rangeMenu(actions.time);
   return headerMenu(menu.channelId, ctx, actions);
 }
 
@@ -107,6 +126,20 @@ function laneMenu(channelId: string, atSeconds: number, type: ChannelConfig["typ
       ? { label: "Add empty MIDI clip here", icon: <FilePlus2 size={13} />, onSelect: () => actions.addEmptyClip(channelId, atSeconds) }
       : { label: "Import audio clip here…", icon: <FileAudio size={13} />, onSelect: () => actions.importAudio(channelId, atSeconds) },
     { label: "Paste clip here", icon: <Clipboard size={13} />, disabled: !canPaste, onSelect: () => actions.pasteAt(channelId, atSeconds) },
+  ];
+}
+
+function rangeMenu(time: TimeSelectionActions): MenuItems {
+  return [
+    { label: "Cut (Ctrl+X)", icon: <Scissors size={13} />, onSelect: time.cut },
+    { label: "Copy (Ctrl+C)", icon: <Copy size={13} />, onSelect: time.copy },
+    { label: "Paste copied time here (Ctrl+V)", icon: <Clipboard size={13} />, disabled: !getCopiedRange(), onSelect: time.paste },
+    { label: "Duplicate (Ctrl+D)", icon: <CopyPlus size={13} />, onSelect: time.duplicate },
+    { label: "Loop the selection (Ctrl+L)", icon: <Repeat size={13} />, onSelect: time.loop },
+    "separator",
+    { label: "Insert silence (Ctrl+I)", icon: <UnfoldHorizontal size={13} />, onSelect: time.insertSilence },
+    { label: "Delete time (Shift+Delete)", icon: <FoldHorizontal size={13} />, onSelect: time.deleteTime },
+    { label: "Empty the selection (Delete)", icon: <Eraser size={13} />, danger: true, onSelect: time.clear },
   ];
 }
 

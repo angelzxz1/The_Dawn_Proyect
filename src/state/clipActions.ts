@@ -223,8 +223,9 @@ export const clipActions = {
     const updated = clipsOf(channelId).filter((c) => c.id !== clipId).concat([first, second]);
     setTrackClips(channelId, updated);
     if (clip.kind === "audio") {
+      // Its audio stays: undo can bring the clip back (the store lets audio
+      // go once no undo step has it, projectStore.ts).
       audioEngine.removeAudioClip(channelId, clipId);
-      audioBlobs.delete(clip.id);
     } else {
       rebuildMidiPart(channelId, updated.filter(isMidiClip));
     }

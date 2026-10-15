@@ -153,7 +153,9 @@ function syncTrack(engine: EngineApi, prev: ChannelConfig, next: ChannelConfig):
   if (prev.automationLanes !== next.automationLanes) engine.setAutomation(id, next.automationLanes ?? []);
 }
 
-function syncClips(engine: EngineApi, channel: ChannelConfig, prev: ClipInstance[], next: ClipInstance[]): void {
+/** Moves a track's clips in the engine from `prev` to `next`: a MIDI
+ * track's part is rebuilt, audio clips are loaded, moved or dropped. */
+export function syncClips(engine: EngineApi, channel: ChannelConfig, prev: ClipInstance[], next: ClipInstance[]): void {
   if (prev === next) return;
   if (channel.type === "midi") {
     engine.setClip(channel.id, midiTimeline(next), 0);

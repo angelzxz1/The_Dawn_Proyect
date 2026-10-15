@@ -2,7 +2,7 @@
 // arrangement view. Plain in-memory state (not React state) is enough here -
 // it's client-only, single-user, and doesn't need to trigger re-renders.
 
-import type { NoteEvent } from "../project/types";
+import type { ClipInstance, NoteEvent } from "../project/types";
 
 let noteClipboard: NoteEvent[] | null = null;
 
@@ -40,8 +40,32 @@ export function copyClip(data: ClipboardClip): void {
     data.kind === "midi"
       ? { ...data, notes: data.notes.map((n) => ({ ...n })) }
       : { ...data };
+  rangeClipboard = null;
 }
 
+/** The clip copied last, unless a time range was copied after it. */
 export function getCopiedClip(): ClipboardClip | null {
   return clipClipboard;
+}
+
+/** A time range copied from some tracks (rangeActions.ts): each track's
+ * clips in it, placed from its start, and the audio they play, by URL. */
+export interface ClipboardRange {
+  length: number;
+  /** The lanes it was selected on (a group's lane for its tracks). */
+  lanes: string[];
+  tracks: { channelId: string; clips: ClipInstance[] }[];
+  audio: Map<string, Blob>;
+}
+
+let rangeClipboard: ClipboardRange | null = null;
+
+export function copyRange(range: ClipboardRange): void {
+  rangeClipboard = range;
+  clipClipboard = null;
+}
+
+/** The time range copied last, unless a clip was copied after it. */
+export function getCopiedRange(): ClipboardRange | null {
+  return rangeClipboard;
 }

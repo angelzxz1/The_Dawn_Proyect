@@ -5,6 +5,7 @@ import { ClipBlock, type SlipChange } from "@/studio/timeline/ClipBlock";
 import { RecordingClip } from "@/studio/timeline/RecordingClip";
 import { TOOL_CURSORS, type ClipTool } from "@/studio/timeline/clipTools";
 import type { ClipInstance } from "@/project/types";
+import type { TimeRange } from "@/project/timeRange";
 import type { TrackColor } from "@/project/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
@@ -40,6 +41,9 @@ export interface TrackLaneActions {
   startErase(clipId: string | null): void;
   /** Slip tool: a clip's content, slid. */
   slipClip(channelId: string, clipId: string, change: SlipChange): void;
+  /** Pointer tool: the pointer went down on empty lane space. A drag from
+   * there selects time, on the lanes it crosses; a click clears it. */
+  startTimeSelection(clientX: number, clientY: number): void;
 }
 
 interface TrackLaneProps {
@@ -86,6 +90,8 @@ interface TrackLaneProps {
   canDraw?: boolean;
   /** Erase tool: the clips a drag has passed over, on any lane. */
   erasingIds?: ReadonlySet<string>;
+  /** The time selection, when it's on this lane. */
+  timeSelection?: TimeRange;
 }
 
 const NO_CLIPS: ReadonlySet<string> = new Set();
@@ -117,6 +123,7 @@ export const TrackLane = memo(function TrackLane({
   tool = "pointer",
   canDraw = false,
   erasingIds = NO_CLIPS,
+  timeSelection,
 }: TrackLaneProps) {
   const onSelectTrack = () => actions.selectTrack(channelId);
   const onSelectClip = (clipId: string, additive: boolean) => actions.selectClip(channelId, clipId, additive);
@@ -146,10 +153,12 @@ export const TrackLane = memo(function TrackLane({
 
   /** Draw tool: from where the pointer goes down to where it comes up,
    * snapped outward to the grid; a click makes a one-bar clip. Erase tool:
-   * a drag from empty space deletes the clips it crosses. */
+   * a drag from empty space deletes the clips it crosses. Pointer tool: it
+   * selects time. */
   const handleLanePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if (tool === "erase") return actions.startErase(null);
+    if (tool === "pointer") return actions.startTimeSelection(e.clientX, e.clientY);
     if (!drawsHere) return;
     const lane = e.currentTarget;
     lane.setPointerCapture(e.pointerId);
@@ -191,6 +200,7 @@ export const TrackLane = memo(function TrackLane({
     <div
       role="group"
       aria-label={`${name} lane`}
+      data-channel-id={channelId}
       onPointerDown={handleLanePointerDown}
       // Drawing and erasing aren't a click on the lane (which would select
       // the track, and so drop the clip just drawn from the selection).
@@ -240,7 +250,7 @@ export const TrackLane = memo(function TrackLane({
         const file = e.dataTransfer.files[0];
         if (file) onDropAudioFile(file, atSecondsFromEvent(e));
       }}
-      className={`relative cursor-pointer border-b border-border ${
+      className={`relative cursor-pointer select-none border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
       } ${fileDragOver || grooveDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
       style={{
@@ -334,6 +344,14 @@ export const TrackLane = memo(function TrackLane({
           erasing={erasingIds.has(clip.id)}
         />
       ))}
+      {timeSelection && (
+        // Over the clips (and their handles), under the sticky ruler.
+        <div
+          data-time-selection
+          className="pointer-events-none absolute inset-y-0 z-[15] border-x border-accent bg-accent/20"
+          style={{ left: timeSelection.start * pxPerSecond, width: (timeSelection.end - timeSelection.start) * pxPerSecond }}
+        />
+      )}
     </div>
   );
 });

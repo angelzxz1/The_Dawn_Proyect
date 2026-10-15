@@ -166,29 +166,5 @@ test("the parts of an audio clip cut by a selection keep their audio", async ({ 
   await expect(studio.clipsOn("Audio 1")).toHaveCount(2);
 
   // Autosave writes each clip's audio with the song.
-  const saved = () =>
-    page.evaluate(
-      () =>
-        new Promise<{ clips: string[]; audio: string[] }>((resolve, reject) => {
-          const open = indexedDB.open("dawn-project-db");
-          open.onerror = () => reject(open.error);
-          open.onsuccess = () => {
-            const tx = open.result.transaction(["meta", "audioBlobs"]);
-            const meta = tx.objectStore("meta").get("current");
-            const keys = tx.objectStore("audioBlobs").getAllKeys();
-            tx.oncomplete = () => {
-              const project = meta.result as { clipsByChannel: Record<string, { id: string; kind: string }[]> } | undefined;
-              const clips = Object.values(project?.clipsByChannel ?? {})
-                .flat()
-                .filter((c) => c.kind === "audio")
-                .map((c) => c.id);
-              resolve({ clips: clips.sort(), audio: (keys.result as string[]).filter((k) => clips.includes(k)).sort() });
-            };
-          };
-        })
-    );
-  await expect.poll(async () => {
-    const { clips, audio } = await saved();
-    return clips.length === 2 && audio.length === 2;
-  }).toBe(true);
+  await expect.poll(async () => (await studio.autosavedClips()).filter((c) => c.kind === "audio").map((c) => c.audio)).toEqual([true, true]);
 });

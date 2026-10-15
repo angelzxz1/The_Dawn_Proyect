@@ -13,6 +13,7 @@ import { audioClipTiming, midiTimeline } from "@/engine/engineSync";
 import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, NoteEvent } from "@/project/types";
 import { audioBlobs } from "./audioBlobs";
 import { newClipId } from "./ids";
+import { clipLabel } from "@/project/clipEdits";
 import { projectStore } from "./projectStore";
 
 export { audioClipTiming };
@@ -69,13 +70,14 @@ function syncAudioClip(channelId: string, clip: AudioClipInstance): void {
   );
 }
 
-type AudioClipExtras = Partial<Pick<AudioClipInstance, "length" | "sourceOffset" | "fadeIn" | "fadeOut" | "gainDb" | "loopLength">>;
+type AudioClipExtras = Partial<Pick<AudioClipInstance, "length" | "sourceOffset" | "fadeIn" | "fadeOut" | "gainDb" | "loopLength" | "name" | "color">>;
+type ClipLabel = Pick<ClipInstance, "name" | "color">;
 
 export const clipActions = {
   /** Adds a MIDI clip; returns its id. */
-  addMidi(channelId: string, offset: number, length: number, notes: NoteEvent[] = [], loopLength: number | null = null): string {
+  addMidi(channelId: string, offset: number, length: number, notes: NoteEvent[] = [], loopLength: number | null = null, label: ClipLabel = {}): string {
     projectStore.push();
-    const clip: MidiClipInstance = { id: newClipId(), kind: "midi", offset, length, notes, loopLength };
+    const clip: MidiClipInstance = { ...clipLabel(label), id: newClipId(), kind: "midi", offset, length, notes, loopLength };
     const updated = [...clipsOf(channelId), clip];
     setTrackClips(channelId, updated);
     rebuildMidiPart(channelId, updated.filter(isMidiClip));
@@ -88,6 +90,7 @@ export const clipActions = {
   addAudio(channelId: string, decoded: DecodedAudioClip, offset: number, fileName: string, sourceBlob: Blob, extra?: AudioClipExtras): string {
     projectStore.push();
     const clip: AudioClipInstance = {
+      ...clipLabel(extra ?? {}),
       id: newClipId(),
       kind: "audio",
       offset,
@@ -311,9 +314,9 @@ export const clipActions = {
   copy(clip: ClipInstance): void {
     if (clip.kind === "audio") {
       const { url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength } = clip;
-      copyClip({ kind: "audio", url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength });
+      copyClip({ ...clipLabel(clip), kind: "audio", url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength });
     } else {
-      copyClip({ kind: "midi", notes: clip.notes, length: clip.length, loopLength: clip.loopLength });
+      copyClip({ ...clipLabel(clip), kind: "midi", notes: clip.notes, length: clip.length, loopLength: clip.loopLength });
     }
   },
 
@@ -324,33 +327,39 @@ export const clipActions = {
     if (!copied || copied.kind !== typeOf(channelId)) return;
     const at = Math.max(0, offset);
     if (copied.kind === "midi") {
-      clipActions.addMidi(channelId, at, copied.length, copied.notes, copied.loopLength ?? null);
+      clipActions.addMidi(channelId, at, copied.length, copied.notes, copied.loopLength ?? null, copied);
       return;
     }
     // The pasted clip gets its own copy of the audio file, for saving.
     const blob = await fetch(copied.url).then((r) => r.blob());
     const { url, durationSeconds, peaks, fileName, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength } = copied;
-    clipActions.addAudio(channelId, { url, durationSeconds, peaks }, at, fileName, blob, { length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength });
+    clipActions.addAudio(channelId, { url, durationSeconds, peaks }, at, fileName, blob, { ...clipLabel(copied), length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength });
   },
 
-  /** Replaces a clip's content with the copied clip's, keeping its id and
-   * position. */
-  async pasteOver(channelId: string, clipId: string): Promise<void> {
+  /** Replaces a clip's content with the copied clip's, where it is; returns
+   * the clip's id then. A MIDI clip keeps its id; an audio clip gets a new
+   * one, as its audio is new (the old clip's, which undo brings back, keeps
+   * its own). */
+  async pasteOver(channelId: string, clipId: string): Promise<string | null> {
     const copied = getCopiedClip();
-    if (!copied || copied.kind !== typeOf(channelId)) return;
+    if (!copied || copied.kind !== typeOf(channelId)) return null;
     const target = clipsOf(channelId).find((c) => c.id === clipId);
-    if (!target) return;
-    projectStore.push();
+    if (!target) return null;
     if (copied.kind === "midi") {
-      const clip: MidiClipInstance = { id: clipId, kind: "midi", offset: target.offset, length: copied.length, notes: copied.notes, loopLength: copied.loopLength ?? null };
+      projectStore.push();
+      const clip: MidiClipInstance = { ...clipLabel(copied), id: clipId, kind: "midi", offset: target.offset, length: copied.length, notes: copied.notes, loopLength: copied.loopLength ?? null };
       updateClip(channelId, clipId, () => clip);
-      return;
+      return clipId;
     }
     const blob = await fetch(copied.url).then((r) => r.blob());
-    audioBlobs.set(clipId, blob);
+    projectStore.push();
+    const id = newClipId();
+    audioBlobs.set(id, blob);
     const { url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength } = copied;
-    const clip: AudioClipInstance = { id: clipId, kind: "audio", offset: target.offset, length, url, fileName, durationSeconds, peaks, sourceOffset, fadeIn, fadeOut, gainDb, loopLength };
-    updateClip(channelId, clipId, () => clip, false);
-    audioEngine.loadAudioClip(channelId, clipId, url, audioClipTiming(clip), gainDb);
+    const clip: AudioClipInstance = { ...clipLabel(copied), id, kind: "audio", offset: target.offset, length, url, fileName, durationSeconds, peaks, sourceOffset, fadeIn, fadeOut, gainDb, loopLength };
+    setTrackClips(channelId, clipsOf(channelId).map((c) => (c.id === clipId ? clip : c)));
+    audioEngine.removeAudioClip(channelId, clipId);
+    audioEngine.loadAudioClip(channelId, id, url, audioClipTiming(clip), gainDb);
+    return id;
   },
 };

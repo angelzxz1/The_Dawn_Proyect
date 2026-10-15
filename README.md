@@ -38,6 +38,8 @@ Live and Reaper.
   or drum pads, or a MIDI controller. Record audio from a microphone or an
   audio interface, with a count-in and a metronome. Each clip is drawn on
   its track while you record it.
+- **Clip names and colors**, and **consolidate**, **reverse**, **normalize**
+  and **fade presets** from a clip's right-click menu.
 - **Time selection**, like Ableton's: drag across lanes to select a span of
   time, then cut, copy, paste, duplicate, empty it, insert silence or delete
   the time, on every track at once.
@@ -673,9 +675,11 @@ With the pointer:
 - **Resize.** Drag a clip's right edge.
 - **Audio clips** also have handles for **fade-in**, **fade-out** and
   **gain**. Double-click the gain handle to reset it.
-- **Right-click** a clip for **Split at playhead**, **Duplicate**, **Loop
-  clip**, **Copy**, **Paste** and **Delete**, plus **Edit in piano roll** and
-  **Export .mid** for MIDI clips.
+- **Right-click** a clip for **Rename**, **Color**, **Split at playhead**,
+  **Duplicate**, **Loop clip**, **Consolidate**, **Reverse**, **Copy**,
+  **Paste** and **Delete**, plus **Edit in piano roll** and **Export .mid**
+  for MIDI clips, and **Normalize** and **Fades** for audio clips (see
+  below). What it does applies to every selected clip.
 - **Right-click an empty part of a lane** to add an empty MIDI clip, import
   an audio clip there, or paste.
 - **Select time** by dragging on an empty part of a lane, as in Ableton: the
@@ -685,6 +689,30 @@ With the pointer:
 - **Move the playhead** by clicking or dragging on the ruler. Play always
   starts from there.
 - **Loop part of the song** with the arrangement loop (see below).
+
+### Naming, coloring and processing clips
+
+- **Rename** a clip from its menu, or select it and press **F2**; clicking
+  an audio clip twice does it too. Type the name and press Enter (Esc keeps
+  the old one). An empty name gives back what the clip shows by itself: its
+  file's name, or how many notes it has.
+- **Color** clips from the menu's row of colors; **Track color** gives them
+  back their track's. Names and colors are saved with the project.
+- **Consolidate** (**Ctrl+J**) joins the selected clips on each track, and
+  whatever is between them, into one clip. With a time selection, each
+  track's clips over it become one clip exactly as long. MIDI clips' notes
+  are joined (loops played out); audio clips are rendered to a new file, with
+  their gain and fades, and the new clip starts with neither.
+- **Reverse** plays clips back to front. A MIDI clip's notes are turned
+  around (within its loop, if it loops); an audio clip plays a reversed copy
+  of its file.
+- **Normalize** sets an audio clip's gain so it peaks at full scale (0 dB).
+  It only changes the clip's gain handle, so you can still adjust it.
+- **Fades** sets an audio clip's fade-in and fade-out at once: none, 10 ms
+  (takes the click out of a cut), a beat or a bar. The handles still adjust
+  each one.
+
+Each of these is one undo step.
 
 ### Editing a span of time
 
@@ -704,7 +732,7 @@ each as one undo step:
   everything after moves later.
 - **Shift+Delete** deletes the time: what's in it is gone, and everything
   after moves earlier to close the gap.
-- **Ctrl+L** loops it.
+- **Ctrl+L** loops it, and **Ctrl+J** consolidates it (see above).
 
 Use Cmd instead of Ctrl on a Mac. Right-click inside the selection, on a
 clip or not, for the same actions. **Esc**, a click on a lane or a click on
@@ -942,6 +970,8 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Ctrl/Cmd+I | Insert silence as long as the time selection |
 | Shift+Delete | Delete the time selected (what's after it moves earlier) |
 | Ctrl/Cmd+L | Loop the time selection or the selected clips, or switch the loop on/off |
+| Ctrl/Cmd+J | Consolidate the time selection, or the selected clips on each track |
+| F2 | Rename the selected clip |
 | Shift+1 … Shift+5 | Edit tool: pointer, split, draw, erase, slip |
 | Esc | Back to the pointer tool, then end the time selection |
 | Ctrl/Cmd-click a track header | Pick tracks to group (Esc forgets them) |

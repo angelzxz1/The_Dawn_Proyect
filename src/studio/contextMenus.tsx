@@ -3,14 +3,17 @@
 // opened and what the studio can do there (MenuActions).
 
 import {
+  AudioLines,
   ChevronsDownUp,
   Clipboard,
+  Combine,
   Copy,
   CopyPlus,
   Download,
   Eraser,
   FileAudio,
   FilePlus2,
+  FlipHorizontal2,
   FoldHorizontal,
   FolderInput,
   FolderOutput,
@@ -18,14 +21,17 @@ import {
   Pencil,
   Repeat,
   Scissors,
+  TextCursorInput,
   Trash2,
   UnfoldHorizontal,
   X,
 } from "lucide-react";
 import { audioEngine } from "@/engine/audioEngine";
 import { getCopiedClip, getCopiedRange } from "@/state/clipboard";
-import type { ChannelConfig, ClipInstance } from "@/project/types";
-import type { ContextMenuItem } from "@/studio/shell/ContextMenu";
+import { FADE_PRESETS, presetFades, type FadePreset } from "@/project/clipEdits";
+import { TRACK_COLOR_PALETTE, trackColorOf } from "@/project/colors";
+import type { AudioClipInstance, ChannelConfig, ClipInstance } from "@/project/types";
+import type { ContextMenuEntry, ContextMenuItem } from "@/studio/shell/ContextMenu";
 
 export type ContextMenuState =
   | { kind: "clip"; channelId: string; clipId: string; x: number; y: number }
@@ -34,7 +40,7 @@ export type ContextMenuState =
   | { kind: "range"; x: number; y: number }
   | { kind: "header"; channelId: string; x: number; y: number };
 
-type MenuItems = (ContextMenuItem | "separator")[];
+type MenuItems = ContextMenuEntry[];
 
 export interface MenuActions {
   editClip: (channelId: string, clipId: string) => void;
@@ -46,6 +52,13 @@ export interface MenuActions {
   toggleLoop: (channelId: string, clipId: string) => void;
   duplicateSelected: () => void;
   deleteSelected: () => void;
+  renameClip: (channelId: string, clipId: string) => void;
+  /** Colors the selected clips; null gives them back their track's. */
+  recolorSelected: (color: string | null) => void;
+  consolidateSelected: () => void;
+  reverseSelected: () => void;
+  normalizeSelected: () => void;
+  fadeSelected: (preset: FadePreset) => void;
   addEmptyClip: (channelId: string, atSeconds: number) => void;
   importAudio: (channelId: string, atSeconds: number) => void;
   /** Pastes the copied clip on the lane at the nearest bar. */
@@ -60,6 +73,7 @@ export interface MenuActions {
 }
 
 export interface TimeSelectionActions {
+  consolidate: () => void;
   cut: () => void;
   copy: () => void;
   paste: () => void;
@@ -77,6 +91,9 @@ export interface MenuContext {
   selectedClips: number;
   /** Tracks Ctrl/Cmd-clicked for grouping. */
   trackPicks: ReadonlySet<string>;
+  /** For the fade presets: a beat and a bar. */
+  bpm: number;
+  beatsPerBar: number;
 }
 
 export function contextMenuItems(menu: ContextMenuState, ctx: MenuContext, actions: MenuActions): MenuItems {
@@ -96,6 +113,28 @@ function clipMenu(channelId: string, clipId: string, ctx: MenuContext, actions: 
   const t = audioEngine.getTransportSeconds();
   const canSplit = t > clip.offset && t < clip.offset + clip.length;
   const many = ctx.selectedClips > 1;
+  const channel = ctx.channels.find((c) => c.id === channelId);
+  const label: MenuItems = [
+    { label: "Rename… (F2)", icon: <TextCursorInput size={13} />, onSelect: () => actions.renameClip(channelId, clipId) },
+    {
+      row: "Color",
+      options: [
+        ...(channel ? [{ label: "Track color", title: "The track's color", swatch: trackColorOf(channel).accent, selected: !clip.color, onSelect: () => actions.recolorSelected(null) }] : []),
+        ...TRACK_COLOR_PALETTE.map((c, i) => ({
+          label: `Color ${i + 1}`,
+          swatch: c.accent,
+          selected: clip.color === c.accent,
+          onSelect: () => actions.recolorSelected(c.accent),
+        })),
+      ],
+    },
+    "separator",
+  ];
+  const process: MenuItems = [
+    { label: "Consolidate (Ctrl+J)", icon: <Combine size={13} />, onSelect: actions.consolidateSelected },
+    { label: many ? `Reverse ${ctx.selectedClips} clips` : "Reverse", icon: <FlipHorizontal2 size={13} />, onSelect: actions.reverseSelected },
+    ...(clip.kind === "audio" ? audioProcess(clip, ctx, actions, many) : []),
+  ];
   const copyPaste: MenuItems = [
     { label: "Copy clip", icon: <Copy size={13} />, onSelect: () => actions.copyClip(channelId, clipId) },
     { label: "Paste clip here", icon: <Clipboard size={13} />, disabled: !canPaste, onSelect: () => actions.pasteOver(channelId, clipId) },
@@ -105,16 +144,37 @@ function clipMenu(channelId: string, clipId: string, ctx: MenuContext, actions: 
     { label: "Split at playhead", icon: <Scissors size={13} />, disabled: !canSplit, onSelect: () => actions.splitAtPlayhead(channelId, clipId) },
     { label: many ? `Duplicate ${ctx.selectedClips} clips` : "Duplicate clip", icon: <CopyPlus size={13} />, onSelect: actions.duplicateSelected },
     { label: clip.loopLength ? "Stop looping clip" : "Loop clip", icon: <Repeat size={13} />, onSelect: () => actions.toggleLoop(channelId, clipId) },
+    ...process,
     "separator",
     { label: many ? `Delete ${ctx.selectedClips} clips` : "Delete clip", icon: <Trash2 size={13} />, danger: true, onSelect: actions.deleteSelected },
   ];
-  if (clip.kind === "audio") return [...copyPaste, ...tail];
+  if (clip.kind === "audio") return [...label, ...copyPaste, ...tail];
   return [
     { label: "Edit in piano roll", icon: <Pencil size={13} />, onSelect: () => actions.editClip(channelId, clipId) },
-    "separator",
+    ...label,
     ...copyPaste,
     { label: "Export .mid", icon: <Download size={13} />, disabled: !hasNotes, onSelect: () => actions.exportClipMidi(channelId, clipId) },
     ...tail,
+  ];
+}
+
+/** An audio clip's: normalizing, and fades from a preset (the one its
+ * fades are now, if any, shows as picked). */
+function audioProcess(clip: AudioClipInstance, ctx: MenuContext, actions: MenuActions, many: boolean): MenuItems {
+  const current = FADE_PRESETS.find((p) => {
+    const f = presetFades(p.id, clip.length, ctx.bpm, ctx.beatsPerBar);
+    return Math.abs(f.fadeIn - clip.fadeIn) < 1e-6 && Math.abs(f.fadeOut - clip.fadeOut) < 1e-6;
+  });
+  return [
+    {
+      label: many ? `Normalize ${ctx.selectedClips} clips` : "Normalize",
+      icon: <AudioLines size={13} />,
+      onSelect: actions.normalizeSelected,
+    },
+    {
+      row: "Fades",
+      options: FADE_PRESETS.map((p) => ({ label: p.label, title: p.title, selected: p.id === current?.id, onSelect: () => actions.fadeSelected(p.id) })),
+    },
   ];
 }
 
@@ -135,6 +195,7 @@ function rangeMenu(time: TimeSelectionActions): MenuItems {
     { label: "Copy (Ctrl+C)", icon: <Copy size={13} />, onSelect: time.copy },
     { label: "Paste copied time here (Ctrl+V)", icon: <Clipboard size={13} />, disabled: !getCopiedRange(), onSelect: time.paste },
     { label: "Duplicate (Ctrl+D)", icon: <CopyPlus size={13} />, onSelect: time.duplicate },
+    { label: "Consolidate (Ctrl+J)", icon: <Combine size={13} />, onSelect: time.consolidate },
     { label: "Loop the selection (Ctrl+L)", icon: <Repeat size={13} />, onSelect: time.loop },
     "separator",
     { label: "Insert silence (Ctrl+I)", icon: <UnfoldHorizontal size={13} />, onSelect: time.insertSilence },

@@ -126,6 +126,11 @@ interface ClipBase {
   offset: number;
   /** The clip box's length, in seconds. */
   length: number;
+  /** A name given to the clip. Unset, it shows what's in it: its file's
+   * name, or how many notes. */
+  name?: string;
+  /** A color given to the clip ("#rrggbb"). Unset, it has its track's. */
+  color?: string;
   /** When set and > 0, the clip's content (its notes, or its audio source
    * region) repeats every `loopLength` seconds to fill the box's full
    * `length` - lets you drag the clip's right edge out past its natural

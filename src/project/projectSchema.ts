@@ -17,6 +17,7 @@ import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./mus
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
 import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registry";
 import { HEX_COLOR } from "./colors";
+import { cleanClipName } from "./clipEdits";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
 import type {
   AutomationLane,
@@ -33,7 +34,13 @@ import type {
  * how to read the older shape. */
 export const PROJECT_VERSION = 2;
 
-interface SerializedMidiClip {
+/** What any clip may be given: a name and a color. */
+interface SerializedClipLabel {
+  name?: string;
+  color?: string;
+}
+
+interface SerializedMidiClip extends SerializedClipLabel {
   id: string;
   kind: "midi";
   offset: number;
@@ -42,7 +49,7 @@ interface SerializedMidiClip {
   loopLength?: number | null;
 }
 
-interface SerializedAudioClip {
+interface SerializedAudioClip extends SerializedClipLabel {
   id: string;
   kind: "audio";
   offset: number;
@@ -276,6 +283,16 @@ function normalizeLoop(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** A clip's name (one line, at most MAX_CLIP_NAME characters) and color,
+ * when it has them. */
+function clipLabelOf(r: Raw): SerializedClipLabel {
+  const name = typeof r.name === "string" ? cleanClipName(r.name) : undefined;
+  return {
+    ...(name ? { name } : {}),
+    ...(typeof r.color === "string" && HEX_COLOR.test(r.color) ? { color: r.color.toLowerCase() } : {}),
+  };
+}
+
 function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): SerializedClip | null {
   const r = obj(raw);
   const id = nonEmptyId(r.id);
@@ -284,6 +301,7 @@ function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): Serial
   const offset = num(r.offset, 0, 0);
   const length = num(r.length, 1, 0.01);
   const loopLength = normalizeLoop(r.loopLength);
+  const label = clipLabelOf(r);
   if (r.kind === "midi") {
     const notes: NoteEvent[] = arr(r.notes).flatMap((n) => {
       const nr = obj(n);
@@ -297,9 +315,10 @@ function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): Serial
         },
       ];
     });
-    return { id, kind: "midi", offset, length, notes, loopLength };
+    return { id, kind: "midi", offset, length, notes, loopLength, ...label };
   }
   return {
+    ...label,
     id,
     kind: "audio",
     offset,

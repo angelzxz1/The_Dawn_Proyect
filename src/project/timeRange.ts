@@ -3,8 +3,9 @@
 // or when time is inserted or taken out. Pure: each takes a track's clips
 // and gives back the new list (the same list when nothing changed), with
 // `newId` naming the clips it makes. Clips are cut where a range's edges
-// cross them, as the split action does: the parts don't loop, and keep the
-// fades of the ends they kept.
+// cross them, as the split action does: the parts keep the fades of the
+// ends they kept; a MIDI part has its loop played out, an audio part loops
+// on when it starts where a repeat does.
 
 import { notesWithinClip } from "./project";
 import type { AudioClipInstance, ClipInstance, MidiClipInstance } from "./types";
@@ -44,15 +45,20 @@ export function clipPart(clip: ClipInstance, from: number, to: number, newId: Ne
   }
   const keepsStart = Math.abs(start - clip.offset) <= EPS;
   const keepsEnd = Math.abs(end - endOf(clip)) <= EPS;
+  // A looping clip's part that starts where a repeat does loops on as
+  // before; one starting inside a repeat plays from there, once.
+  const loop = clip.loopLength && clip.loopLength > 0 && clip.loopLength < clip.length ? clip.loopLength : 0;
+  const phase = loop ? into % loop : into;
+  const onRepeat = loop > 0 && (phase <= EPS || loop - phase <= EPS);
   const part: AudioClipInstance = {
     ...clip,
     id: newId(),
     offset: start,
     length,
-    sourceOffset: clip.sourceOffset + into,
+    sourceOffset: clip.sourceOffset + (onRepeat ? 0 : phase),
     fadeIn: keepsStart ? Math.min(clip.fadeIn, length) : 0,
     fadeOut: keepsEnd ? Math.min(clip.fadeOut, length) : 0,
-    loopLength: null,
+    loopLength: onRepeat ? loop : null,
   };
   return part;
 }

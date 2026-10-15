@@ -116,3 +116,46 @@ test("the pointer tool keeps the clip's handles; the others act on the whole cli
   await expect.element(screen.getByTitle("Drag to resize the clip length")).not.toBeInTheDocument();
   await expect.element(screen.getByTitle(/^Drag to adjust this clip's gain/)).not.toBeInTheDocument();
 });
+
+test("a Ctrl/Cmd-click right after a click picks the clip too; it isn't a double-click", async () => {
+  const { screen, onSelect, onEdit } = renderClip();
+  const body = screen.getByTitle(/^Drag to move/);
+  await userEvent.click(body, { position: { x: 50, y: 60 } });
+  await userEvent.click(body, { position: { x: 50, y: 60 }, modifiers: ["ControlOrMeta"] });
+  expect(onSelect.mock.calls).toEqual([[false], [true]]);
+  expect(onEdit).not.toHaveBeenCalled();
+  await userEvent.click(body, { position: { x: 50, y: 60 } });
+  await userEvent.click(body, { position: { x: 50, y: 60 } });
+  expect(onEdit).toHaveBeenCalledOnce();
+});
+
+describe("name", () => {
+  test("shows the name given, else what's in the clip", async () => {
+    const { screen } = renderClip({ name: "Verse riff" });
+    await expect.element(screen.getByText("Verse riff")).toBeVisible();
+    screen.rerender(<ClipBlock clipId="c1" {...audio} color={TRACK_COLOR_PALETTE[0]} offset={2} length={4} pxPerSecond={PX} selected={false} onSelect={vi.fn()} onEdit={vi.fn()} onMove={vi.fn()} onResize={vi.fn()} onContextMenu={vi.fn()} />);
+    await expect.element(screen.getByText("take.wav")).toBeVisible();
+  });
+
+  test("renaming: Enter keeps what was typed, and the clip doesn't move", async () => {
+    const onRename = vi.fn();
+    const { screen, onMove, onSelect } = renderClip({ name: "Old", renaming: true, onRename });
+    const field = screen.getByRole("textbox", { name: "Clip name" });
+    await expect.element(field).toHaveFocus();
+    await userEvent.click(field);
+    await userEvent.fill(field, "Chorus");
+    await userEvent.keyboard("{Enter}");
+    expect(onRename).toHaveBeenCalledExactlyOnceWith("Chorus");
+    expect(onMove).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  test("renaming: Esc lets it go", async () => {
+    const onRename = vi.fn();
+    const { screen } = renderClip({ renaming: true, onRename });
+    await userEvent.fill(screen.getByRole("textbox", { name: "Clip name" }), "Nope");
+    await userEvent.keyboard("{Escape}");
+    expect(onRename).toHaveBeenCalledExactlyOnceWith(null);
+  });
+});
+

@@ -17,7 +17,7 @@ export function getCopiedNotes(): NoteEvent[] | null {
 /** A copied clip is either a MIDI clip's notes or an audio clip's decoded
  * file - the arrangement view's clipboard handles both, branching the same
  * way the clip context menu already does. */
-export type ClipboardClip =
+export type ClipboardClip = (
   | { kind: "midi"; notes: NoteEvent[]; length: number; loopLength?: number | null }
   | {
       kind: "audio";
@@ -31,7 +31,12 @@ export type ClipboardClip =
       fadeOut: number;
       gainDb: number;
       loopLength?: number | null;
-    };
+    }
+) & {
+  /** The clip's name and color, which the pasted one has too. */
+  name?: string;
+  color?: string;
+};
 
 let clipClipboard: ClipboardClip | null = null;
 

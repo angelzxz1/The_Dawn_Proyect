@@ -4,6 +4,7 @@ import {
   PROJECT_FILE,
   SAMPLES_DIR,
   decodeBundle,
+  deserializeClips,
   encodeBundle,
   fileNameFor,
   loadFromFolder,
@@ -11,10 +12,12 @@ import {
   referencedClipIds,
   safeName,
   saveToFolder,
+  serializeClips,
   type ProjectDocument,
   type ProjectFolder,
 } from "./projectFiles";
 import { normalizeProject, type SerializedProject } from "./projectSchema";
+import type { ClipInstance } from "./types";
 
 /** An in-memory folder with the File System Access API's shape. */
 class FakeDir {
@@ -153,6 +156,17 @@ describe("helpers", () => {
     expect(fileNameFor("ir/../x", new Blob([], { type: "audio/mpeg" }))).toBe("ir_.._x.mp3");
     expect(safeName('  My: "Song"/ 2 ')).toBe("My- -Song- 2");
     expect(safeName("   ")).toBe("Untitled");
+  });
+
+  it("saves a clip's name and color, and gets them back", () => {
+    const clips: Record<string, ClipInstance[]> = {
+      m: [{ id: "c1", kind: "midi", offset: 0, length: 1, notes: [], loopLength: null, name: "Hook", color: "#ff0000" }],
+      a: [{ id: "c2", kind: "audio", offset: 0, length: 1, url: "blob:x", fileName: "x.wav", durationSeconds: 1, peaks: [], sourceOffset: 0, fadeIn: 0, fadeOut: 0, gainDb: 0, loopLength: null, name: "Vox" }],
+    };
+    const back = deserializeClips(serializeClips(clips), () => "blob:y");
+    expect(back.m[0]).toMatchObject({ name: "Hook", color: "#ff0000" });
+    expect(back.a[0]).toMatchObject({ name: "Vox", url: "blob:y" });
+    expect("color" in back.a[0]).toBe(false);
   });
 
   it("knows which clips the project and its history use", () => {

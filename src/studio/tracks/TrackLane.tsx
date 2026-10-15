@@ -6,7 +6,7 @@ import { RecordingClip } from "@/studio/timeline/RecordingClip";
 import { TOOL_CURSORS, type ClipTool } from "@/studio/timeline/clipTools";
 import type { ClipInstance } from "@/project/types";
 import type { TimeRange } from "@/project/timeRange";
-import type { TrackColor } from "@/project/colors";
+import { trackColorFromHex, type TrackColor } from "@/project/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
 
@@ -44,6 +44,8 @@ export interface TrackLaneActions {
   /** Pointer tool: the pointer went down on empty lane space. A drag from
    * there selects time, on the lanes it crosses; a click clears it. */
   startTimeSelection(clientX: number, clientY: number): void;
+  /** A clip's name typed in, or null when renaming was let go of (Esc). */
+  renameClip(channelId: string, clipId: string, name: string | null): void;
 }
 
 interface TrackLaneProps {
@@ -92,6 +94,8 @@ interface TrackLaneProps {
   erasingIds?: ReadonlySet<string>;
   /** The time selection, when it's on this lane. */
   timeSelection?: TimeRange;
+  /** The clip on this lane being renamed. */
+  renamingClipId?: string;
 }
 
 const NO_CLIPS: ReadonlySet<string> = new Set();
@@ -124,6 +128,7 @@ export const TrackLane = memo(function TrackLane({
   canDraw = false,
   erasingIds = NO_CLIPS,
   timeSelection,
+  renamingClipId,
 }: TrackLaneProps) {
   const onSelectTrack = () => actions.selectTrack(channelId);
   const onSelectClip = (clipId: string, additive: boolean) => actions.selectClip(channelId, clipId, additive);
@@ -323,7 +328,10 @@ export const TrackLane = memo(function TrackLane({
           onFadeChange={(fadeIn, fadeOut) => onFadeChange(clip.id, fadeIn, fadeOut)}
           onGainChange={(gainDb) => onGainChange(clip.id, gainDb)}
           loop={!!clip.loopLength && clip.loopLength > 0 && clip.loopLength < clip.length}
-          color={color}
+          color={clip.color ? trackColorFromHex(clip.color) : color}
+          name={clip.name}
+          renaming={clip.id === renamingClipId}
+          onRename={(value) => actions.renameClip(channelId, clip.id, value)}
           offset={clip.offset}
           length={clip.length}
           pxPerSecond={pxPerSecond}
@@ -381,7 +389,7 @@ function GroupOverview({
               width: Math.max(2, clip.length * pxPerSecond),
               top: pad + i * stripe + (stripe > 4 ? 1 : 0),
               height: Math.max(1, stripe - (stripe > 4 ? 2 : 0)),
-              background: m.color.accent,
+              background: clip.color ?? m.color.accent,
               opacity: 0.45,
             }}
           />

@@ -119,10 +119,72 @@ export class Studio {
     await this.page.getByTitle("Undo (Ctrl/Cmd+Z)").click();
   }
 
+  /** The clips in the autosaved working copy, each with whether its audio
+   * was saved with it. */
+  autosavedClips(): Promise<SavedClip[]> {
+    return this.page.evaluate(
+      () =>
+        new Promise<SavedClip[]>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const tx = open.result.transaction(["meta", "audioBlobs"]);
+            const meta = tx.objectStore("meta").get("current");
+            const keys = tx.objectStore("audioBlobs").getAllKeys();
+            tx.oncomplete = () => {
+              const project = meta.result as { clipsByChannel: Record<string, Omit<SavedClip, "audio">[]> } | undefined;
+              const saved = new Set(keys.result as string[]);
+              resolve(
+                Object.values(project?.clipsByChannel ?? {})
+                  .flat()
+                  .map(({ id, kind, name, color, fileName }) => ({ id, kind, name, color, fileName, audio: saved.has(id) }))
+              );
+            };
+          };
+        })
+    );
+  }
+
+  /** An autosaved clip's audio file: how long it is and its loudest sample
+   * (0 to 1), or null if there's none. */
+  autosavedAudio(clipId: string): Promise<{ seconds: number; peak: number } | null> {
+    return this.page.evaluate(
+      (id) =>
+        new Promise<{ seconds: number; peak: number } | null>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const get = open.result.transaction("audioBlobs").objectStore("audioBlobs").get(id);
+            get.onerror = () => reject(get.error);
+            get.onsuccess = async () => {
+              const blob = get.result as Blob | undefined;
+              if (!blob) return resolve(null);
+              const buffer = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(await blob.arrayBuffer());
+              let peak = 0;
+              for (let c = 0; c < buffer.numberOfChannels; c++) buffer.getChannelData(c).forEach((v) => (peak = Math.max(peak, Math.abs(v))));
+              resolve({ seconds: buffer.duration, peak });
+            };
+          };
+        }),
+      clipId
+    );
+  }
+
   /** The transport's BPM field. */
   get bpm(): Locator {
     return this.page.locator('label:has-text("BPM") input');
   }
+}
+
+/** A clip as autosaved (Studio.autosavedClips). */
+export interface SavedClip {
+  id: string;
+  kind: string;
+  name?: string;
+  color?: string;
+  fileName?: string;
+  /** Its audio was saved with it (audio clips). */
+  audio: boolean;
 }
 
 function escape(text: string): string {

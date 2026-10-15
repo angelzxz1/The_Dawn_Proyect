@@ -63,6 +63,15 @@ describe("clipPart", () => {
     expect([right.offset, right.length, right.sourceOffset, right.fadeIn, right.fadeOut]).toEqual([3, 3, 2, 0, 0.5]);
   });
 
+  it("lets a looping audio clip's part loop on when it starts where a repeat does", () => {
+    const clip = audio(0, 8, { loopLength: 2 });
+    const onRepeat = clipPart(clip, 4, 8, ids()) as AudioClipInstance;
+    expect([onRepeat.sourceOffset, onRepeat.loopLength]).toEqual([1, 2]);
+    // Half a second into a repeat: it plays from there, once.
+    const inside = clipPart(clip, 4.5, 8, ids()) as AudioClipInstance;
+    expect([inside.sourceOffset, inside.loopLength]).toEqual([1.5, null]);
+  });
+
   it("is nothing where the clip isn't", () => {
     expect(clipPart(midi(2, 2), 4, 6, ids())).toBeNull();
     expect(clipPart(midi(2, 2), 0, 2, ids())).toBeNull();

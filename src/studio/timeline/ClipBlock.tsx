@@ -7,6 +7,7 @@ import type { TrackColor } from "@/project/colors";
 import { TRACK_ROW_HEIGHT } from "./layout";
 import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 import { TOOL_CURSORS, type ClipTool } from "./clipTools";
+import { MAX_CLIP_NAME } from "@/project/clipEdits";
 
 /** What the slip tool changes: where an audio clip's content starts in its
  * file, or a MIDI clip's notes. */
@@ -76,6 +77,12 @@ interface ClipBlockProps {
   /** Erase tool: a drag has passed over the clip; it goes when the drag
    * ends. */
   erasing?: boolean;
+  /** The name the clip was given; unset, it shows what's in it. */
+  name?: string;
+  /** Being renamed: its name is a text field. */
+  renaming?: boolean;
+  /** The name typed (Enter or leaving the field), or null (Esc). */
+  onRename?: (name: string | null) => void;
 }
 
 const MIN_MIDI = 36;
@@ -144,6 +151,9 @@ export function ClipBlock({
   onEraseStart,
   onSlip,
   erasing = false,
+  name,
+  renaming = false,
+  onRename,
 }: ClipBlockProps) {
   const compact = rowHeight < COMPACT_BELOW;
   const pad = compact ? 3 : LANE_PADDING;
@@ -229,13 +239,15 @@ export function ClipBlock({
       target.removeEventListener("pointermove", onMoveEvt);
       target.removeEventListener("pointerup", onUp);
       if (!moved) {
+        // A Ctrl/Cmd-click picks the clip, never makes a double-click.
+        const additive = ev.ctrlKey || ev.metaKey;
         const now = Date.now();
-        if (now - lastClickAt.current < DOUBLE_CLICK_MS) {
+        if (!additive && now - lastClickAt.current < DOUBLE_CLICK_MS) {
           onEdit();
           lastClickAt.current = 0;
         } else {
-          onSelect(ev.ctrlKey || ev.metaKey);
-          lastClickAt.current = now;
+          onSelect(additive);
+          lastClickAt.current = additive ? 0 : now;
         }
       }
     };
@@ -357,7 +369,7 @@ export function ClipBlock({
         onContextMenu(e);
       }}
       data-clip-id={clipId}
-      title={TOOL_TITLES[tool]}
+      title={clipType === "audio" && handles ? TOOL_TITLES[tool].replace("click twice to edit", "click twice to rename") : TOOL_TITLES[tool]}
       className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
         selected ? "ring-2 ring-accent" : ""
       } ${erasing ? "opacity-30 outline outline-2 outline-record" : ""}`}
@@ -381,13 +393,18 @@ export function ClipBlock({
               <Repeat size={9} />
             </span>
           )}
-          <span className="truncate">
-            {clipType === "audio"
-              ? audioFileName ?? "audio"
-              : notes.length > 0
-                ? `${notes.length} notes`
-                : "empty"}
-          </span>
+          {renaming ? (
+            <RenameField name={name ?? ""} onDone={(value) => onRename?.(value)} />
+          ) : (
+            <span className="truncate">
+              {name ??
+                (clipType === "audio"
+                  ? audioFileName ?? "audio"
+                  : notes.length > 0
+                    ? `${notes.length} notes`
+                    : "empty")}
+            </span>
+          )}
         </span>
         {clipType === "audio" && handles ? (
           <div
@@ -495,5 +512,36 @@ export function ClipBlock({
         </>
       )}
     </div>
+  );
+}
+
+/** A clip's name, being typed: Enter or leaving the field keeps it, Esc
+ * doesn't. Keys and clicks stay in the field. */
+function RenameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+  const done = useRef(false);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(value);
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Clip name"
+      defaultValue={name}
+      maxLength={MAX_CLIP_NAME}
+      onFocus={(e) => e.currentTarget.select()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      className="h-4 min-w-0 flex-1 rounded-sm bg-black/25 px-1 text-[10px] text-black outline-none placeholder:text-black/50"
+      placeholder="Name"
+    />
   );
 }

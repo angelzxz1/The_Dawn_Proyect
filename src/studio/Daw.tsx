@@ -49,7 +49,9 @@ import { useShortcuts } from "@/ui/shortcuts";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
-import { rangeActions, type TimeSelection } from "@/state/rangeActions";
+import { rangeActions, tracksOf, type TimeSelection } from "@/state/rangeActions";
+import { clipEditActions } from "@/state/clipEditActions";
+import { spansOfClips, type FadePreset } from "@/project/clipEdits";
 import { getCopiedRange } from "@/state/clipboard";
 import { DrumPads } from "@/instruments/drum-rack/DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "@/studio/transport/LoopBar";
@@ -1148,8 +1150,6 @@ export function Daw() {
 
   const pasteClipAt = clipActions.paste;
 
-  const pasteReplaceClip = clipActions.pasteOver;
-
   const handlePasteClip = useCallback(() => {
     const bar = secondsPerBar(bpm, beatsPerBar);
     const anchor = Math.round(audioEngine.getTransportSeconds() / bar) * bar;
@@ -1250,6 +1250,11 @@ export function Daw() {
     act(timeSelection);
   };
   const timeEdits = useStableActions({
+    /** Each track's clips over the selection, one clip per track; the
+     * selection stays. */
+    consolidate: onSelection((sel) => {
+      void clipEditActions.consolidate(new Map(tracksOf(sel.channelIds).map((id) => [id, { start: sel.start, end: sel.end }])));
+    }),
     cut: onSelection((sel) => rangeActions.cut(sel)),
     copy: onSelection((sel) => rangeActions.copy(sel)),
     clear: onSelection((sel) => rangeActions.clear(sel)),
@@ -1270,6 +1275,43 @@ export function Daw() {
       const pasted = rangeActions.paste(at);
       if (pasted) setTimeSelection(pasted);
     },
+  });
+
+  /** Naming, coloring and processing the selected clips (clipEditActions.ts),
+   * for the clip menu and keys. The same object on every redraw. */
+  const [renamingClip, setRenamingClip] = useState<{ channelId: string; clipId: string } | null>(null);
+  const clipEdits = useStableActions({
+    rename: (channelId: string, clipId: string) => setRenamingClip({ channelId, clipId }),
+    /** F2: the one selected clip. */
+    renameSelected: () => {
+      if (selectedClipIds.size !== 1) return false;
+      const [clipId] = selectedClipIds;
+      const channelId = Object.keys(clipsByChannel).find((id) => clipsByChannel[id].some((c) => c.id === clipId));
+      if (!channelId) return false;
+      setRenamingClip({ channelId, clipId });
+    },
+    recolor: (color: string | null) => void clipEditActions.recolor(selectedClipIds, color),
+    /** On each track, the selected clips and what's between them become
+     * one clip, which is selected. (Ctrl+J with nothing selected does
+     * nothing - rather than the browser's Ctrl+J.) */
+    consolidate: () => {
+      if (selectedClipIds.size === 0) return;
+      void clipEditActions.consolidate(spansOfClips(clipsByChannel, selectedClipIds)).then((made) => {
+        if (made.length > 0) setSelectedClipIds(new Set(made));
+      });
+    },
+    /** A reversed audio clip is a new clip: it stays selected. */
+    reverse: () =>
+      void clipEditActions.reverse(selectedClipIds).then((renamed) => {
+        if (renamed.size > 0) setSelectedClipIds((prev) => new Set([...prev].map((id) => renamed.get(id) ?? id)));
+      }),
+    normalize: () => void clipEditActions.normalize(selectedClipIds),
+    fades: (preset: FadePreset) => void clipEditActions.setFades(selectedClipIds, preset, bpm, beatsPerBar),
+    /** Pasting over an audio clip makes a new clip: that's selected. */
+    pasteOver: (channelId: string, clipId: string) =>
+      void clipActions.pasteOver(channelId, clipId).then((id) => {
+        if (id && id !== clipId) setSelectedClipIds(new Set([id]));
+      }),
   });
 
   // The studio's keys (shortcuts.ts). The piano roll, dialogs and the note
@@ -1297,6 +1339,9 @@ export function Daw() {
     { keys: "shift+delete", label: "Delete the time selected (what's after it moves earlier)", run: timeEdits.deleteTime },
     { keys: "mod+i", label: "Insert silence as long as the time selection", run: timeEdits.insertSilence },
     { keys: "mod+l", label: "Loop the time selection", run: timeEdits.loop },
+    { keys: "mod+j", label: "Consolidate the time selection", run: timeEdits.consolidate },
+    { keys: "mod+j", label: "Consolidate the selected clips, on each track", run: clipEdits.consolidate },
+    { keys: "f2", label: "Rename the selected clip", run: clipEdits.renameSelected },
     { keys: "mod+c", label: "Copy the clip under the playhead", run: () => handleCopyAtPlayhead() },
     { keys: "mod+v", label: "Paste the copied clip at the playhead", run: () => handlePasteClip() },
     {
@@ -1416,11 +1461,11 @@ export function Daw() {
       contextMenu
         ? contextMenuItems(
             contextMenu,
-            { channels, clipsOf, selectedClips: selectedClipIds.size, trackPicks },
+            { channels, clipsOf, selectedClips: selectedClipIds.size, trackPicks, bpm, beatsPerBar },
             {
               editClip: handleEditClip,
               copyClip: handleCopyClip,
-              pasteOver: pasteReplaceClip,
+              pasteOver: clipEdits.pasteOver,
               exportClipMidi: handleExportClipMidi,
               splitAtPlayhead: handleSplitClipAtPlayhead,
               toggleLoop: handleToggleLoopClip,
@@ -1433,6 +1478,12 @@ export function Daw() {
               setTrackGroup: handleSetTrackGroup,
               toggleFold: handleToggleFold,
               removeTrack: handleRemoveChannel,
+              renameClip: clipEdits.rename,
+              recolorSelected: clipEdits.recolor,
+              consolidateSelected: clipEdits.consolidate,
+              reverseSelected: clipEdits.reverse,
+              normalizeSelected: clipEdits.normalize,
+              fadeSelected: clipEdits.fades,
               time: timeEdits,
             }
           )
@@ -1445,7 +1496,6 @@ export function Daw() {
       trackPicks,
       handleEditClip,
       handleCopyClip,
-      pasteReplaceClip,
       handleExportClipMidi,
       handleSplitClipAtPlayhead,
       handleToggleLoopClip,
@@ -1459,6 +1509,9 @@ export function Daw() {
       handleToggleFold,
       handleRemoveChannel,
       timeEdits,
+      clipEdits,
+      bpm,
+      beatsPerBar,
     ]
   );
 
@@ -1570,6 +1623,7 @@ export function Daw() {
     setLoop(project.loop);
     setSelectedClipIds(new Set());
     setTimeSelection(null);
+    setRenamingClip(null);
     setEditingClip(null);
     setExpandedEffectId(null);
     setFxBusId(null);
@@ -1756,7 +1810,8 @@ export function Daw() {
         return new Set([clipId]);
       });
     },
-    editClip: handleEditClip,
+    // Clicking an audio clip twice names it (there's no piano roll for it).
+    editClip: (id, clipId) => (channelTypeOf(id) === "audio" ? setRenamingClip({ channelId: id, clipId }) : handleEditClip(id, clipId)),
     moveClip: handleMoveClip,
     resizeClip: handleResizeClip,
     setFades: handleFadeChange,
@@ -1783,6 +1838,10 @@ export function Daw() {
       else clipActions.setSourceOffset(id, clipId, change.sourceOffset);
     },
     startTimeSelection,
+    renameClip: (_id, clipId, name) => {
+      setRenamingClip(null);
+      if (name !== null) clipEditActions.rename(clipId, name);
+    },
   });
   // A group's lane draws its members' clips; the same list while they don't
   // change, so its memoized lane can skip redraws too.
@@ -2230,6 +2289,7 @@ export function Daw() {
                   canDraw={channel.type === "midi"}
                   erasingIds={erasingIds}
                   timeSelection={timeSelection?.channelIds.includes(channel.id) ? selectionSpan : undefined}
+                  renamingClipId={renamingClip?.channelId === channel.id ? renamingClip.clipId : undefined}
                 />
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">

@@ -15,6 +15,7 @@
 import type { ProjectState } from "./project";
 import { PROJECT_VERSION, normalizeProject, type SerializedClip, type SerializedProject } from "./projectSchema";
 import type { AudioClipInstance, ClipInstance, MidiClipInstance } from "./types";
+import { clipLabel } from "./clipEdits";
 
 export const PROJECT_FILE = "project.dawn.json";
 export const HISTORY_FILE = "history.json";
@@ -53,6 +54,7 @@ export function serializeClips(clipsByChannel: Record<string, ClipInstance[]>): 
     out[chId] = clips.map((c) =>
       c.kind === "audio"
         ? {
+            ...clipLabel(c),
             id: c.id,
             kind: "audio" as const,
             offset: c.offset,
@@ -66,7 +68,7 @@ export function serializeClips(clipsByChannel: Record<string, ClipInstance[]>): 
             gainDb: c.gainDb,
             loopLength: c.loopLength,
           }
-        : { id: c.id, kind: "midi" as const, offset: c.offset, length: c.length, notes: c.notes, loopLength: c.loopLength }
+        : { ...clipLabel(c), id: c.id, kind: "midi" as const, offset: c.offset, length: c.length, notes: c.notes, loopLength: c.loopLength }
     );
   });
   return out;

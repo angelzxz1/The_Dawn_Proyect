@@ -303,6 +303,27 @@ describe("groups, routing and colors", () => {
     expect(synth.color).toBeUndefined();
   });
 
+  it("keeps a clip's name (one line, not too long) and color, and drops bad ones", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [{ ...base, id: "m", name: "Keys", type: "midi" }],
+      clipsByChannel: {
+        m: [
+          { id: "a", kind: "midi", offset: 0, length: 1, notes: [], name: "  Verse\n  riff ", color: "#AABBCC" },
+          { id: "b", kind: "midi", offset: 1, length: 1, notes: [], name: "x".repeat(200), color: "blue" },
+          { id: "c", kind: "midi", offset: 2, length: 1, notes: [], name: "   ", color: 7 },
+        ],
+      },
+    })!;
+    const [a, b, c] = project.clipsByChannel.m;
+    expect(a).toMatchObject({ name: "Verse riff", color: "#aabbcc" });
+    expect(b.name).toHaveLength(80);
+    expect(b.color).toBeUndefined();
+    expect("name" in c || "color" in c).toBe(false);
+  });
+
   it("keeps an audio track's input from another track, and drops bad ones", () => {
     const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
     const project = normalizeProject({

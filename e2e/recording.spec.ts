@@ -76,7 +76,9 @@ test("after a take from the interface, a note offers to measure the latency", as
   await note.getByRole("button", { name: "Don't show again" }).click();
   await expect(note).toBeHidden();
   await record();
-  await expect(studio.clipsOn("Audio 1")).toHaveCount(3);
+  // Three takes in the same place: the first, kept as Take 1 when the
+  // second went over it, then those two.
+  await expect(page.getByRole("group", { name: /^Take \d+ lane$/ })).toHaveCount(3);
   await expect(note).toHaveCount(0);
 });
 

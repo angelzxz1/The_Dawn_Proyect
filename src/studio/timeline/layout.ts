@@ -1,22 +1,30 @@
 // Shared layout constants and helpers for the horizontal arrangement view.
 
-import { secondsPerBar } from "../../project/musicTime";
+import { beatAtSeconds, maxBpm, secondsAtBeat, type TempoMap } from "../../project/tempoMap";
+import { clampTrackHeight, DEFAULT_TRACK_HEIGHT } from "../../project/trackHeight";
+
+export { clampTrackHeight, MAX_TRACK_HEIGHT, MIN_TRACK_HEIGHT } from "../../project/trackHeight";
 
 export const TRACK_HEADER_WIDTH = 202;
 // Tall enough for the header's four rows - name, pan/vol + meter, the
 // instrument/FX row, and the import/export/clear/remove row.
-export const TRACK_ROW_HEIGHT = 118;
+export const TRACK_ROW_HEIGHT = DEFAULT_TRACK_HEIGHT;
 /** A folded track: one short row (name, mute, solo), clips as thin bars. */
 export const FOLDED_ROW_HEIGHT = 30;
+/** A take lane under a track (takes.ts). */
+export const TAKE_LANE_HEIGHT = 64;
 
-/** A track's row height in the arrangement. */
-export function rowHeightOf(track: { folded?: boolean }): number {
-  return track.folded ? FOLDED_ROW_HEIGHT : TRACK_ROW_HEIGHT;
+/** A track's row height in the arrangement: its own (or the standard one),
+ * a short row when it's folded. */
+export function rowHeightOf(track: { folded?: boolean; height?: number }): number {
+  return track.folded ? FOLDED_ROW_HEIGHT : clampTrackHeight(track.height ?? TRACK_ROW_HEIGHT);
 }
 export const RULER_HEIGHT = 25;
 export const DEFAULT_PX_PER_SECOND = 70;
-export const MIN_PX_PER_SECOND = 20;
-export const MAX_PX_PER_SECOND = 260;
+/** How far out (a long song on one screen) and in (single samples' worth
+ * of detail) the timeline zooms. */
+export const MIN_PX_PER_SECOND = 2;
+export const MAX_PX_PER_SECOND = 600;
 export const MIN_EMPTY_CLIP_SECONDS = 4;
 export const MIN_TIMELINE_SECONDS = 32;
 
@@ -37,46 +45,51 @@ export interface AdaptiveMark {
 /** Zoom thresholds (px) above which a finer subdivision starts being drawn. */
 const SHOW_BEATS_PX = 22;
 const SHOW_16THS_PX = 16;
+/** Bars closer than this (px) are thinned out: every 2nd, 4th, 8th... */
+const MIN_BAR_PX = 36;
 
-/** Bar gridline positions (in px) for a timeline at the given tempo/zoom. */
-export function computeBarMarks(
-  bpm: number,
-  totalSeconds: number,
-  pxPerSecond: number,
-  beatsPerBar: number = 4
-): BarMark[] {
-  const bar = secondsPerBar(bpm, beatsPerBar);
-  const count = Math.ceil(totalSeconds / bar) + 1;
-  return Array.from({ length: count }, (_, i) => ({
-    index: i,
-    left: i * bar * pxPerSecond,
-  }));
+/** Which bars are drawn at a zoom: every one, or every 2nd, 4th... so they
+ * stay apart (at the fastest tempo, where they're closest). */
+export function barStepFor(tempo: TempoMap, pxPerSecond: number, beatsPerBar: number): number {
+  const barPx = ((60 / maxBpm(tempo)) * beatsPerBar) * pxPerSecond;
+  let step = 1;
+  while (barPx * step < MIN_BAR_PX && step < 1024) step *= 2;
+  return step;
 }
 
 /**
  * Adaptive grid marks shared by the main timeline ruler/lanes and the piano
  * roll editor: bars are always shown; beat subdivisions fade in as you zoom
  * in, then 16th-note ticks once you're zoomed in further still - the same
- * "1" / "1.2" / "1.2.3" progression in both places.
+ * "1" / "1.2" / "1.2.3" progression in both places. They follow the tempo
+ * map (tempoMap.ts), counted from `originSeconds` (a clip's start, in the
+ * piano roll); how fine they go is set by the fastest tempo, so the
+ * densest stretch doesn't clutter.
  */
 export function computeAdaptiveMarks(
-  bpm: number,
+  tempo: TempoMap,
   totalSeconds: number,
   pxPerSecond: number,
-  beatsPerBar: number
+  beatsPerBar: number,
+  originSeconds = 0
 ): AdaptiveMark[] {
-  const secondsPerBeat = 60 / bpm;
-  const secondsPer16th = secondsPerBeat / 4;
+  const secondsPerBeat = 60 / maxBpm(tempo);
   const beatPx = secondsPerBeat * pxPerSecond;
-  const sixteenthPx = secondsPer16th * pxPerSecond;
+  const sixteenthPx = (secondsPerBeat / 4) * pxPerSecond;
   const showBeats = beatPx >= SHOW_BEATS_PX;
   const show16ths = sixteenthPx >= SHOW_16THS_PX;
-  const step = show16ths ? secondsPer16th : secondsPerBeat;
-  const totalSteps = Math.ceil(totalSeconds / step);
+  const stepBeats = show16ths ? 0.25 : 1;
   const stepsPerBeat = show16ths ? 4 : 1;
+  const origin = beatAtSeconds(tempo, originSeconds);
+  const totalSteps = Math.ceil((beatAtSeconds(tempo, originSeconds + totalSeconds) - origin) / stepBeats - 1e-9);
+  // Zoomed far out, only every few bars.
+  const barStep = barStepFor(tempo, pxPerSecond, beatsPerBar);
   const marks: AdaptiveMark[] = [];
   for (let i = 0; i <= totalSteps; i++) {
     const beatIndex = Math.floor(i / stepsPerBeat);
+    if (barStep > 1) {
+      if (i % stepsPerBeat !== 0 || beatIndex % beatsPerBar !== 0 || (beatIndex / beatsPerBar) % barStep !== 0) continue;
+    }
     const sixteenth = (i % stepsPerBeat) + 1;
     const withinBar = beatIndex % beatsPerBar;
     const bar = Math.floor(beatIndex / beatsPerBar) + 1;
@@ -94,17 +107,18 @@ export function computeAdaptiveMarks(
     } else if (show16ths) {
       label = `${bar}.${beat}.${sixteenth}`;
     }
-    marks.push({ index: i, left: i * step * pxPerSecond, strength, label });
+    const left = (secondsAtBeat(tempo, origin + i * stepBeats) - originSeconds) * pxPerSecond;
+    marks.push({ index: i, left, strength, label });
   }
   return marks;
 }
 
 /** The finest grid line currently visible at this zoom level (bar, beat, or
- * 16th) - what a click-to-seek should snap to, matching what's drawn. */
-export function snapUnitFor(bpm: number, pxPerSecond: number, beatsPerBar: number): number {
-  const secondsPerBeat = 60 / bpm;
-  const secondsPer16th = secondsPerBeat / 4;
-  if (secondsPer16th * pxPerSecond >= SHOW_16THS_PX) return secondsPer16th;
-  if (secondsPerBeat * pxPerSecond >= SHOW_BEATS_PX) return secondsPerBeat;
-  return secondsPerBar(bpm, beatsPerBar);
+ * 16th), in beats - what a click-to-seek should snap to, matching what's
+ * drawn. */
+export function snapUnitFor(tempo: TempoMap, pxPerSecond: number, beatsPerBar: number): number {
+  const secondsPerBeat = 60 / maxBpm(tempo);
+  if ((secondsPerBeat / 4) * pxPerSecond >= SHOW_16THS_PX) return 0.25;
+  if (secondsPerBeat * pxPerSecond >= SHOW_BEATS_PX) return 1;
+  return beatsPerBar * barStepFor(tempo, pxPerSecond, beatsPerBar);
 }

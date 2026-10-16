@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,6 +26,7 @@ import {
   KeyboardMusic,
   Scissors,
   Undo2,
+  Expand,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -33,6 +35,7 @@ import { TrackHeader, type TrackHeaderActions } from "@/studio/tracks/TrackHeade
 import { TrackLane, type TrackLaneActions } from "@/studio/tracks/TrackLane";
 import { useStableActions } from "@/ui/useStableActions";
 import { TimelineScrollbar } from "@/studio/timeline/TimelineScrollbar";
+import { clampZoom, fitSpan, scrollKeeping, wheelZoomFactor, ZOOM_STEP } from "@/studio/timeline/zoom";
 import { TimelineRuler } from "@/studio/timeline/TimelineRuler";
 import { Playhead } from "@/studio/timeline/Playhead";
 import { TransportBar } from "@/studio/transport/TransportBar";
@@ -49,8 +52,17 @@ import { useShortcuts } from "@/ui/shortcuts";
 import { trackActions } from "@/state/trackActions";
 import { effectActions } from "@/state/effectActions";
 import { clipActions, isMidiClip, rebuildMidiPart } from "@/state/clipActions";
+import { rangeActions, tracksOf, type TimeSelection } from "@/state/rangeActions";
+import { clipEditActions } from "@/state/clipEditActions";
+import { spansOfClips, type FadePreset } from "@/project/clipEdits";
+import { compSpans, mergedMidiTake, midiPassTakes, recordingPasses } from "@/project/takes";
+import { TakeLaneHeader, TakeLaneRow } from "@/studio/tracks/TakeLanes";
+import type { TimeRange } from "@/project/timeRange";
+import { takeActions } from "@/state/takeActions";
+import { getCopiedRange } from "@/state/clipboard";
 import { DrumPads } from "@/instruments/drum-rack/DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "@/studio/transport/LoopBar";
+import { TEMPO_LANE_HEIGHT, TempoLane } from "@/studio/transport/TempoLane";
 import { ExpressionControls } from "@/studio/notes/ExpressionControls";
 import { PianoRollEditor } from "@/studio/notes/PianoRollEditor";
 import { ScaleSelector } from "@/studio/notes/ScaleSelector";
@@ -65,7 +77,9 @@ import { LatencyHint } from "@/studio/transport/LatencyHint";
 import { EffectBrowser } from "@/studio/rack/EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "@/studio/tracks/AutomationLane";
 import { audioEngine } from "@/engine/audioEngine";
-import { beatsToSeconds, defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, secondsToBeats, type ArrangementLoop } from "@/project/arrangementLoop";
+import { defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, type ArrangementLoop } from "@/project/arrangementLoop";
+import { beatAtSeconds, bpmAtSeconds, formatBpm, makeGrid, makeTempoMap, remapSeconds, roundUpToBarFrom, secondsAtBeat, type TempoChange } from "@/project/tempoMap";
+import { notesAtBeats, retimeProject, sameTempo, secondsForBeats } from "@/project/tempoEdits";
 import { downloadMidiFile, parseMidiFile } from "@/export/midiFile";
 import { midiToNoteName } from "@/instruments/piano/piano";
 import { listenToWebMidi } from "@/engine/webMidi";
@@ -73,7 +87,7 @@ import { MASTER_COLOR, trackColorOf, type TrackColor } from "@/project/colors";
 import { canMoveTrack, hiddenByFoldedGroups, inputSources, MASTER_OUTPUT, outputTargets, routeMap } from "@/engine/routing";
 import { decodeAudioFile } from "@/engine/audioFile";
 import type { ProjectState } from "@/project/project";
-import { hydrateEngine, syncEngine } from "@/engine/engineSync";
+import { hydrateEngine, retimeEngine, syncEngine } from "@/engine/engineSync";
 import { projectSetter, projectStore, useHistoryState, useProjectValue } from "@/state/projectStore";
 import { ProjectMenu } from "@/studio/dialogs/ProjectMenu";
 import { AboutWindow, type AboutTab } from "@/studio/dialogs/AboutWindow";
@@ -98,12 +112,14 @@ import { grooveById, grooveHits, grooveKit, type Groove } from "@/library/groove
 import { getAudioPrefs } from "@/engine/audioPrefs";
 import { type EffectType } from "@/effects/registry";
 import type { ScaleSetting } from "@/project/scales";
+import { DEFAULT_KEY } from "@/project/chords";
 import {
   DEFAULT_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
   MIN_PX_PER_SECOND,
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
+  TAKE_LANE_HEIGHT,
   TRACK_HEADER_WIDTH,
   rowHeightOf,
   snapUnitFor,
@@ -112,12 +128,11 @@ import {
   SNAP_RESOLUTIONS,
   SNAP_RESOLUTION_LABELS,
   quarterNotesPerBar,
-  roundUpToBar,
-  secondsPerBar,
-  snapSecondsForResolution,
+  snapBeatsForResolution,
   type SnapResolution,
 } from "@/project/musicTime";
-import type { AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TimeSignature } from "@/project/types";
+import type { AudioClipInstance, AudioWarp, AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TakeLane, TimeSignature } from "@/project/types";
+import { newClipId } from "@/state/ids";
 import { noteIssue } from "@/services/issues";
 import { flushSync } from "react-dom";
 import { microphoneAllowed } from "@/engine/inputs";
@@ -148,13 +163,12 @@ function laneHint(channel: ChannelConfig, armed: boolean): string {
 }
 
 // The document's setters (stable: they write to the project store).
-const setClipsByChannel = projectSetter("clipsByChannel");
-const setBpm = projectSetter("bpm");
 const setTimeSignature = projectSetter("timeSignature");
 
 /** A track with no clips (one shared empty list, so its lane can skip
  * redraws). */
 const NO_CLIPS: ClipInstance[] = [];
+const NO_TAKES: TakeLane[] = [];
 const TOOL_ICONS: Record<ClipTool, typeof Pencil> = {
   pointer: MousePointer2,
   split: Scissors,
@@ -170,6 +184,7 @@ export function Daw() {
   // Every track can hold any number of independent clips, each its own box
   // on the timeline - not a single clip slot per track.
   const clipsByChannel = useProjectValue("clipsByChannel");
+  const takesByChannel = useProjectValue("takesByChannel");
   const channelEffects = useProjectValue("channelEffects");
   const buses = useProjectValue("buses");
   const busEffects = useProjectValue("busEffects");
@@ -286,6 +301,10 @@ export function Daw() {
     null
   );
   const bpm = useProjectValue("bpm");
+  const tempoChanges = useProjectValue("tempoChanges");
+  /** Where the beats fall (tempoMap.ts): the grid, the loop, the
+   * metronome. */
+  const tempo = useMemo(() => makeTempoMap(bpm, tempoChanges), [bpm, tempoChanges]);
   const timeSignature = useProjectValue("timeSignature");
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
   const [transportState, setTransportState] = useState<TransportState>(
@@ -293,11 +312,8 @@ export function Daw() {
   );
   const [activeNotes, setActiveNotes] = useState<Set<string>>(new Set());
   const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
-  const [scaleSetting, setScaleSetting] = useState<ScaleSetting>({
-    root: "C",
-    scale: "Major",
-    enabled: false,
-  });
+  // Off, in E Major: the key chords are named in until a scale is picked.
+  const [scaleSetting, setScaleSetting] = useState<ScaleSetting>({ ...DEFAULT_KEY, enabled: false });
   const masterName = useProjectValue("masterName");
   const masterVolume = useProjectValue("masterVolume");
   const masterPan = useProjectValue("masterPan");
@@ -329,7 +345,13 @@ export function Daw() {
     timeSignature.numerator,
     timeSignature.denominator
   );
-  const snapSeconds = snapSecondsForResolution(snapResolution, bpm, beatsPerBar);
+  // The snap grid, and bars (for what lands on a bar: imports, pastes,
+  // grooves); both follow the tempo map.
+  const grid = useMemo(() => makeGrid(tempo, snapBeatsForResolution(snapResolution, beatsPerBar)), [tempo, snapResolution, beatsPerBar]);
+  const barGrid = useMemo(() => makeGrid(tempo, beatsPerBar), [tempo, beatsPerBar]);
+  /** The loop on the timeline (s). */
+  const loopStartSeconds = secondsAtBeat(tempo, loop.start);
+  const loopEndSeconds = secondsAtBeat(tempo, loop.end);
 
   // Exactly one channel can be record-armed at a time - it's what Record
   // captures and the only channel whose instrument sounds for incoming
@@ -482,6 +504,153 @@ export function Daw() {
     }
   }, []);
 
+  // --- Zoom (zoom.ts) ---
+  /** The arrangement (its vertical scroller): where the wheel and a pinch
+   * zoom. */
+  const arrangementRef = useRef<HTMLDivElement>(null);
+  /** The zoom asked for last - ahead of the redraw, as a fast wheel turns
+   * it several times between redraws - and where the lanes scroll to once
+   * it's drawn. */
+  const zoomRef = useRef(pxPerSecond);
+  const pendingScrollRef = useRef<number | null>(null);
+  /** Zooms to `next` px a second (kept in range), then scrolls the lanes to
+   * where `scrollAt` says for the zoom it ends up at. */
+  const setZoom = useCallback((next: number, scrollAt: (px: number) => number) => {
+    const px = clampZoom(next);
+    const scroll = scrollAt(px);
+    if (px === zoomRef.current) {
+      if (lanesScrollRef.current) lanesScrollRef.current.scrollLeft = scroll;
+      return;
+    }
+    zoomRef.current = px;
+    pendingScrollRef.current = scroll;
+    setPxPerSecond(px);
+  }, []);
+  useLayoutEffect(() => {
+    zoomRef.current = pxPerSecond;
+    const lanes = lanesScrollRef.current;
+    if (lanes && pendingScrollRef.current !== null) lanes.scrollLeft = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+  }, [pxPerSecond]);
+  /** Zooms by `factor`, keeping the time under `clientX` (on the lanes)
+   * where it is - with no point, the playhead when it's on screen, else
+   * the middle of the view. */
+  const zoomBy = useCallback(
+    (factor: number, clientX?: number) => {
+      const lanes = lanesScrollRef.current;
+      if (!lanes) return;
+      const px = zoomRef.current;
+      const scrollLeft = pendingScrollRef.current ?? lanes.scrollLeft;
+      const width = lanes.clientWidth;
+      let x: number;
+      if (clientX !== undefined) {
+        x = Math.min(width, Math.max(0, clientX - lanes.getBoundingClientRect().left));
+      } else {
+        const playhead = audioEngine.getTransportSeconds() * px - scrollLeft;
+        x = playhead >= 0 && playhead <= width ? playhead : width / 2;
+      }
+      const seconds = (scrollLeft + x) / px;
+      setZoom(px * factor, (next) => scrollKeeping(seconds, x, next));
+    },
+    [setZoom]
+  );
+  // Ctrl/Cmd+wheel (and a trackpad's pinch, which comes as one) zooms
+  // around the pointer; Alt+wheel makes every track taller or shorter.
+  // Safari's pinch comes as gesture events.
+  const onArrangementWheel = useEffectEvent((e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      zoomBy(wheelZoomFactor(e.deltaY, e.deltaMode), e.clientX);
+    } else if (e.altKey) {
+      e.preventDefault();
+      trackActions.scaleHeights(wheelZoomFactor(e.deltaY, e.deltaMode));
+    }
+  });
+  const onArrangementPinch = useEffectEvent((factor: number, clientX: number) => zoomBy(factor, clientX));
+  useEffect(() => {
+    const el = arrangementRef.current;
+    if (!el) return;
+    type Gesture = Event & { scale?: number; clientX?: number };
+    let lastScale = 1;
+    const wheel = (e: WheelEvent) => onArrangementWheel(e);
+    const gestureStart = (e: Event) => {
+      e.preventDefault();
+      lastScale = 1;
+    };
+    const gestureChange = (e: Gesture) => {
+      e.preventDefault();
+      const scale = e.scale ?? 1;
+      if (scale > 0) onArrangementPinch(scale / lastScale, e.clientX ?? 0);
+      lastScale = scale;
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    el.addEventListener("gesturestart", gestureStart);
+    el.addEventListener("gesturechange", gestureChange);
+    return () => {
+      el.removeEventListener("wheel", wheel);
+      el.removeEventListener("gesturestart", gestureStart);
+      el.removeEventListener("gesturechange", gestureChange);
+    };
+  }, []);
+
+  // --- Time selection (rangeActions.ts) ---
+  /** A span of time on some lanes, dragged out on empty lane space with the
+   * pointer tool: what Delete, Ctrl+X/C/V/D/I/L and Shift+Delete act on
+   * while it's there. A lane picked, or a clip, ends it. */
+  const [timeSelection, setTimeSelection] = useState<TimeSelection | null>(null);
+  /** The lanes, top to bottom, and where on the timeline a screen x is. */
+  const laneRows = useCallback(() => [...(lanesScrollRef.current?.querySelectorAll<HTMLElement>("[data-channel-id]") ?? [])], []);
+  const secondsAtX = useCallback(
+    (clientX: number) => Math.max(0, (clientX - (laneRows()[0]?.getBoundingClientRect().left ?? 0)) / pxPerSecond),
+    [laneRows, pxPerSecond]
+  );
+  /** From where the pointer goes down to where it is, on the grid, on the
+   * lanes from the one it went down on to the one it's over. */
+  const startTimeSelection = useCallback(
+    (clientX: number, clientY: number) => {
+      const rows = laneRows();
+      const rowAt = (y: number) => Math.max(0, rows.findLastIndex((r) => r.getBoundingClientRect().top <= y));
+      const snap = grid.snap;
+      const anchor = secondsAtX(clientX);
+      const anchorRow = rowAt(clientY);
+      let dragged = false;
+      const onMove = (ev: PointerEvent) => {
+        if (!dragged && Math.hypot(ev.clientX - clientX, ev.clientY - clientY) <= 3) return;
+        if (!dragged) setSelectedClipIds(new Set());
+        dragged = true;
+        const at = secondsAtX(ev.clientX);
+        const row = rowAt(ev.clientY);
+        const [top, bottom] = anchorRow <= row ? [anchorRow, row] : [row, anchorRow];
+        const start = snap(Math.min(anchor, at));
+        const end = snap(Math.max(anchor, at));
+        const channelIds = rows.slice(top, bottom + 1).map((r) => r.dataset.channelId!);
+        setTimeSelection(end - start > 1e-6 ? { start, end, channelIds } : null);
+      };
+      const onEnd = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        if (!dragged) setTimeSelection(null);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onEnd);
+      window.addEventListener("pointercancel", onEnd);
+    },
+    [laneRows, secondsAtX, grid]
+  );
+  /** The selection on one lane (the same object while it doesn't change,
+   * for the memoized lanes). */
+  const selectionSpan = useMemo(
+    () => (timeSelection ? { start: timeSelection.start, end: timeSelection.end } : undefined),
+    [timeSelection]
+  );
+  /** Whether a point on a lane is in the time selection. */
+  const selectionHas = useCallback(
+    (channelId: string, seconds: number) =>
+      !!timeSelection && timeSelection.channelIds.includes(channelId) && seconds >= timeSelection.start && seconds <= timeSelection.end,
+    [timeSelection]
+  );
+
   // Suppress the browser's native right-click menu everywhere in the app -
   // only our own context menus (clip/lane/header, and any added later)
   // should ever appear.
@@ -571,6 +740,10 @@ export function Daw() {
   }, [bpm]);
 
   useEffect(() => {
+    audioEngine.setTempoMap(tempo);
+  }, [tempo]);
+
+  useEffect(() => {
     audioEngine.setTimeSignature(beatsPerBar);
   }, [beatsPerBar]);
 
@@ -590,12 +763,20 @@ export function Daw() {
     audioEngine.setMasterLimiterThreshold(masterLimiterThreshold);
   }, [masterLimiterThreshold]);
 
+  /** The loop the take being recorded goes round (s), or null. */
+  const recordLoopRef = useRef<TimeRange | null>(null);
   useEffect(() => {
-    // Recording runs straight through (a take is one pass).
-    const looping =
-      transportState !== "recording" && (transportState === "stopped" ? loop.on : loopsFrom(loop, secondsToBeats(playFromSeconds, bpm)));
-    audioEngine.setLoop(looping, beatsToSeconds(loop.start, bpm), beatsToSeconds(loop.end, bpm));
-  }, [loop, bpm, transportState, playFromSeconds]);
+    // A recording goes round the loop it started with (each time round a
+    // take), or straight through; moving the loop meanwhile waits for Stop.
+    if (transportState === "recording") {
+      const recLoop = recordLoopRef.current;
+      if (recLoop) audioEngine.setLoop(true, recLoop.start, recLoop.end);
+      else audioEngine.setLoop(false, loopStartSeconds, loopEndSeconds);
+      return;
+    }
+    const looping = transportState === "stopped" ? loop.on : loopsFrom(loop, beatAtSeconds(tempo, playFromSeconds));
+    audioEngine.setLoop(looping, loopStartSeconds, loopEndSeconds);
+  }, [loop, tempo, loopStartSeconds, loopEndSeconds, transportState, playFromSeconds]);
 
   // Notes (computer keyboard, the on-screen piano/pads, or a MIDI
   // controller) only reach the armed channel - merely clicking a track to
@@ -777,6 +958,9 @@ export function Daw() {
   const recordingChannelRef = useRef<string | null>(null);
   /** The same, as state, for drawing the take on its track. */
   const [recordingChannelId, setRecordingChannelId] = useState<string | null>(null);
+  /** MIDI overdub: a MIDI recording adds to what's on the track instead of
+   * replacing it (as a new take). Saved with the project. */
+  const [midiOverdub, setMidiOverdub] = useState(false);
   /** The note offering to measure the latency, after a take (LatencyHint). */
   const [latencyHint, setLatencyHint] = useState(false);
 
@@ -785,16 +969,39 @@ export function Daw() {
     if (transportState === "recording") {
       const recChannelId = recordingChannelRef.current;
       recordingChannelRef.current = null;
+      const recLoop = recordLoopRef.current;
+      recordLoopRef.current = null;
       if (recChannelId) {
-        // The take starts where recording started (the marker).
+        // The take starts where recording started (the marker); round the
+        // loop, each time round is a take (takes.ts), but for a last one
+        // under a beat long (stopped just after the loop came round).
         const takeFrom = audioEngine.recordingFrom ?? 0;
+        const recordedFor = audioEngine.recordingProgress?.seconds ?? 0;
+        const minLast = 60 / bpmAtSeconds(tempo, takeFrom);
         if (channelTypeOf(recChannelId) === "audio") {
           const fromInterface = audioEngine.recordingFromInterface;
           const blob = await audioEngine.finishAudioRecording();
           if (blob && blob.size > 0) {
             const decoded = await decodeAudioFile(blob);
             const channelName = channels.find((c) => c.id === recChannelId)?.name ?? "take";
-            addAudioClip(recChannelId, decoded, takeFrom, `${channelName} recording`, blob);
+            const takes = recordingPasses(takeFrom, decoded.durationSeconds, recLoop, minLast).map(
+              (pass): AudioClipInstance => ({
+                id: newClipId(),
+                kind: "audio",
+                offset: pass.start,
+                length: pass.end - pass.start,
+                url: decoded.url,
+                fileName: `${channelName} recording`,
+                durationSeconds: decoded.durationSeconds,
+                peaks: decoded.peaks,
+                sourceOffset: pass.at,
+                fadeIn: 0,
+                fadeOut: 0,
+                gainDb: 0,
+                loopLength: null,
+              })
+            );
+            takeActions.record(recChannelId, takes, blob);
             // Its timing rests on the browser's latency estimate until it's
             // measured: offer to.
             const prefs = getAudioPrefs();
@@ -803,12 +1010,22 @@ export function Daw() {
         } else {
           const events = audioEngine.finishRecording();
           if (events.length > 0) {
-            const lastEnd = events.reduce(
-              (m, n) => Math.max(m, n.time + n.duration),
-              0
-            );
-            addMidiClip(recChannelId, takeFrom, roundUpToBar(lastEnd, bpm, beatsPerBar), events);
+            const lastEnd = events.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
+            // Straight through, the take runs to the end of the bar.
+            const passes = recLoop
+              ? recordingPasses(takeFrom, recordedFor, recLoop, minLast)
+              : [{ start: takeFrom, end: takeFrom + roundUpToBarFrom(tempo, takeFrom, lastEnd, beatsPerBar), at: 0 }];
+            if (midiOverdub) {
+              const merged = mergedMidiTake(events, passes, newClipId);
+              if (merged) addMidiClip(recChannelId, merged.offset, merged.length, merged.notes);
+            } else {
+              takeActions.record(recChannelId, midiPassTakes(events, passes, newClipId));
+            }
           }
+          // The engine played the take as recorded; now the track's clips
+          // (also when nothing was kept: notes only in a last time round
+          // too short to keep).
+          rebuildMidiPart(recChannelId, (projectStore.get().clipsByChannel[recChannelId] ?? []).filter(isMidiClip));
         }
       }
     }
@@ -817,7 +1034,7 @@ export function Daw() {
     audioEngine.stopAll();
     audioEngine.seekTo(cursorSeconds);
     setActiveNotes(new Set());
-  }, [transportState, bpm, beatsPerBar, channelTypeOf, channels, addAudioClip, addMidiClip, cursorSeconds]);
+  }, [transportState, tempo, beatsPerBar, channelTypeOf, channels, addMidiClip, cursorSeconds, midiOverdub]);
 
   // Play always starts from the marker (the last point you clicked on the
   // ruler) - pausing doesn't change where the next Play picks up from, it
@@ -868,14 +1085,19 @@ export function Daw() {
     if (!armedChannelId) return;
     recordingChannelRef.current = armedChannelId;
     setRecordingChannelId(armedChannelId);
+    // With the loop on, recording from before its end goes round it (like
+    // playing), a take each time round.
+    const recLoop = loopsFrom(loop, beatAtSeconds(tempo, cursorSeconds)) ? { start: loopStartSeconds, end: loopEndSeconds } : null;
+    recordLoopRef.current = recLoop;
     if (channelTypeOf(armedChannelId) === "audio") {
       try {
-        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording);
+        await audioEngine.startAudioRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording, recLoop);
         track("recording_started", { kind: "audio" });
         refreshInputDevices();
       } catch (error) {
         noteIssue("record.audio", error, { report: false });
         recordingChannelRef.current = null;
+        recordLoopRef.current = null;
         setRecordingChannelId(null);
         setMicError(
           "Couldn't access the microphone - check the browser's permission prompt or site settings."
@@ -884,8 +1106,8 @@ export function Daw() {
       return;
     }
     track("recording_started", { kind: "midi" });
-    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording);
-  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds, showRecording]);
+    await audioEngine.startRecording(armedChannelId, countInBars * beatsPerBar, cursorSeconds, showRecording, recLoop);
+  }, [transportState, armedChannelId, handleStop, channelTypeOf, countInBars, beatsPerBar, refreshInputDevices, cursorSeconds, showRecording, loop, tempo, loopStartSeconds, loopEndSeconds]);
 
   const handleAddChannel = trackActions.add;
 
@@ -935,16 +1157,18 @@ export function Daw() {
   const handleImportMidi = useCallback(
     async (channelId: string, file: File) => {
       try {
-        const notes = await parseMidiFile(file, bpm);
+        // On its beats from where it goes, following the tempo map.
+        const at = endOfContent(channelId);
+        const notes = notesAtBeats(await parseMidiFile(file), tempo, at);
         const lastEnd = notes.reduce((m, n) => Math.max(m, n.time + n.duration), 0);
-        addMidiClip(channelId, endOfContent(channelId), roundUpToBar(lastEnd, bpm, beatsPerBar), notes);
+        addMidiClip(channelId, at, roundUpToBarFrom(tempo, at, lastEnd, beatsPerBar), notes);
         setImportError(null);
       } catch (error) {
         noteIssue("import.midi", error, { report: false });
         setImportError(`Couldn't import "${file.name}" — not a readable MIDI file.`);
       }
     },
-    [bpm, beatsPerBar, endOfContent, addMidiClip]
+    [tempo, beatsPerBar, endOfContent, addMidiClip]
   );
 
   /** Imports an audio file onto a track, snapped to the nearest bar - from
@@ -955,16 +1179,14 @@ export function Daw() {
     async (channelId: string, file: File, atSeconds: number) => {
       try {
         const decoded = await decodeAudioFile(file);
-        const bar = secondsPerBar(bpm, beatsPerBar);
-        const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-        addAudioClip(channelId, decoded, anchor, file.name, file);
+        addAudioClip(channelId, decoded, Math.max(0, barGrid.snap(atSeconds)), file.name, file);
         setImportError(null);
       } catch (error) {
         noteIssue("import.audio", error, { report: false });
         setImportError(`Couldn't import "${file.name}" — not a readable audio file.`);
       }
     },
-    [bpm, beatsPerBar, addAudioClip]
+    [barGrid, addAudioClip]
   );
   const handleDropAudioFile = handleImportAudioAt;
 
@@ -980,9 +1202,9 @@ export function Daw() {
       const flattened = clipsOf(channelId)
         .filter(isMidiClip)
         .flatMap((c) => c.notes.map((n) => ({ ...n, time: c.offset + n.time })));
-      downloadMidiFile(flattened, channel?.name ?? "track", bpm);
+      downloadMidiFile(flattened, channel?.name ?? "track", tempo);
     },
-    [channels, clipsOf, bpm]
+    [channels, clipsOf, tempo]
   );
 
   /** Exports just one clip's notes as a .mid file. */
@@ -991,9 +1213,9 @@ export function Daw() {
       const channel = channels.find((c) => c.id === channelId);
       const clip = clipsOf(channelId).find((c) => c.id === clipId);
       const notes = clip?.kind === "midi" ? clip.notes : [];
-      downloadMidiFile(notes, channel?.name ?? "clip", bpm);
+      downloadMidiFile(notes, channel?.name ?? "clip", tempo, clip?.offset ?? 0);
     },
-    [channels, clipsOf, bpm]
+    [channels, clipsOf, tempo]
   );
 
   const handleEditorChange = clipActions.setNotes;
@@ -1088,40 +1310,33 @@ export function Daw() {
 
   const pasteClipAt = clipActions.paste;
 
-  const pasteReplaceClip = clipActions.pasteOver;
-
   const handlePasteClip = useCallback(() => {
-    const bar = secondsPerBar(bpm, beatsPerBar);
-    const anchor = Math.round(audioEngine.getTransportSeconds() / bar) * bar;
-    pasteClipAt(selectedChannelId, anchor);
-  }, [selectedChannelId, bpm, beatsPerBar, pasteClipAt]);
+    pasteClipAt(selectedChannelId, Math.max(0, barGrid.snap(audioEngine.getTransportSeconds())));
+  }, [selectedChannelId, barGrid, pasteClipAt]);
 
   const handlePasteClipAtBar = useCallback(
     (channelId: string, atSeconds: number) => {
-      const bar = secondsPerBar(bpm, beatsPerBar);
-      pasteClipAt(channelId, Math.round(atSeconds / bar) * bar);
+      pasteClipAt(channelId, Math.max(0, barGrid.snap(atSeconds)));
     },
-    [bpm, beatsPerBar, pasteClipAt]
+    [barGrid, pasteClipAt]
   );
 
   /** Puts a groove from the browser on a MIDI track, snapped to the
    * nearest bar, and selects it. */
   const handleAddGroove = useCallback(
     (channelId: string, groove: Groove, atSeconds: number) => {
-      const bar = secondsPerBar(bpm, beatsPerBar);
-      const id = clipActions.addGroove(channelId, groove, Math.max(0, Math.round(atSeconds / bar) * bar));
+      const id = clipActions.addGroove(channelId, groove, Math.max(0, barGrid.snap(atSeconds)));
       if (id) setSelectedClipIds(new Set([id]));
     },
-    [bpm, beatsPerBar]
+    [barGrid]
   );
 
   const handleAddEmptyClipAt = useCallback(
     (channelId: string, atSeconds: number) => {
-      const bar = secondsPerBar(bpm, beatsPerBar);
-      const anchor = Math.max(0, Math.round(atSeconds / bar) * bar);
-      addMidiClip(channelId, anchor, bar, []);
+      const anchor = Math.max(0, barGrid.snap(atSeconds));
+      addMidiClip(channelId, anchor, secondsForBeats(tempo, anchor, beatsPerBar), []);
     },
-    [bpm, beatsPerBar, addMidiClip]
+    [barGrid, tempo, beatsPerBar, addMidiClip]
   );
 
   const handleToggleAutomation = useCallback((channelId: string) => {
@@ -1182,22 +1397,142 @@ export function Daw() {
 
   const handleAutomationPointsChange = trackActions.setAutomation;
 
+  /** What can be done to the time selection, for its keys and its menu.
+   * Each is false when there's nothing to do it to (so the key goes on to
+   * the clip shortcuts). The same object on every redraw. */
+  const onSelection = (act: (sel: TimeSelection) => void) => () => {
+    if (!timeSelection) return false;
+    act(timeSelection);
+  };
+  const timeEdits = useStableActions({
+    /** Each track's clips over the selection, one clip per track; the
+     * selection stays. */
+    consolidate: onSelection((sel) => {
+      void clipEditActions.consolidate(new Map(tracksOf(sel.channelIds).map((id) => [id, { start: sel.start, end: sel.end }])));
+    }),
+    cut: onSelection((sel) => rangeActions.cut(sel)),
+    copy: onSelection((sel) => rangeActions.copy(sel)),
+    clear: onSelection((sel) => rangeActions.clear(sel)),
+    /** The copy is selected, so it can be duplicated again. */
+    duplicate: onSelection((sel) => setTimeSelection(rangeActions.duplicate(sel))),
+    insertSilence: onSelection((sel) => rangeActions.insertSilence(sel)),
+    deleteTime: onSelection((sel) => rangeActions.deleteTime(sel)),
+    loop: onSelection((sel) => {
+      setLoop({ on: true, start: beatAtSeconds(tempo, sel.start), end: beatAtSeconds(tempo, sel.end) });
+      setLoopSelected(true);
+    }),
+    /** Copied time, at the selection's start or else the playhead (on the
+     * grid), on the tracks it came from; what it covers is selected. */
+    paste: () => {
+      if (!getCopiedRange()) return false;
+      const playhead = audioEngine.getTransportSeconds();
+      const at = timeSelection?.start ?? Math.max(0, grid.snap(playhead));
+      const pasted = rangeActions.paste(at);
+      if (pasted) setTimeSelection(pasted);
+    },
+  });
+
+  /** Naming, coloring and processing the selected clips (clipEditActions.ts),
+   * for the clip menu and keys. The same object on every redraw. */
+  const [renamingClip, setRenamingClip] = useState<{ channelId: string; clipId: string } | null>(null);
+  /** The project's passing notice (set once the project files hook is up,
+   * below). */
+  const noticeRef = useRef<(text: string) => void>(() => {});
+  const clipEdits = useStableActions({
+    rename: (channelId: string, clipId: string) => setRenamingClip({ channelId, clipId }),
+    /** F2: the one selected clip. */
+    renameSelected: () => {
+      if (selectedClipIds.size !== 1) return false;
+      const [clipId] = selectedClipIds;
+      const channelId = Object.keys(clipsByChannel).find((id) => clipsByChannel[id].some((c) => c.id === clipId));
+      if (!channelId) return false;
+      setRenamingClip({ channelId, clipId });
+    },
+    recolor: (color: string | null) => void clipEditActions.recolor(selectedClipIds, color),
+    /** On each track, the selected clips and what's between them become
+     * one clip, which is selected. (Ctrl+J with nothing selected does
+     * nothing - rather than the browser's Ctrl+J.) */
+    consolidate: () => {
+      if (selectedClipIds.size === 0) return;
+      void clipEditActions.consolidate(spansOfClips(clipsByChannel, selectedClipIds)).then((made) => {
+        if (made.length > 0) setSelectedClipIds(new Set(made));
+      });
+    },
+    /** A reversed audio clip is a new clip: it stays selected. */
+    reverse: () =>
+      void clipEditActions.reverse(selectedClipIds).then((renamed) => {
+        if (renamed.size > 0) setSelectedClipIds((prev) => new Set([...prev].map((id) => renamed.get(id) ?? id)));
+      }),
+    normalize: () => void clipEditActions.normalize(selectedClipIds),
+    fades: (preset: FadePreset) => void clipEditActions.setFades(selectedClipIds, preset, tempo, beatsPerBar),
+    warp: (on: boolean) => void clipEditActions.setWarp(selectedClipIds, on),
+    warpMode: (mode: AudioWarp["mode"]) => void clipEditActions.setWarpMode(selectedClipIds, mode),
+    /** Says so when there's no clear beat to find. */
+    detectTempo: () =>
+      void clipEditActions.detectTempo(selectedClipIds).then((found) => {
+        const tempos = [...found.values()];
+        if (tempos.length > 0 && tempos.every((t) => t === null)) noticeRef.current("No clear beat to find a tempo by");
+        else if (tempos.length === 1 && tempos[0] !== null) noticeRef.current(`Clip tempo: ${formatBpm(tempos[0])} BPM`);
+      }),
+    /** On the snap grid when it's finer than a bar; else (bars, or no
+     * snapping) on 16th notes - a bar would pull a whole beat's hits onto
+     * its first. */
+    quantizeAudio: () =>
+      void clipEditActions.quantize(selectedClipIds, grid.stepBeats > 0 && grid.stepBeats < beatsPerBar ? grid.stepBeats : 0.25).then((moved) => {
+        if (moved === 0) noticeRef.current("No hits to quantize found");
+      }),
+    clearWarpMarkers: () => void clipEditActions.clearWarpMarkers(selectedClipIds),
+    /** Pasting over an audio clip makes a new clip: that's selected. */
+    pasteOver: (channelId: string, clipId: string) =>
+      void clipActions.pasteOver(channelId, clipId).then((id) => {
+        if (id && id !== clipId) setSelectedClipIds(new Set([id]));
+      }),
+  });
+
   // The studio's keys (shortcuts.ts). The piano roll, dialogs and the note
   // keys sit above them: while the note keys play a MIDI track, R is a note
   // and Shift+R records.
+  /** Zooms to fit the time selection, or else the whole song. */
+  const zoomToFit = () => {
+    const lanes = lanesScrollRef.current;
+    if (!lanes) return;
+    const songEnd = Math.max(
+      channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
+      secondsAtBeat(tempo, 4 * beatsPerBar)
+    );
+    const span = timeSelection ?? { start: 0, end: songEnd };
+    const fit = fitSpan(span.start, span.end, lanes.clientWidth);
+    setZoom(fit.pxPerSecond, () => fit.scrollLeft);
+  };
+
   const nudgeLoopWith = (e: KeyboardEvent) => {
     if (!loopSelected) return false;
     // Arrows move the loop (up/down by its length, left/right by the grid);
     // Ctrl/Cmd+left/right shorten or lengthen it - Ableton's keys.
-    const unit = secondsToBeats(snapUnitFor(bpm, pxPerSecond, beatsPerBar), bpm);
+    const unit = snapUnitFor(tempo, pxPerSecond, beatsPerBar);
     const next = nudgeLoop(loop, e.key, unit, e.ctrlKey || e.metaKey);
     if (next) setLoop(next);
   };
   useShortcuts("studio", [
     { keys: "space", label: "Play / pause", run: () => handleTogglePlay() },
+    { keys: "=", label: "Zoom in", run: () => zoomBy(ZOOM_STEP) },
+    { keys: "-", label: "Zoom out", run: () => zoomBy(1 / ZOOM_STEP) },
+    { keys: "shift+z", label: "Zoom to fit the time selection, or the whole song", run: zoomToFit },
     { keys: ["r", "shift+r"], label: "Record", run: () => void handleRecord() },
     { keys: "mod+z", label: "Undo", run: () => undo() },
     { keys: ["mod+shift+z", "mod+y"], label: "Redo", run: () => redo() },
+    // With a time selection, these act on it.
+    { keys: "mod+x", label: "Cut the time selection", run: timeEdits.cut },
+    { keys: "mod+c", label: "Copy the time selection", run: timeEdits.copy },
+    { keys: "mod+v", label: "Paste copied time at the selection or the playhead", run: timeEdits.paste },
+    { keys: "mod+d", label: "Duplicate the time selection after itself", run: timeEdits.duplicate },
+    { keys: "delete", label: "Empty the time selection", run: timeEdits.clear },
+    { keys: "shift+delete", label: "Delete the time selected (what's after it moves earlier)", run: timeEdits.deleteTime },
+    { keys: "mod+i", label: "Insert silence as long as the time selection", run: timeEdits.insertSilence },
+    { keys: "mod+l", label: "Loop the time selection", run: timeEdits.loop },
+    { keys: "mod+j", label: "Consolidate the time selection", run: timeEdits.consolidate },
+    { keys: "mod+j", label: "Consolidate the selected clips, on each track", run: clipEdits.consolidate },
+    { keys: "f2", label: "Rename the selected clip", run: clipEdits.renameSelected },
     { keys: "mod+c", label: "Copy the clip under the playhead", run: () => handleCopyAtPlayhead() },
     { keys: "mod+v", label: "Paste the copied clip at the playhead", run: () => handlePasteClip() },
     {
@@ -1223,7 +1558,7 @@ export function Daw() {
         const ranges = Object.values(clipsByChannel)
           .flat()
           .filter((c) => selectedClipIds.has(c.id))
-          .map((c) => ({ start: secondsToBeats(c.offset, bpm), end: secondsToBeats(c.offset + c.length, bpm) }));
+          .map((c) => ({ start: beatAtSeconds(tempo, c.offset), end: beatAtSeconds(tempo, c.offset + c.length) }));
         const around = loopAround(ranges);
         if (around) {
           setLoop({ on: true, ...around });
@@ -1243,9 +1578,10 @@ export function Daw() {
     },
     {
       keys: "escape",
-      label: "Back to the pointer tool, or forget the tracks picked for grouping",
+      label: "Back to the pointer tool, or clear the time selection, or forget the tracks picked for grouping",
       run: () => {
         if (clipTool !== "pointer") return setClipTool("pointer");
+        if (timeSelection) return setTimeSelection(null);
         if (trackPicks.size === 0) return false;
         setTrackPicks(new Set());
       },
@@ -1288,18 +1624,21 @@ export function Daw() {
    * just this clip, matching how most apps handle right-click on a list. */
   const openClipMenu = useCallback(
     (channelId: string, clipId: string, e: React.MouseEvent) => {
+      // Inside the time selection: what can be done to it.
+      if (selectionHas(channelId, secondsAtX(e.clientX))) return setContextMenu({ kind: "range", x: e.clientX, y: e.clientY });
       setSelectedClipIds((prev) => (prev.has(clipId) ? prev : new Set([clipId])));
       setSelectedChannelId(channelId);
       setContextMenu({ kind: "clip", channelId, clipId, x: e.clientX, y: e.clientY });
     },
-    []
+    [selectionHas, secondsAtX]
   );
 
   const openLaneMenu = useCallback(
     (channelId: string, e: React.MouseEvent, atSeconds: number) => {
+      if (selectionHas(channelId, atSeconds)) return setContextMenu({ kind: "range", x: e.clientX, y: e.clientY });
       setContextMenu({ kind: "lane", channelId, x: e.clientX, y: e.clientY, atSeconds });
     },
-    []
+    [selectionHas]
   );
 
   const openHeaderMenu = useCallback((channelId: string, e: React.MouseEvent) => {
@@ -1313,11 +1652,19 @@ export function Daw() {
       contextMenu
         ? contextMenuItems(
             contextMenu,
-            { channels, clipsOf, selectedClips: selectedClipIds.size, trackPicks },
+            {
+              channels,
+              clipsOf,
+              selectedClips: selectedClipIds.size,
+              trackPicks,
+              takeCount: (id) => (takesByChannel[id] ?? NO_TAKES).length,
+              tempo,
+              beatsPerBar,
+            },
             {
               editClip: handleEditClip,
               copyClip: handleCopyClip,
-              pasteOver: pasteReplaceClip,
+              pasteOver: clipEdits.pasteOver,
               exportClipMidi: handleExportClipMidi,
               splitAtPlayhead: handleSplitClipAtPlayhead,
               toggleLoop: handleToggleLoopClip,
@@ -1330,6 +1677,20 @@ export function Daw() {
               setTrackGroup: handleSetTrackGroup,
               toggleFold: handleToggleFold,
               removeTrack: handleRemoveChannel,
+              renameClip: clipEdits.rename,
+              recolorSelected: clipEdits.recolor,
+              consolidateSelected: clipEdits.consolidate,
+              reverseSelected: clipEdits.reverse,
+              normalizeSelected: clipEdits.normalize,
+              fadeSelected: clipEdits.fades,
+              warpSelected: clipEdits.warp,
+              warpModeSelected: clipEdits.warpMode,
+              detectTempoSelected: clipEdits.detectTempo,
+              quantizeAudioSelected: clipEdits.quantizeAudio,
+              clearWarpMarkersSelected: clipEdits.clearWarpMarkers,
+              toggleTakes: takeActions.toggleShowTakes,
+              deleteAllTakes: takeActions.deleteAllTakes,
+              time: timeEdits,
             }
           )
         : [],
@@ -1341,7 +1702,6 @@ export function Daw() {
       trackPicks,
       handleEditClip,
       handleCopyClip,
-      pasteReplaceClip,
       handleExportClipMidi,
       handleSplitClipAtPlayhead,
       handleToggleLoopClip,
@@ -1354,6 +1714,11 @@ export function Daw() {
       handleSetTrackGroup,
       handleToggleFold,
       handleRemoveChannel,
+      timeEdits,
+      clipEdits,
+      tempo,
+      beatsPerBar,
+      takesByChannel,
     ]
   );
 
@@ -1372,57 +1737,31 @@ export function Daw() {
     return Math.max(MIN_TIMELINE_SECONDS, Math.ceil(longest + 8));
   }, [channels, endOfContent]);
 
-  // MIDI clip notes (and their clip boxes) are stored as absolute seconds
-  // at whatever tempo was in effect when they were written - nothing else
-  // in the engine treats them as beat-relative. Left alone, changing the
-  // project tempo would silently change every existing MIDI clip's
-  // playback speed relative to the new tempo and knock it off the beat
-  // grid instead of following the tempo change like a DAW clip should.
-  // Rescale every MIDI clip's timing by the ratio between the old and new
-  // tempo so each note stays on the same beat, then rebuild the engine's
-  // scheduled parts to match. Audio clips are left untouched - there's no
-  // time-stretching here, so (as in most DAWs for unwarped audio) they
-  // keep their absolute position rather than being resampled.
-  const handleBpmCommit = useCallback(
-    (value: number) => {
-      if (value === bpm) return;
+  // MIDI clips, their notes and automation are stored in seconds; left
+  // alone, a tempo edit would knock them off the beats they were written
+  // on. They follow it instead (tempoEdits.ts) - audio, not stretched,
+  // keeps its place - and the engine changes only what moved. Takes the
+  // song's starting tempo and the changes after it (tempoMap.ts).
+  const changeTempo = useCallback(
+    (nextBpm: number, nextChanges: TempoChange[]) => {
+      const before = projectStore.get();
+      const from = makeTempoMap(before.bpm, before.tempoChanges);
+      const to = makeTempoMap(nextBpm, nextChanges);
+      if (sameTempo(from, to)) return;
       pushHistory();
-      // Tone.js converts a scheduled note's time to ticks at the moment
-      // it's scheduled, using whatever tempo is active right then - the
-      // separate effect that calls audioEngine.setBpm(bpm) only runs on
-      // the NEXT render, which is too late: rebuilding the (rescaled)
-      // parts below before the engine's tempo actually changes would
-      // schedule them against the OLD tempo, then have their real
-      // playback position silently shift again once the new tempo lands.
-      // Setting it here first, synchronously, avoids that double-shift.
-      audioEngine.setBpm(value);
-      const ratio = bpm / value;
-      const rescaled: Record<string, ClipInstance[]> = {};
-      Object.entries(clipsByChannel).forEach(([chId, clips]) => {
-        rescaled[chId] = clips.map((c) =>
-          c.kind === "midi"
-            ? {
-                ...c,
-                offset: c.offset * ratio,
-                length: c.length * ratio,
-                loopLength: c.loopLength ? c.loopLength * ratio : c.loopLength,
-                notes: c.notes.map((n) => ({
-                  ...n,
-                  time: n.time * ratio,
-                  duration: n.duration * ratio,
-                })),
-              }
-            : c
-        );
-      });
-      setClipsByChannel(rescaled);
-      channels.forEach((c) => {
-        if (c.type === "midi") rebuildMidiPart(c.id, (rescaled[c.id] ?? []).filter(isMidiClip));
-      });
-      setBpm(value);
+      const retimed = retimeProject(before, from, to);
+      projectStore.set("channels", retimed.channels);
+      projectStore.set("clipsByChannel", retimed.clipsByChannel);
+      projectStore.set("takesByChannel", retimed.takesByChannel);
+      projectStore.set("bpm", to.bpm);
+      projectStore.set("tempoChanges", to.changes);
+      retimeEngine(before, projectStore.get(), registeredChannelIds.current, audioEngine);
+      // A time selection stays on its beats too.
+      setTimeSelection((sel) => sel && { ...sel, start: remapSeconds(sel.start, from, to), end: remapSeconds(sel.end, from, to) });
     },
-    [bpm, clipsByChannel, channels, pushHistory]
+    [pushHistory]
   );
+  const handleBpmCommit = useCallback((value: number) => changeTempo(value, tempoChanges), [changeTempo, tempoChanges]);
 
   const handleTimeSignatureCommit = useCallback(
     (value: TimeSignature) => {
@@ -1447,8 +1786,9 @@ export function Daw() {
       contentEndSeconds: channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
       delayCompensation: getAudioPrefs().delayCompensation,
       monitored: [...monitoredChannelIds],
+      tempo,
     }),
-    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds]
+    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds, tempo]
   );
 
   // --- The project's files: autosave, Save, Open (useProjectFiles.ts) ---
@@ -1461,9 +1801,12 @@ export function Daw() {
     setSnapResolution(project.snapResolution);
     setCountInBars(project.countInBars);
     setMetronomeEnabled(project.metronomeEnabled);
+    setMidiOverdub(project.midiOverdub);
     restoreMonitoring(project.monitoredTracks, state.channels);
     setLoop(project.loop);
     setSelectedClipIds(new Set());
+    setTimeSelection(null);
+    setRenamingClip(null);
     setEditingClip(null);
     setExpandedEffectId(null);
     setFxBusId(null);
@@ -1492,7 +1835,7 @@ export function Daw() {
     loadDemo: handleLoadDemo,
     startNew,
   } = useProjectFiles(
-    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop, monitoredTracks },
+    { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, midiOverdub, loop, monitoredTracks },
     {
       beforeOpen: () => {
         audioEngine.stopAll();
@@ -1510,6 +1853,9 @@ export function Daw() {
       },
     }
   );
+  useEffect(() => {
+    noticeRef.current = flashProjectNotice;
+  }, [flashProjectNotice]);
 
   const handleInstallPack = useCallback(async (file: File): Promise<{ ok: boolean; message: string }> => {
     if (file.size > 400 * 1024 * 1024) return { ok: false, message: `"${file.name}" is too large to be a Dawn pack.` };
@@ -1591,8 +1937,10 @@ export function Daw() {
       .forEach((t) => options.push({ value: t.id, label: `${t.type === "group" ? "Group" : "Track"}: ${t.name}` }));
     return options;
   };
+  /** A track's take lanes, when they're showing (not while it's folded). */
+  const shownTakes = (c: ChannelConfig) => (c.showTakes && !c.folded ? takesByChannel[c.id] ?? NO_TAKES : NO_TAKES);
   const lanesHeight =
-    visibleChannels.reduce((sum, c) => sum + rowHeightOf(c), 0) +
+    visibleChannels.reduce((sum, c) => sum + rowHeightOf(c) + shownTakes(c).length * TAKE_LANE_HEIGHT, 0) +
     (automationChannelId && visibleChannels.some((c) => c.id === automationChannelId) ? AUTOMATION_LANE_HEIGHT : 0);
 
 
@@ -1603,6 +1951,7 @@ export function Daw() {
     select: (id) => {
       setSelectedChannelId(id);
       setSelectedClipIds(new Set());
+      setTimeSelection(null);
       setTrackPicks(new Set());
       openFx(id);
     },
@@ -1627,7 +1976,9 @@ export function Daw() {
     setInputDevice: handleInputDeviceChange,
     requestInputDevices: handleRequestInputDevices,
     toggleFold: (id, all) => (all ? handleFoldAll(!channels.find((c) => c.id === id)?.folded) : handleToggleFold(id)),
+    resizeHeight: (id, height, all) => (all ? trackActions.setAllHeights(height) : trackActions.setHeight(id, height)),
     pick: handlePickTrack,
+    toggleTakes: takeActions.toggleShowTakes,
   });
   const laneActions = useStableActions<TrackLaneActions>({
     selectTrack: (id) => {
@@ -1637,6 +1988,7 @@ export function Daw() {
     },
     selectClip: (id, clipId, additive) => {
       setSelectedChannelId(id);
+      setTimeSelection(null);
       openFx(id);
       setSelectedClipIds((prev) => {
         if (additive) {
@@ -1648,7 +2000,8 @@ export function Daw() {
         return new Set([clipId]);
       });
     },
-    editClip: handleEditClip,
+    // Clicking an audio clip twice names it (there's no piano roll for it).
+    editClip: (id, clipId) => (channelTypeOf(id) === "audio" ? setRenamingClip({ channelId: id, clipId }) : handleEditClip(id, clipId)),
     moveClip: handleMoveClip,
     resizeClip: handleResizeClip,
     setFades: handleFadeChange,
@@ -1665,6 +2018,7 @@ export function Daw() {
     drawClip: (id, offset, length) => {
       const clipId = clipActions.addMidi(id, offset, length);
       setSelectedChannelId(id);
+      setTimeSelection(null);
       openFx(id);
       setSelectedClipIds(new Set([clipId]));
     },
@@ -1673,6 +2027,12 @@ export function Daw() {
       if ("notes" in change) clipActions.setNotes(id, clipId, change.notes);
       else clipActions.setSourceOffset(id, clipId, change.sourceOffset);
     },
+    startTimeSelection,
+    renameClip: (_id, clipId, name) => {
+      setRenamingClip(null);
+      if (name !== null) clipEditActions.rename(clipId, name);
+    },
+    setClipTempo: (_id, clipId, bpm) => void clipEditActions.setClipTempo(new Set([clipId]), bpm),
   });
   // A group's lane draws its members' clips; the same list while they don't
   // change, so its memoized lane can skip redraws too.
@@ -1708,7 +2068,8 @@ export function Daw() {
             onPreview={(g) => {
               // On the selected track's kit when it has one, else the groove's own.
               const kit = fxChannel?.instrument === "drums" && fxChannel.drumParams ? fxChannel.drumParams : grooveKit(g);
-              const spb = 60 / bpm;
+              // At the tempo where it would go.
+              const spb = 60 / bpmAtSeconds(tempo, cursorSeconds);
               void audioEngine.previewDrums(kit, grooveHits(g).map((h) => ({ pad: h.pad, time: h.beat * spb, velocity: h.velocity })));
             }}
             onStopPreview={() => audioEngine.stopPreview()}
@@ -1753,7 +2114,7 @@ export function Daw() {
                 ? importError
                 : samplesReady
                   ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
-                  : "loading piano sounds…"}
+                  : "loading sounds…"}
           </p>
           <HelpMenu onTour={() => setTourOpen(true)} onFeedback={hasDiscord ? () => openFeedback("help") : undefined} />
           {hasDiscord && (
@@ -1812,6 +2173,8 @@ export function Daw() {
           onToggleLoop={toggleLoop}
           countInBars={countInBars}
           onCountInChange={setCountInBars}
+          midiOverdub={midiOverdub}
+          onToggleMidiOverdub={() => setMidiOverdub((v) => !v)}
           onPlay={handlePlay}
           onPause={handlePause}
           onStop={() => void handleStop()}
@@ -1850,23 +2213,29 @@ export function Daw() {
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() =>
-                setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 20))
-              }
-              title="Zoom out"
-              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+              disabled={pxPerSecond <= MIN_PX_PER_SECOND}
+              title="Zoom out (-) · Ctrl/Cmd+wheel or pinch zooms around the pointer"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
             >
               <ZoomOut size={12} />
             </button>
             <button
               type="button"
-              onClick={() =>
-                setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 20))
-              }
-              title="Zoom in"
-              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+              onClick={() => zoomBy(ZOOM_STEP)}
+              disabled={pxPerSecond >= MAX_PX_PER_SECOND}
+              title="Zoom in (=) · Ctrl/Cmd+wheel or pinch zooms around the pointer"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
             >
               <ZoomIn size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={zoomToFit}
+              title="Zoom to fit (Shift+Z): the time selection, or the whole song"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+            >
+              <Expand size={12} />
             </button>
           </div>
           <div role="group" aria-label="Edit tool" className="flex overflow-hidden rounded border border-border">
@@ -1949,16 +2318,17 @@ export function Daw() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border">
+      <div ref={arrangementRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border">
         {/* Sticky ruler row - a direct child of the vertical scroller (not
             nested inside the horizontally-scrolling lanes column), so
             position: sticky actually has that scroller as its containing
             block instead of getting stuck relative to an inner element. */}
         <div className="sticky top-0 z-20 flex shrink-0 bg-surface">
           <div
-            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT + LOOP_BAR_HEIGHT }}
-            className="flex shrink-0 items-end justify-end gap-2 border-b border-r border-border bg-surface px-2 pb-[1px]"
+            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT + LOOP_BAR_HEIGHT + TEMPO_LANE_HEIGHT }}
+            className="flex shrink-0 flex-col border-b border-r border-border bg-surface"
           >
+            <div className="flex flex-1 items-end justify-end gap-2 px-2 pb-[1px]">
             <button
               type="button"
               onClick={() => handleFoldAll()}
@@ -1978,31 +2348,47 @@ export function Daw() {
             >
               <Repeat size={9} /> Loop
             </button>
+            </div>
+            <div
+              className="flex items-center justify-end border-t border-border/60 px-2 text-[9px] font-semibold uppercase tracking-wider text-muted"
+              style={{ height: TEMPO_LANE_HEIGHT }}
+              title="The tempo lane: double-click it to add a tempo change"
+            >
+              Tempo
+            </div>
           </div>
           <div ref={rulerViewportRef} className="flex-1 overflow-hidden border-b border-border">
             <TimelineRuler
-              bpm={bpm}
+              tempo={tempo}
               totalSeconds={totalSeconds}
               pxPerSecond={pxPerSecond}
               beatsPerBar={beatsPerBar}
               onSeek={handleSeek}
-              loopStart={loop.on ? beatsToSeconds(loop.start, bpm) : 0}
-              loopEnd={loop.on ? beatsToSeconds(loop.end, bpm) : 0}
+              loopStart={loop.on ? loopStartSeconds : 0}
+              loopEnd={loop.on ? loopEndSeconds : 0}
               onSetLoopRegion={(start, end) => {
-                setLoop({ on: true, start: secondsToBeats(start, bpm), end: secondsToBeats(end, bpm) });
+                setLoop({ on: true, start: beatAtSeconds(tempo, start), end: beatAtSeconds(tempo, end) });
                 setLoopSelected(true);
               }}
             />
             <LoopBar
               loop={loop}
-              bpm={bpm}
+              tempo={tempo}
               pxPerSecond={pxPerSecond}
               totalSeconds={totalSeconds}
               beatsPerBar={beatsPerBar}
-              snapUnit={secondsToBeats(snapUnitFor(bpm, pxPerSecond, beatsPerBar), bpm)}
+              snapUnit={snapUnitFor(tempo, pxPerSecond, beatsPerBar)}
               selected={loopSelected}
               onSelect={setLoopSelected}
               onChange={setLoop}
+            />
+            <TempoLane
+              tempo={tempo}
+              pxPerSecond={pxPerSecond}
+              totalSeconds={totalSeconds}
+              beatsPerBar={beatsPerBar}
+              snapUnit={snapUnitFor(tempo, pxPerSecond, beatsPerBar)}
+              onChange={changeTempo}
             />
           </div>
         </div>
@@ -2035,8 +2421,18 @@ export function Daw() {
                   inputDevices={inputDevices}
                   selectedInputDeviceId={selectedInputDeviceId}
                   monitoring={monitoredChannelIds.has(channel.id)}
+                  takeCount={(takesByChannel[channel.id] ?? NO_TAKES).length}
                   actions={headerActions}
                 />
+                {shownTakes(channel).map((lane) => (
+                  <TakeLaneHeader
+                    key={lane.id}
+                    lane={lane}
+                    inUse={clipsOf(channel.id).some((c) => c.take === lane.id)}
+                    onUse={() => takeActions.useTake(channel.id, lane.id)}
+                    onDelete={() => takeActions.deleteTake(channel.id, lane.id)}
+                  />
+                ))}
                 {automationChannelId === channel.id && (
                   <div
                     className="flex shrink-0 items-center border-b border-r border-border bg-surface px-2"
@@ -2101,11 +2497,11 @@ export function Daw() {
                   color={trackColorOf(channel)}
                   rowHeight={rowHeightOf(channel)}
                   overview={channel.type === "group" ? groupOverviews.get(channel.id) : undefined}
-                  bpm={bpm}
+                  tempo={tempo}
                   beatsPerBar={beatsPerBar}
                   totalSeconds={totalSeconds}
                   pxPerSecond={pxPerSecond}
-                  snapSeconds={snapSeconds}
+                  grid={grid}
                   selected={channel.id === selectedChannelId}
                   armed={channel.id === armedChannelId}
                   recording={transportState === "recording" && channel.id === recordingChannelId}
@@ -2119,7 +2515,22 @@ export function Daw() {
                   tool={clipTool}
                   canDraw={channel.type === "midi"}
                   erasingIds={erasingIds}
+                  timeSelection={timeSelection?.channelIds.includes(channel.id) ? selectionSpan : undefined}
+                  renamingClipId={renamingClip?.channelId === channel.id ? renamingClip.clipId : undefined}
                 />
+                {shownTakes(channel).map((lane) => (
+                  <TakeLaneRow
+                    key={lane.id}
+                    lane={lane}
+                    used={compSpans(clipsOf(channel.id), lane.id)}
+                    color={trackColorOf(channel)}
+                    pxPerSecond={pxPerSecond}
+                    totalSeconds={totalSeconds}
+                    grid={grid}
+                    tempo={tempo}
+                    onComp={(laneId, range) => takeActions.comp(channel.id, laneId, range)}
+                  />
+                ))}
                 {automationChannelId === channel.id && (
                   <div className="border-b border-border bg-surface-raised/30">
                     <AutomationLaneEditor
@@ -2134,7 +2545,7 @@ export function Daw() {
                       formatValue={automationRange(automationTarget, channelEffects[channel.id] ?? []).format}
                       totalSeconds={totalSeconds}
                       pxPerSecond={pxPerSecond}
-                      bpm={bpm}
+                      tempo={tempo}
                       beatsPerBar={beatsPerBar}
                       height={AUTOMATION_LANE_HEIGHT}
                       color={trackColorOf(channel)}
@@ -2148,7 +2559,7 @@ export function Daw() {
             {loop.on && (
               <div
                 className="pointer-events-none absolute top-0 z-10 h-full border-x border-accent/60 bg-accent/[0.07]"
-                style={{ left: beatsToSeconds(loop.start, bpm) * pxPerSecond, width: beatsToSeconds(loop.end - loop.start, bpm) * pxPerSecond }}
+                style={{ left: loopStartSeconds * pxPerSecond, width: (loopEndSeconds - loopStartSeconds) * pxPerSecond }}
               />
             )}
             <Playhead pxPerSecond={pxPerSecond} height={lanesHeight} />
@@ -2224,7 +2635,7 @@ export function Daw() {
               onModWheel={(amount) => armedChannelId && audioEngine.setModWheel(armedChannelId, amount)}
               onSustainChange={(down) => armedChannelId && audioEngine.setSustain(armedChannelId, down)}
             />
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <PianoKeyboard
                 activeNotes={activeNotes}
                 onNoteOn={handleNoteOn}
@@ -2246,7 +2657,7 @@ export function Daw() {
           drumKit={editingChannel.drumParams}
           notes={editingClipInstance.notes}
           length={editingClipInstance.length}
-          bpm={bpm}
+          bpm={bpmAtSeconds(tempo, editingClipInstance.offset)}
           beatsPerBar={beatsPerBar}
           offset={editingClipInstance.offset}
           scaleSetting={scaleSetting}
@@ -2312,7 +2723,7 @@ export function Daw() {
         <ExportDialog
           songName={projectName}
           buildParams={buildBounceParams}
-          loop={loop.on ? { start: beatsToSeconds(loop.start, bpm), end: beatsToSeconds(loop.end, bpm) } : null}
+          loop={loop.on ? { start: loopStartSeconds, end: loopEndSeconds } : null}
           loopLabel={`${formatPosition(loop.start, beatsPerBar)}–${formatPosition(loop.end, beatsPerBar)}`}
           onClose={() => setExportOpen(false)}
           onExported={(result, settings) => {

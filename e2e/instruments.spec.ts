@@ -67,3 +67,34 @@ test("the computer keyboard plays the armed track, and a held key lets go when t
   await page.keyboard.up("z");
   await expect(lit).toHaveCount(0);
 });
+
+test("the keys name the chord being played, in E Major until a scale is picked", async ({ page, studio }) => {
+  await studio.open("Beat");
+  await studio.header("Bass").getByTitle("Arm this channel for recording and note input").click();
+  await page.getByRole("button", { name: /Keys/ }).first().click();
+  const readout = page.getByRole("dialog", { name: "Bass — keys" }).getByTestId("chord-readout");
+  await expect(readout).toHaveText("Chords in E Major");
+
+  // E, G# and B from the Q row.
+  await page.keyboard.down("e");
+  await page.keyboard.down("6");
+  await page.keyboard.down("u");
+  await expect(readout.locator("[data-chord-name]")).toHaveText("E");
+  await expect(readout.locator("[data-chord-degree]")).toHaveText("I");
+  await expect(readout).toContainText("in E Major");
+  for (const key of ["e", "6", "u"]) await page.keyboard.up(key);
+  await expect(readout).toHaveText("Chords in E Major");
+
+  // With A Minor picked, the same chord is the fifth, raised from the key.
+  await page.getByTitle("Highlight scale notes").first().click();
+  const toolbar = page.getByTitle("Highlight scale notes").first().locator("..");
+  await toolbar.locator("select").first().selectOption("A");
+  await toolbar.locator("select").nth(1).selectOption("Natural Minor");
+  await expect(readout).toHaveText("Chords in A Natural Minor");
+  await page.keyboard.down("e");
+  await page.keyboard.down("6");
+  await page.keyboard.down("u");
+  await expect(readout.locator("[data-chord-degree]")).toHaveText("V");
+  await expect(readout).toContainText("outside A Natural Minor");
+  for (const key of ["e", "6", "u"]) await page.keyboard.up(key);
+});

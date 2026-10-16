@@ -5,7 +5,10 @@ import { ClipBlock, type SlipChange } from "@/studio/timeline/ClipBlock";
 import { RecordingClip } from "@/studio/timeline/RecordingClip";
 import { TOOL_CURSORS, type ClipTool } from "@/studio/timeline/clipTools";
 import type { ClipInstance } from "@/project/types";
-import type { TrackColor } from "@/project/colors";
+import type { TimeRange } from "@/project/timeRange";
+import { beatAtSeconds, secondsAtBeat, type Grid, type TempoMap } from "@/project/tempoMap";
+import { trackColorFromHex, type TrackColor } from "@/project/colors";
+import { warpView } from "@/project/warp";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
 
@@ -40,17 +43,25 @@ export interface TrackLaneActions {
   startErase(clipId: string | null): void;
   /** Slip tool: a clip's content, slid. */
   slipClip(channelId: string, clipId: string, change: SlipChange): void;
+  /** Pointer tool: the pointer went down on empty lane space. A drag from
+   * there selects time, on the lanes it crosses; a click clears it. */
+  startTimeSelection(clientX: number, clientY: number): void;
+  /** A clip's name typed in, or null when renaming was let go of (Esc). */
+  renameClip(channelId: string, clipId: string, name: string | null): void;
+  /** A warped clip's own tempo typed in (warp.ts). */
+  setClipTempo(channelId: string, clipId: string, bpm: number): void;
 }
 
 interface TrackLaneProps {
   clips: ClipInstance[];
   color: TrackColor;
-  bpm: number;
+  /** Where the beats and bars are (tempoMap.ts). */
+  tempo: TempoMap;
   beatsPerBar: number;
   totalSeconds: number;
   pxPerSecond: number;
-  /** Grid size (seconds) a clip drag snaps to; 0 means free positioning. */
-  snapSeconds: number;
+  /** The grid clip drags and drawing snap to. */
+  grid: Grid;
   /** Whether this track is the clicked/focused one - tints the whole lane. */
   selected: boolean;
   /** Whether this track is record-armed - shows a small indicator dot. */
@@ -86,6 +97,10 @@ interface TrackLaneProps {
   canDraw?: boolean;
   /** Erase tool: the clips a drag has passed over, on any lane. */
   erasingIds?: ReadonlySet<string>;
+  /** The time selection, when it's on this lane. */
+  timeSelection?: TimeRange;
+  /** The clip on this lane being renamed. */
+  renamingClipId?: string;
 }
 
 const NO_CLIPS: ReadonlySet<string> = new Set();
@@ -97,11 +112,11 @@ const MIN_DRAWN = 0.25;
 export const TrackLane = memo(function TrackLane({
   clips,
   color,
-  bpm,
+  tempo,
   beatsPerBar,
   totalSeconds,
   pxPerSecond,
-  snapSeconds,
+  grid,
   selected,
   armed,
   recording = false,
@@ -117,6 +132,8 @@ export const TrackLane = memo(function TrackLane({
   tool = "pointer",
   canDraw = false,
   erasingIds = NO_CLIPS,
+  timeSelection,
+  renamingClipId,
 }: TrackLaneProps) {
   const onSelectTrack = () => actions.selectTrack(channelId);
   const onSelectClip = (clipId: string, additive: boolean) => actions.selectClip(channelId, clipId, additive);
@@ -130,7 +147,7 @@ export const TrackLane = memo(function TrackLane({
   const onClipDragStart = actions.clipDragStart;
   const onDropAudioFile = (file: File, atSeconds: number) => actions.dropAudioFile(channelId, file, atSeconds);
   const onDropGroove = acceptsGrooves ? (grooveId: string, atSeconds: number) => actions.dropGroove(channelId, grooveId, atSeconds) : undefined;
-  const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
+  const marks = computeAdaptiveMarks(tempo, totalSeconds, pxPerSecond, beatsPerBar);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [grooveDragOver, setGrooveDragOver] = useState(false);
   const isGroove = (e: React.DragEvent) => !!onDropGroove && e.dataTransfer.types.includes(GROOVE_DRAG_MIME);
@@ -146,27 +163,26 @@ export const TrackLane = memo(function TrackLane({
 
   /** Draw tool: from where the pointer goes down to where it comes up,
    * snapped outward to the grid; a click makes a one-bar clip. Erase tool:
-   * a drag from empty space deletes the clips it crosses. */
+   * a drag from empty space deletes the clips it crosses. Pointer tool: it
+   * selects time. */
   const handleLanePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if (tool === "erase") return actions.startErase(null);
+    if (tool === "pointer") return actions.startTimeSelection(e.clientX, e.clientY);
     if (!drawsHere) return;
     const lane = e.currentTarget;
     lane.setPointerCapture(e.pointerId);
     const left = lane.getBoundingClientRect().left;
     const at = (clientX: number) => Math.max(0, (clientX - left) / pxPerSecond);
-    const grid = snapSeconds > 0 ? snapSeconds : 0;
-    const bar = (60 / bpm) * beatsPerBar;
     const anchor = at(e.clientX);
     const span = (x: number) => {
-      const lo = Math.min(anchor, x);
-      const hi = Math.max(anchor, x);
-      const start = grid ? Math.floor(lo / grid) * grid : lo;
-      const end = grid ? Math.ceil(hi / grid) * grid : hi;
-      return { start, end: Math.max(end, start + (grid || MIN_DRAWN)) };
+      const start = Math.max(0, grid.floor(Math.min(anchor, x)));
+      const end = grid.ceil(Math.max(anchor, x));
+      return { start, end: Math.max(end, start + (grid.stepAt(start) || MIN_DRAWN)) };
     };
-    const firstBar = { start: grid ? Math.floor(anchor / grid) * grid : anchor, end: 0 };
-    firstBar.end = firstBar.start + bar;
+    // A click: one bar, from the grid line before it.
+    const barStart = Math.max(0, grid.floor(anchor));
+    const firstBar = { start: barStart, end: secondsAtBeat(tempo, beatAtSeconds(tempo, barStart) + beatsPerBar) };
     let dragged = false;
     let current = firstBar;
     setDrawing(current);
@@ -191,6 +207,7 @@ export const TrackLane = memo(function TrackLane({
     <div
       role="group"
       aria-label={`${name} lane`}
+      data-channel-id={channelId}
       onPointerDown={handleLanePointerDown}
       // Drawing and erasing aren't a click on the lane (which would select
       // the track, and so drop the clip just drawn from the selection).
@@ -240,7 +257,7 @@ export const TrackLane = memo(function TrackLane({
         const file = e.dataTransfer.files[0];
         if (file) onDropAudioFile(file, atSecondsFromEvent(e));
       }}
-      className={`relative cursor-pointer border-b border-border ${
+      className={`relative cursor-pointer select-none border-b border-border ${
         selected ? "bg-surface-raised/40" : ""
       } ${fileDragOver || grooveDragOver ? "bg-accent/10 ring-1 ring-inset ring-accent" : ""}`}
       style={{
@@ -313,11 +330,14 @@ export const TrackLane = memo(function TrackLane({
           onFadeChange={(fadeIn, fadeOut) => onFadeChange(clip.id, fadeIn, fadeOut)}
           onGainChange={(gainDb) => onGainChange(clip.id, gainDb)}
           loop={!!clip.loopLength && clip.loopLength > 0 && clip.loopLength < clip.length}
-          color={color}
+          color={clip.color ? trackColorFromHex(clip.color) : color}
+          name={clip.name}
+          renaming={clip.id === renamingClipId}
+          onRename={(value) => actions.renameClip(channelId, clip.id, value)}
           offset={clip.offset}
           length={clip.length}
           pxPerSecond={pxPerSecond}
-          snapSeconds={snapSeconds}
+          grid={grid}
           selected={selectedClipIds.has(clip.id)}
           onSelect={(additive) => onSelectClip(clip.id, additive)}
           onEdit={() => onEditClip(clip.id)}
@@ -332,8 +352,18 @@ export const TrackLane = memo(function TrackLane({
           onEraseStart={() => actions.startErase(clip.id)}
           onSlip={(change) => actions.slipClip(channelId, clip.id, change)}
           erasing={erasingIds.has(clip.id)}
+          warped={clip.kind === "audio" ? warpView(clip, tempo) : undefined}
+          onClipTempo={(bpm) => actions.setClipTempo(channelId, clip.id, bpm)}
         />
       ))}
+      {timeSelection && (
+        // Over the clips (and their handles), under the sticky ruler.
+        <div
+          data-time-selection
+          className="pointer-events-none absolute inset-y-0 z-[15] border-x border-accent bg-accent/20"
+          style={{ left: timeSelection.start * pxPerSecond, width: (timeSelection.end - timeSelection.start) * pxPerSecond }}
+        />
+      )}
     </div>
   );
 });
@@ -363,7 +393,7 @@ function GroupOverview({
               width: Math.max(2, clip.length * pxPerSecond),
               top: pad + i * stripe + (stripe > 4 ? 1 : 0),
               height: Math.max(1, stripe - (stripe > 4 ? 2 : 0)),
-              background: m.color.accent,
+              background: clip.color ?? m.color.accent,
               opacity: 0.45,
             }}
           />

@@ -7,6 +7,9 @@ import type { TrackColor } from "@/project/colors";
 import { TRACK_ROW_HEIGHT } from "./layout";
 import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 import { TOOL_CURSORS, type ClipTool } from "./clipTools";
+import { MAX_CLIP_NAME } from "@/project/clipEdits";
+import { formatBpm, NO_GRID, type Grid } from "@/project/tempoMap";
+import type { WarpView } from "@/project/warp";
 
 /** What the slip tool changes: where an audio clip's content starts in its
  * file, or a MIDI clip's notes. */
@@ -43,9 +46,9 @@ interface ClipBlockProps {
   offset: number;
   length: number;
   pxPerSecond: number;
-  /** Grid size (seconds) a drag snaps to; 0/undefined means free (no
-   * snapping) - drag position follows the pointer exactly. */
-  snapSeconds?: number;
+  /** The grid drags snap to (tempoMap.ts); none means free - drag
+   * position follows the pointer exactly. */
+  grid?: Grid;
   selected: boolean;
   /** `additive` is true for a Ctrl/Cmd-click, which should toggle this
    * clip's membership in the current selection instead of replacing it. */
@@ -76,6 +79,19 @@ interface ClipBlockProps {
   /** Erase tool: a drag has passed over the clip; it goes when the drag
    * ends. */
   erasing?: boolean;
+  /** The name the clip was given; unset, it shows what's in it. */
+  name?: string;
+  /** Being renamed: its name is a text field. */
+  renaming?: boolean;
+  /** The name typed (Enter or leaving the field), or null (Esc). */
+  onRename?: (name: string | null) => void;
+  /** Only drawn (a take's clip): no handles, and the pointer goes through
+   * to what's under it. */
+  passive?: boolean;
+  /** A warped audio clip's warp (warp.ts): it shows its tempo. */
+  warped?: WarpView;
+  /** The clip's tempo typed into its badge. */
+  onClipTempo?: (bpm: number) => void;
 }
 
 const MIN_MIDI = 36;
@@ -129,7 +145,7 @@ export function ClipBlock({
   offset,
   length,
   pxPerSecond,
-  snapSeconds,
+  grid = NO_GRID,
   selected,
   onSelect,
   onEdit,
@@ -144,18 +160,30 @@ export function ClipBlock({
   onEraseStart,
   onSlip,
   erasing = false,
+  name,
+  renaming = false,
+  onRename,
+  passive = false,
+  warped,
+  onClipTempo,
 }: ClipBlockProps) {
+  const [typingTempo, setTypingTempo] = useState(false);
   const compact = rowHeight < COMPACT_BELOW;
   const pad = compact ? 3 : LANE_PADDING;
   const laneHeight = rowHeight - pad * 2 - 18;
   const lastClickAt = useRef(0);
 
-  const grid = snapSeconds && snapSeconds > 0 ? snapSeconds : null;
-  const snap = (seconds: number) => (grid ? Math.round(seconds / grid) * grid : seconds);
-  const minLength = grid ?? MIN_RESIZE_SECONDS;
+  const snap = grid.snap;
+  const minLength = grid.stepAt(offset) || MIN_RESIZE_SECONDS;
+  /** A distance on the grid: whole grid steps (from the grid line nearest
+   * where it starts). */
+  const snapDistance = (from: number, distance: number) => {
+    const base = snap(from);
+    return snap(base + distance) - base;
+  };
   /** The pointer and draw tools keep the clip's own handles (resize,
    * fades, gain); the others act on the whole clip. */
-  const handles = tool === "pointer" || tool === "draw";
+  const handles = !passive && (tool === "pointer" || tool === "draw");
 
   /** Split tool: where a click at `clientX` cuts, as a time on the
    * timeline - snapped to the grid, unless that lands on or outside the
@@ -175,17 +203,19 @@ export function ClipBlock({
     const startClientX = e.clientX;
     const startSource = sourceOffset;
     const startNotes = notes;
-    // An audio clip's content can slide until its file runs out.
+    // An audio clip's content can slide until its file runs out (a warped
+    // one's moves at the speed it plays its file).
+    const speed = warped?.speed ?? 1;
     const unit = loopLength && loopLength > 0 ? loopLength : length;
-    const maxSource = Math.max(0, durationSeconds - unit);
+    const maxSource = Math.max(0, durationSeconds - unit * speed);
     let moved = false;
     const onMoveEvt = (ev: PointerEvent) => {
       const dx = ev.clientX - startClientX;
       if (!moved && Math.abs(dx) <= DRAG_THRESHOLD_PX) return;
       if (!moved) onDragStart?.();
       moved = true;
-      const shift = snap(dx / pxPerSecond);
-      if (clipType === "audio") onSlip?.({ sourceOffset: Math.min(maxSource, Math.max(0, startSource - shift)) });
+      const shift = snapDistance(offset, dx / pxPerSecond);
+      if (clipType === "audio") onSlip?.({ sourceOffset: Math.min(maxSource, Math.max(0, startSource - shift * speed)) });
       else onSlip?.({ notes: startNotes.map((n) => ({ ...n, time: n.time + shift })) });
     };
     const onUp = () => {
@@ -229,13 +259,15 @@ export function ClipBlock({
       target.removeEventListener("pointermove", onMoveEvt);
       target.removeEventListener("pointerup", onUp);
       if (!moved) {
+        // A Ctrl/Cmd-click picks the clip, never makes a double-click.
+        const additive = ev.ctrlKey || ev.metaKey;
         const now = Date.now();
-        if (now - lastClickAt.current < DOUBLE_CLICK_MS) {
+        if (!additive && now - lastClickAt.current < DOUBLE_CLICK_MS) {
           onEdit();
           lastClickAt.current = 0;
         } else {
-          onSelect(ev.ctrlKey || ev.metaKey);
-          lastClickAt.current = now;
+          onSelect(additive);
+          lastClickAt.current = additive ? 0 : now;
         }
       }
     };
@@ -258,7 +290,7 @@ export function ClipBlock({
         onDragStart?.();
       }
       const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
-      const newLength = Math.max(minLength, snap(startLength + deltaSeconds));
+      const newLength = Math.max(minLength, snapDistance(offset, startLength + deltaSeconds));
       onResize(newLength);
     };
     const onUp = () => {
@@ -356,9 +388,10 @@ export function ClipBlock({
         e.stopPropagation();
         onContextMenu(e);
       }}
-      data-clip-id={clipId}
-      title={TOOL_TITLES[tool]}
-      className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-md border transition-colors active:cursor-grabbing ${
+      data-clip-id={passive ? undefined : clipId}
+      data-take-clip={passive ? clipId : undefined}
+      title={passive ? undefined : clipType === "audio" && handles ? TOOL_TITLES[tool].replace("click twice to edit", "click twice to rename") : TOOL_TITLES[tool]}
+      className={`group absolute flex flex-col overflow-hidden rounded-md border transition-colors ${passive ? "pointer-events-none" : "cursor-grab active:cursor-grabbing"} ${
         selected ? "ring-2 ring-accent" : ""
       } ${erasing ? "opacity-30 outline outline-2 outline-record" : ""}`}
       style={{
@@ -381,13 +414,43 @@ export function ClipBlock({
               <Repeat size={9} />
             </span>
           )}
-          <span className="truncate">
-            {clipType === "audio"
-              ? audioFileName ?? "audio"
-              : notes.length > 0
-                ? `${notes.length} notes`
-                : "empty"}
-          </span>
+          {warped &&
+            (typingTempo ? (
+              <TempoField
+                bpm={warped.bpm}
+                onDone={(value) => {
+                  setTypingTempo(false);
+                  if (value !== null) onClipTempo?.(value);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                aria-label={`Clip tempo ${formatBpm(warped.bpm)} BPM`}
+                title={`Warped (${warped.mode === "repitch" ? "repitch" : "stretch"}): it follows the song's tempo. Its own tempo is ${formatBpm(warped.bpm)} BPM - click to type it`}
+                className="shrink-0 rounded-sm bg-black/20 px-1 font-mono text-[9px] leading-[13px]"
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!passive && onClipTempo) setTypingTempo(true);
+                }}
+              >
+                {formatBpm(warped.bpm)}
+              </button>
+            ))}
+          {renaming ? (
+            <RenameField name={name ?? ""} onDone={(value) => onRename?.(value)} />
+          ) : (
+            <span className="truncate">
+              {name ??
+                (clipType === "audio"
+                  ? audioFileName ?? "audio"
+                  : notes.length > 0
+                    ? `${notes.length} notes`
+                    : "empty")}
+            </span>
+          )}
         </span>
         {clipType === "audio" && handles ? (
           <div
@@ -421,6 +484,7 @@ export function ClipBlock({
               fadeIn,
               fadeOut,
               color: color.accent,
+              pieces: warped?.pieces,
             }}
           />
         ) : (
@@ -444,6 +508,14 @@ export function ClipBlock({
                 />
               );
             })
+        )}
+        {clipType === "audio" && warped && warped.markers.length > 0 && (
+          // Its warp markers (a quantize's), as faint lines.
+          <div className="pointer-events-none absolute inset-0" data-warp-markers={warped.markers.length}>
+            {warped.markers.map((t, i) => (
+              <span key={i} className="absolute top-0 h-full w-px opacity-40" style={{ left: t * pxPerSecond, background: color.accent }} />
+            ))}
+          </div>
         )}
         {clipType === "audio" && (fadeInPx > 0 || fadeOutPx > 0) && (
           <svg
@@ -495,5 +567,67 @@ export function ClipBlock({
         </>
       )}
     </div>
+  );
+}
+
+/** A clip's name, being typed: Enter or leaving the field keeps it, Esc
+ * doesn't. Keys and clicks stay in the field. */
+/** Typing a warped clip's own tempo: Enter (or leaving it) sets it, Escape
+ * doesn't. */
+function TempoField({ bpm, onDone }: { bpm: number; onDone: (bpm: number | null) => void }) {
+  const done = useRef(false);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    const parsed = value === null ? NaN : Number(value);
+    onDone(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Clip tempo (BPM)"
+      defaultValue={formatBpm(bpm)}
+      inputMode="decimal"
+      onFocus={(e) => e.currentTarget.select()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      className="h-4 w-10 shrink-0 rounded-sm bg-black/25 px-1 font-mono text-[10px] text-black outline-none"
+    />
+  );
+}
+
+function RenameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+  const done = useRef(false);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(value);
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Clip name"
+      defaultValue={name}
+      maxLength={MAX_CLIP_NAME}
+      onFocus={(e) => e.currentTarget.select()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      className="h-4 min-w-0 flex-1 rounded-sm bg-black/25 px-1 text-[10px] text-black outline-none placeholder:text-black/50"
+      placeholder="Name"
+    />
   );
 }

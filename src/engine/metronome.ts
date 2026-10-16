@@ -33,10 +33,17 @@ class DawnMetronome extends AudioWorkletProcessor {
 registerProcessor("${PROCESSOR_NAME}", DawnMetronome);
 `;
 
-/** A loop region, in beats. */
+/** A loop region, in transport seconds. */
 export interface ClickLoop {
   start: number;
   end: number;
+}
+
+/** A stretch of constant tempo (tempoMap.ts), in transport seconds. */
+export interface ClickTempo {
+  beat: number;
+  seconds: number;
+  bpm: number;
 }
 
 type Command =
@@ -44,7 +51,7 @@ type Command =
   | { type: "stop" }
   | { type: "resync"; time: number; pos: number }
   | { type: "enabled"; enabled: boolean }
-  | { type: "tempo"; bpm: number }
+  | { type: "tempo"; segments: ClickTempo[] }
   | { type: "meter"; beatsPerBar: number }
   | { type: "loop"; loop: ClickLoop | null };
 
@@ -101,10 +108,10 @@ export class Metronome {
     }
   }
 
-  /** Starts clicking with the transport: it reaches beat position `pos` at
+  /** Starts clicking with the transport: it reaches position `pos` (s) at
    * context time `time`. `countInBeats` clicks are played before that (on
-   * the beat grid, accented on each bar's first beat), whether or not the
-   * metronome is on. */
+   * the beat grid, at the tempo there, accented on each bar's first beat),
+   * whether or not the metronome is on. */
   start(time: number, pos: number, countInBeats = 0): void {
     this.isRunning = true;
     this.connect();
@@ -133,8 +140,9 @@ export class Metronome {
     this.send({ type: "enabled", enabled });
   }
 
-  setTempo(bpm: number): void {
-    this.send({ type: "tempo", bpm });
+  /** The tempo map (tempoMap.ts segments). */
+  setTempo(segments: ClickTempo[]): void {
+    this.send({ type: "tempo", segments });
   }
 
   setBeatsPerBar(beatsPerBar: number): void {
@@ -146,8 +154,8 @@ export class Metronome {
   }
 
   /** After a jump, a tempo or a loop change while playing: carries on from
-   * the transport's position `pos` at context time `time`. Ignored during
-   * the count-in (nothing has moved yet). */
+   * the transport's position `pos` (s) at context time `time`. Ignored
+   * during the count-in (nothing has moved yet). */
   resync(time: number, pos: number): void {
     if (this.isRunning) this.send({ type: "resync", time, pos });
   }

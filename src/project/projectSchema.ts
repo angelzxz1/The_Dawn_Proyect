@@ -13,12 +13,18 @@ import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectI
 import { SIDECHAIN_TAPS, type SidechainTap } from "../effects/sidechain/sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "../effects/filter/filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
+import { DEFAULT_KEY } from "./chords";
 import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./musicTime";
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
 import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registry";
 import { HEX_COLOR } from "./colors";
+import { cleanClipName } from "./clipEdits";
+import { clampBpm, makeTempoMap, type TempoChange } from "./tempoMap";
+import { clampTrackHeight } from "./trackHeight";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
+import { cleanMarkers } from "./warp";
 import type {
+  AudioWarp,
   AutomationLane,
   AutomationPoint,
   BusConfig,
@@ -33,7 +39,15 @@ import type {
  * how to read the older shape. */
 export const PROJECT_VERSION = 2;
 
-interface SerializedMidiClip {
+/** What any clip may be given: a name and a color; and on a track's lane,
+ * the take it came from. */
+interface SerializedClipLabel {
+  name?: string;
+  color?: string;
+  take?: string;
+}
+
+interface SerializedMidiClip extends SerializedClipLabel {
   id: string;
   kind: "midi";
   offset: number;
@@ -42,7 +56,7 @@ interface SerializedMidiClip {
   loopLength?: number | null;
 }
 
-interface SerializedAudioClip {
+interface SerializedAudioClip extends SerializedClipLabel {
   id: string;
   kind: "audio";
   offset: number;
@@ -55,19 +69,32 @@ interface SerializedAudioClip {
   fadeOut: number;
   gainDb: number;
   loopLength?: number | null;
+  /** Warped (warp.ts); unset, it plays at its own speed. */
+  warp?: AudioWarp;
 }
 
 export type SerializedClip = SerializedMidiClip | SerializedAudioClip;
+
+/** A take lane (takes.ts). */
+export interface SerializedTakeLane {
+  id: string;
+  name: string;
+  clips: SerializedClip[];
+}
 
 export interface SerializedProject {
   version: number;
   savedAt: number;
   channels: ChannelConfig[];
   clipsByChannel: Record<string, SerializedClip[]>;
+  /** Each track's takes, top to bottom (none on most). */
+  takesByChannel: Record<string, SerializedTakeLane[]>;
   channelEffects: Record<string, EffectInstance[]>;
   buses: BusConfig[];
   busEffects: Record<string, EffectInstance[]>;
   bpm: number;
+  /** Tempo changes after the start (tempoMap.ts). */
+  tempoChanges: TempoChange[];
   timeSignature: TimeSignature;
   masterVolume: number;
   masterPan: number;
@@ -78,6 +105,9 @@ export interface SerializedProject {
   snapResolution: SnapResolution;
   countInBars: number;
   metronomeEnabled: boolean;
+  /** MIDI recordings add to what's on a track (rather than replace it, as
+   * a new take). */
+  midiOverdub: boolean;
   /** The arrangement loop, in beats. */
   loop: ArrangementLoop;
   /** Audio tracks monitoring their input (ids). */
@@ -263,6 +293,8 @@ function normalizeChannel(
     ...(typeof r.output === "string" && r.output ? { output: r.output } : {}),
     ...(type === "audio" && normalizeTrackInput(r.input) ? { input: normalizeTrackInput(r.input)! } : {}),
     ...(r.folded === true ? { folded: true } : {}),
+    ...(typeof r.height === "number" && Number.isFinite(r.height) ? { height: clampTrackHeight(r.height) } : {}),
+    ...(r.showTakes === true && type !== "group" ? { showTakes: true } : {}),
     sends,
     automationLanes,
   };
@@ -276,6 +308,17 @@ function normalizeLoop(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** A clip's name (one line, at most MAX_CLIP_NAME characters) and color,
+ * when it has them. */
+function clipLabelOf(r: Raw): SerializedClipLabel {
+  const name = typeof r.name === "string" ? cleanClipName(r.name) : undefined;
+  return {
+    ...(name ? { name } : {}),
+    ...(typeof r.color === "string" && HEX_COLOR.test(r.color) ? { color: r.color.toLowerCase() } : {}),
+    ...(nonEmptyId(r.take) ? { take: nonEmptyId(r.take)! } : {}),
+  };
+}
+
 function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): SerializedClip | null {
   const r = obj(raw);
   const id = nonEmptyId(r.id);
@@ -284,6 +327,7 @@ function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): Serial
   const offset = num(r.offset, 0, 0);
   const length = num(r.length, 1, 0.01);
   const loopLength = normalizeLoop(r.loopLength);
+  const label = clipLabelOf(r);
   if (r.kind === "midi") {
     const notes: NoteEvent[] = arr(r.notes).flatMap((n) => {
       const nr = obj(n);
@@ -297,9 +341,10 @@ function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): Serial
         },
       ];
     });
-    return { id, kind: "midi", offset, length, notes, loopLength };
+    return { id, kind: "midi", offset, length, notes, loopLength, ...label };
   }
   return {
+    ...label,
     id,
     kind: "audio",
     offset,
@@ -312,7 +357,23 @@ function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): Serial
     fadeOut: num(r.fadeOut, 0, 0),
     gainDb: num(r.gainDb, 0, -60, 24),
     loopLength,
+    ...normalizeWarp(r.warp),
   };
+}
+
+/** A clip's warp, if it has a readable one: a tempo in range, markers in
+ * order. */
+function normalizeWarp(raw: unknown): { warp?: AudioWarp } {
+  if (!raw || typeof raw !== "object") return {};
+  const r = obj(raw);
+  if (typeof r.bpm !== "number" || !Number.isFinite(r.bpm)) return {};
+  const markers = cleanMarkers(
+    arr(r.markers).flatMap((m) => {
+      const mr = obj(m);
+      return typeof mr.source === "number" && typeof mr.beat === "number" ? [{ source: mr.source, beat: mr.beat }] : [];
+    })
+  );
+  return { warp: { mode: r.mode === "repitch" ? "repitch" : "stretch", bpm: clampBpm(r.bpm), markers } };
 }
 
 // --- project ---
@@ -395,6 +456,40 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     );
   });
 
+  // Takes: lanes of clips like the track's own; a group has none. A clip
+  // marked as from a take that isn't there isn't marked.
+  const takesByChannel: Record<string, SerializedTakeLane[]> = {};
+  const rawTakes = obj(r.takesByChannel);
+  const laneIds = new Set<string>();
+  channels.forEach((c) => {
+    if (c.type === "group") return;
+    const lanes = arr(rawTakes[c.id]).flatMap((raw, i): SerializedTakeLane[] => {
+      const lr = obj(raw);
+      const id = nonEmptyId(lr.id);
+      if (!id || laneIds.has(id)) return [];
+      laneIds.add(id);
+      const clips = uniqueById(
+        arr(lr.clips).map((clip) => normalizeClip(clip, c.type as "midi" | "audio")),
+        clipIds
+      ).map((clip) => {
+        const { take: _t, ...rest } = clip;
+        void _t;
+        return rest as SerializedClip;
+      });
+      return [{ id, name: str(lr.name, `Take ${i + 1}`) || `Take ${i + 1}`, clips }];
+    });
+    if (lanes.length > 0) takesByChannel[c.id] = lanes;
+  });
+  Object.entries(clipsByChannel).forEach(([id, clips]) => {
+    const lanesHere = new Set((takesByChannel[id] ?? []).map((l) => l.id));
+    clipsByChannel[id] = clips.map((clip) => {
+      if (clip.take === undefined || lanesHere.has(clip.take)) return clip;
+      const { take: _t, ...rest } = clip;
+      void _t;
+      return rest as SerializedClip;
+    });
+  });
+
   const rawBusEffects = obj(r.busEffects);
   const busEffects: Record<string, EffectInstance[]> = {};
   busList.forEach((b) => {
@@ -410,10 +505,19 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     savedAt: num(r.savedAt, 0, 0),
     channels,
     clipsByChannel,
+    takesByChannel,
     channelEffects,
     buses: busList,
     busEffects,
     bpm: num(r.bpm, 120, 20, 300),
+    // Each beat once, in order, only ones that change the tempo.
+    tempoChanges: makeTempoMap(
+      num(r.bpm, 120, 20, 300),
+      arr(r.tempoChanges).flatMap((c) => {
+        const cr = obj(c);
+        return typeof cr.beat === "number" && typeof cr.bpm === "number" ? [{ beat: cr.beat, bpm: cr.bpm }] : [];
+      })
+    ).changes,
     timeSignature: {
       numerator: int(ts.numerator, 4, 1, 32),
       denominator: oneOf(ts.denominator, [1, 2, 4, 8, 16], 4),
@@ -424,13 +528,14 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     masterLimiterThreshold: num(r.masterLimiterThreshold, -1, -24, 0),
     masterEffects,
     scaleSetting: {
-      root: oneOf(scale.root, SCALE_ROOTS, "C"),
-      scale: oneOf(scale.scale, SCALE_NAMES, "Major"),
+      root: oneOf(scale.root, SCALE_ROOTS, DEFAULT_KEY.root),
+      scale: oneOf(scale.scale, SCALE_NAMES, DEFAULT_KEY.scale),
       enabled: bool(scale.enabled, false),
     },
     snapResolution: oneOf(r.snapResolution, SNAP_RESOLUTIONS, "bar"),
     countInBars: oneOf(r.countInBars, [0, 1, 2, 4], 0),
     metronomeEnabled: bool(r.metronomeEnabled, false),
+    midiOverdub: bool(r.midiOverdub, false),
     loop: normalizeArrangementLoop(
       r.loop,
       quarterNotesPerBar(int(ts.numerator, 4, 1, 32), oneOf(ts.denominator, [1, 2, 4, 8, 16], 4))

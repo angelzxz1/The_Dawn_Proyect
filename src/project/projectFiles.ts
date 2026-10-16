@@ -13,8 +13,10 @@
 // Recent projects are remembered by their folder handles, in IndexedDB.
 
 import type { ProjectState } from "./project";
-import { PROJECT_VERSION, normalizeProject, type SerializedClip, type SerializedProject } from "./projectSchema";
-import type { AudioClipInstance, ClipInstance, MidiClipInstance } from "./types";
+import { PROJECT_VERSION, normalizeProject, type SerializedClip, type SerializedProject, type SerializedTakeLane } from "./projectSchema";
+import type { AudioClipInstance, ClipInstance, MidiClipInstance, TakeLane } from "./types";
+import { shareFiles } from "./sharedFiles";
+import { clipLabel } from "./clipEdits";
 
 export const PROJECT_FILE = "project.dawn.json";
 export const HISTORY_FILE = "history.json";
@@ -26,7 +28,19 @@ export const MAX_SAVED_HISTORY = 50;
 /** One undo/redo step as saved: the document part of a project. */
 export type SerializedSnapshot = Pick<
   SerializedProject,
-  "channels" | "clipsByChannel" | "channelEffects" | "buses" | "busEffects" | "bpm" | "timeSignature" | "masterVolume" | "masterPan" | "masterName" | "masterEffects"
+  | "channels"
+  | "clipsByChannel"
+  | "takesByChannel"
+  | "channelEffects"
+  | "buses"
+  | "busEffects"
+  | "bpm"
+  | "tempoChanges"
+  | "timeSignature"
+  | "masterVolume"
+  | "masterPan"
+  | "masterName"
+  | "masterEffects"
 >;
 
 export interface SavedHistory {
@@ -45,6 +59,9 @@ export interface ProjectDocument {
 
 // --- Clips and snapshots ---
 
+/** The take a clip on a track's lane came from, when it did. */
+const takeOf = (c: ClipInstance) => (c.take ? { take: c.take } : {});
+
 /** Clips as saved (an audio clip's playable URL is session-only; its audio
  * is saved separately, by clip id). */
 export function serializeClips(clipsByChannel: Record<string, ClipInstance[]>): Record<string, SerializedClip[]> {
@@ -53,6 +70,8 @@ export function serializeClips(clipsByChannel: Record<string, ClipInstance[]>): 
     out[chId] = clips.map((c) =>
       c.kind === "audio"
         ? {
+            ...clipLabel(c),
+            ...takeOf(c),
             id: c.id,
             kind: "audio" as const,
             offset: c.offset,
@@ -65,8 +84,9 @@ export function serializeClips(clipsByChannel: Record<string, ClipInstance[]>): 
             fadeOut: c.fadeOut,
             gainDb: c.gainDb,
             loopLength: c.loopLength,
+            ...(c.warp ? { warp: c.warp } : {}),
           }
-        : { id: c.id, kind: "midi" as const, offset: c.offset, length: c.length, notes: c.notes, loopLength: c.loopLength }
+        : { ...clipLabel(c), ...takeOf(c), id: c.id, kind: "midi" as const, offset: c.offset, length: c.length, notes: c.notes, loopLength: c.loopLength }
     );
   });
   return out;
@@ -89,14 +109,36 @@ export function deserializeClips(clips: Record<string, SerializedClip[]>, urlFor
   return out;
 }
 
+/** Take lanes as saved (their clips like a track's). */
+export function serializeTakes(takesByChannel: Record<string, TakeLane[]>): Record<string, SerializedTakeLane[]> {
+  return Object.fromEntries(
+    Object.entries(takesByChannel).map(([chId, lanes]) => [
+      chId,
+      lanes.map((lane) => ({ id: lane.id, name: lane.name, clips: serializeClips({ [chId]: lane.clips })[chId] })),
+    ])
+  );
+}
+
+/** Saved take lanes back as live ones (see deserializeClips). */
+export function deserializeTakes(takes: Record<string, SerializedTakeLane[]>, urlFor: (id: string) => string): Record<string, TakeLane[]> {
+  return Object.fromEntries(
+    Object.entries(takes).map(([chId, lanes]) => [
+      chId,
+      lanes.map((lane) => ({ id: lane.id, name: lane.name, clips: deserializeClips({ [chId]: lane.clips }, urlFor)[chId] })),
+    ])
+  );
+}
+
 export function serializeSnapshot(s: ProjectState): SerializedSnapshot {
   return {
     channels: s.channels,
     clipsByChannel: serializeClips(s.clipsByChannel),
+    takesByChannel: serializeTakes(s.takesByChannel),
     channelEffects: s.channelEffects,
     buses: s.buses,
     busEffects: s.busEffects,
     bpm: s.bpm,
+    tempoChanges: s.tempoChanges,
     timeSignature: s.timeSignature,
     masterVolume: s.masterVolume,
     masterPan: s.masterPan,
@@ -114,10 +156,12 @@ export function normalizeSnapshot(raw: unknown, base: SerializedProject): Serial
   return {
     channels: p.channels,
     clipsByChannel: p.clipsByChannel,
+    takesByChannel: p.takesByChannel,
     channelEffects: p.channelEffects,
     buses: p.buses,
     busEffects: p.busEffects,
     bpm: p.bpm,
+    tempoChanges: p.tempoChanges,
     timeSignature: p.timeSignature,
     masterVolume: p.masterVolume,
     masterPan: p.masterPan,
@@ -141,7 +185,10 @@ function normalizeHistory(raw: unknown, base: SerializedProject): SavedHistory |
  * files to keep). */
 export function referencedClipIds(doc: Pick<ProjectDocument, "project" | "history">): Set<string> {
   const ids = new Set<string>();
-  const add = (s: Pick<SerializedSnapshot, "clipsByChannel">) => Object.values(s.clipsByChannel).forEach((l) => l.forEach((c) => ids.add(c.id)));
+  const add = (s: Pick<SerializedSnapshot, "clipsByChannel" | "takesByChannel">) => {
+    Object.values(s.clipsByChannel).forEach((l) => l.forEach((c) => ids.add(c.id)));
+    Object.values(s.takesByChannel ?? {}).forEach((lanes) => lanes.forEach((lane) => lane.clips.forEach((c) => ids.add(c.id))));
+  };
   add(doc.project);
   doc.history?.past.forEach(add);
   doc.history?.future.forEach(add);
@@ -270,7 +317,9 @@ export async function saveToFolder(dir: ProjectFolder, doc: ProjectDocument): Pr
   for await (const key of samples.keys()) existing.add(key);
   const files: Record<string, string> = {};
   const keep = new Set<string>();
-  for (const [id, blob] of doc.blobs) {
+  // A file several clips play is written once; they all point to it.
+  const { files: unique, aliases } = shareFiles(doc.blobs);
+  for (const [id, blob] of unique) {
     const name = fileNameFor(id, blob);
     files[id] = name;
     keep.add(name);
@@ -278,6 +327,7 @@ export async function saveToFolder(dir: ProjectFolder, doc: ProjectDocument): Pr
     // is already right.
     if (!existing.has(name)) await writeFile(samples, name, blob);
   }
+  Object.entries(aliases).forEach(([id, owner]) => (files[id] = files[owner]));
   // The song last, so a save that fails halfway never points at samples
   // that aren't there.
   await writeFile(dir, HISTORY_FILE, JSON.stringify(doc.history ?? { past: [], future: [] }));
@@ -293,12 +343,20 @@ export async function loadFromFolder(dir: ProjectFolder): Promise<ProjectDocumen
   const blobs = new Map<string, Blob>();
   const samples = await dir.getDirectoryHandle(SAMPLES_DIR).catch(() => null);
   if (samples) {
+    // Clips that share a file get the same one.
+    const opened = new Map<string, File | null>();
     for (const [id, name] of Object.entries(files)) {
       if (typeof name !== "string") continue;
-      const file = await samples
-        .getFileHandle(name)
-        .then((h) => h.getFile())
-        .catch(() => null);
+      if (!opened.has(name)) {
+        opened.set(
+          name,
+          await samples
+            .getFileHandle(name)
+            .then((h) => h.getFile())
+            .catch(() => null)
+        );
+      }
+      const file = opened.get(name);
       if (file) blobs.set(id, file);
     }
   }
@@ -319,15 +377,23 @@ const MAGIC = "DAWNPRJ1";
  * history and a table of files), then the files' bytes. */
 export async function encodeBundle(doc: ProjectDocument): Promise<Blob> {
   const entries: { id: string; type: string; offset: number; size: number }[] = [];
+  // A file several clips play is in it once; their entries point to it.
+  const { files, aliases } = shareFiles(doc.blobs);
+  const at = new Map<string, number>();
   let offset = 0;
-  for (const [id, blob] of doc.blobs) {
+  for (const [id, blob] of files) {
     entries.push({ id, type: blob.type, offset, size: blob.size });
+    at.set(id, offset);
     offset += blob.size;
   }
+  Object.entries(aliases).forEach(([id, owner]) => {
+    const blob = files.get(owner)!;
+    entries.push({ id, type: blob.type, offset: at.get(owner)!, size: blob.size });
+  });
   const header = new TextEncoder().encode(JSON.stringify({ name: doc.name, project: doc.project, history: doc.history, files: entries }));
   const len = new Uint8Array(4);
   new DataView(len.buffer).setUint32(0, header.length, true);
-  return new Blob([MAGIC, len, header, ...doc.blobs.values()], { type: "application/octet-stream" });
+  return new Blob([MAGIC, len, header, ...files.values()], { type: "application/octet-stream" });
 }
 
 export async function decodeBundle(file: Blob): Promise<ProjectDocument> {
@@ -340,9 +406,17 @@ export async function decodeBundle(file: Blob): Promise<ProjectDocument> {
   if (!project) throw new Error("The project in that file can't be read.");
   const dataStart = start + len;
   const blobs = new Map<string, Blob>();
+  // Entries for the same bytes (clips sharing a file) get the same Blob.
+  const slices = new Map<string, Blob>();
   for (const e of Array.isArray(header.files) ? header.files : []) {
     if (typeof e?.id !== "string" || typeof e.offset !== "number" || typeof e.size !== "number") continue;
-    blobs.set(e.id, file.slice(dataStart + e.offset, dataStart + e.offset + e.size, typeof e.type === "string" ? e.type : ""));
+    const key = `${e.offset}:${e.size}`;
+    let slice = slices.get(key);
+    if (!slice) {
+      slice = file.slice(dataStart + e.offset, dataStart + e.offset + e.size, typeof e.type === "string" ? e.type : "");
+      slices.set(key, slice);
+    }
+    blobs.set(e.id, slice);
   }
   const name = typeof header.name === "string" && header.name ? header.name : "Untitled";
   return { name, project, history: normalizeHistory(header.history, project), blobs };

@@ -8,6 +8,7 @@ import type { NoteEvent } from "@/project/types";
 import type { Waveform } from "@/engine/waveform";
 import { COMPACT_BELOW, noteNameToMidi } from "./ClipBlock";
 import { WaveformCanvas } from "./WaveformCanvas";
+import { recordingPasses } from "@/project/takes";
 
 const LANE_PADDING = 10;
 const HEADER = 18;
@@ -24,11 +25,14 @@ type Preview =
 
 /** The take being recorded, drawn on its track as it comes in: a red clip
  * from where recording started that grows with the playhead, showing the audio's
- * waveform (or the notes played) so far. It's replaced by the real clip
- * once recording stops. */
+ * waveform (or the notes played) so far. Recording round the loop, it's the
+ * time round going on now. It's replaced by the real clip (or takes) once
+ * recording stops. */
 export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HEIGHT }: { channelId: string; pxPerSecond: number; rowHeight?: number }) {
-  // `from`: where the take starts on the timeline; `seconds`: how long it is.
-  const [state, setState] = useState<{ from: number; seconds: number; preview: Preview | null }>({ from: 0, seconds: 0, preview: null });
+  // `from`: where the take (or this time round the loop) starts on the
+  // timeline; `seconds`: how long it is; `at`: how far into the recording
+  // it starts.
+  const [state, setState] = useState<{ from: number; seconds: number; at: number; preview: Preview | null }>({ from: 0, seconds: 0, at: 0, preview: null });
 
   useEffect(() => {
     let frame: number;
@@ -42,9 +46,12 @@ export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HE
         // frame until the finished clip replaces this one.
         if (live && live.channelId === channelId) {
           const from = audioEngine.recordingFrom ?? 0;
+          const progress = audioEngine.recordingProgress;
+          const pass = progress?.loop ? recordingPasses(from, progress.seconds, progress.loop).at(-1) : undefined;
           setState({
-            from,
-            seconds: Math.max(0, audioEngine.getTransportSeconds() - from),
+            from: pass?.start ?? from,
+            seconds: pass ? pass.end - pass.start : Math.max(0, audioEngine.getTransportSeconds() - from),
+            at: pass?.at ?? 0,
             preview:
               live.kind === "audio"
                 ? { kind: "audio", waveform: live.waveform, version: live.version }
@@ -84,10 +91,20 @@ export function RecordingClip({ channelId, pxPerSecond, rowHeight = TRACK_ROW_HE
             version={preview.version}
             width={widthPx}
             height={bodyHeight}
-            view={{ pxPerSecond, sourceOffset: 0, length: state.seconds, color: NOTE_COLOR }}
+            view={{ pxPerSecond, sourceOffset: state.at, length: state.seconds, color: NOTE_COLOR }}
           />
         )}
-        {preview?.kind === "midi" && (
+        {preview?.kind === "midi" && state.at > 0 && (
+          // Round the loop: just this time round's notes (a loop's worth).
+          <>
+            {[...preview.notes, ...preview.held]
+              .filter((n) => n.time >= state.at && n.time < state.at + state.seconds)
+              .map((n, i) => (
+                <div key={i} className="absolute h-[2px] rounded-full" style={noteStyle({ ...n, time: n.time - state.at }, pxPerSecond, bodyHeight)} />
+              ))}
+          </>
+        )}
+        {preview?.kind === "midi" && state.at === 0 && (
           <>
             <MidiTake notes={preview.notes} count={preview.count} width={widthPx} height={bodyHeight} pxPerSecond={pxPerSecond} />
             {/* The few notes still held are redrawn live as they grow. */}

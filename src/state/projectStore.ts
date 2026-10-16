@@ -10,6 +10,8 @@
 
 import { useSyncExternalStore } from "react";
 import type { ProjectState } from "@/project/project";
+import type { AudioClipInstance } from "@/project/types";
+import { makeTempoMap, type TempoMap } from "@/project/tempoMap";
 import { audioBlobs } from "./audioBlobs";
 import { createChannel } from "./ids";
 
@@ -21,10 +23,12 @@ function initialProject(): ProjectState {
   return {
     channels: [createChannel("MIDI 1", "midi"), createChannel("MIDI 2", "midi"), createChannel("Audio 1", "audio")],
     clipsByChannel: {},
+    takesByChannel: {},
     channelEffects: {},
     buses: [],
     busEffects: {},
     bpm: 120,
+    tempoChanges: [],
     timeSignature: { numerator: 4, denominator: 4 },
     masterVolume: 0,
     masterPan: 0,
@@ -136,26 +140,45 @@ class ProjectStore {
    * step that could restore it is itself gone. */
   private releaseUnreachableAudio(discarded: ProjectState[]): void {
     if (discarded.length === 0) return;
+    // Clips share files (the parts of a split clip, a recording's takes):
+    // a file's URL goes only when no clip that can come back plays it.
     const reachable = new Set<string>();
+    const reachableUrls = new Set<string>();
     const collect = (s: ProjectState) =>
-      Object.values(s.clipsByChannel).forEach((clips) => clips.forEach((c) => c.kind === "audio" && reachable.add(c.id)));
+      audioClipsOf(s).forEach((c) => {
+        reachable.add(c.id);
+        reachableUrls.add(c.url);
+      });
     collect(this.doc);
     this.past.forEach(collect);
     this.future.forEach(collect);
     discarded.forEach((s) =>
-      Object.values(s.clipsByChannel).forEach((clips) =>
-        clips.forEach((c) => {
-          if (c.kind === "audio" && !reachable.has(c.id)) {
-            URL.revokeObjectURL(c.url);
-            audioBlobs.delete(c.id);
-          }
-        })
-      )
+      audioClipsOf(s).forEach((c) => {
+        if (reachable.has(c.id)) return;
+        audioBlobs.delete(c.id);
+        if (!reachableUrls.has(c.url)) URL.revokeObjectURL(c.url);
+      })
     );
   }
 }
 
+/** Every audio clip in a document: on the tracks' lanes and in their takes. */
+export function audioClipsOf(s: ProjectState): AudioClipInstance[] {
+  const lists = [...Object.values(s.clipsByChannel), ...Object.values(s.takesByChannel ?? {}).flatMap((lanes) => lanes.map((l) => l.clips))];
+  return lists.flatMap((clips) => clips.filter((c): c is AudioClipInstance => c.kind === "audio"));
+}
+
 export const projectStore = new ProjectStore();
+
+let lastTempo: { bpm: number; changes: ProjectState["tempoChanges"]; map: TempoMap } | null = null;
+
+/** The song's tempo map now (tempoMap.ts), for the actions that place
+ * things by it (warped clips, warp.ts). The same map while it's the same. */
+export function currentTempo(): TempoMap {
+  const { bpm, tempoChanges } = projectStore.get();
+  if (!lastTempo || lastTempo.bpm !== bpm || lastTempo.changes !== tempoChanges) lastTempo = { bpm, changes: tempoChanges, map: makeTempoMap(bpm, tempoChanges) };
+  return lastTempo.map;
+}
 
 const getDoc = () => projectStore.get();
 

@@ -115,14 +115,183 @@ export class Studio {
     );
   }
 
+  /** Each autosaved track's height (unset: the standard one), by name. */
+  autosavedHeights(): Promise<Record<string, number | undefined> | null> {
+    return this.page.evaluate(
+      () =>
+        new Promise<Record<string, number | undefined> | null>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const get = open.result.transaction("meta").objectStore("meta").get("current");
+            get.onerror = () => reject(get.error);
+            get.onsuccess = () =>
+              resolve(get.result ? Object.fromEntries(get.result.channels.map((c: { name: string; height?: number }) => [c.name, c.height])) : null);
+          };
+        })
+    );
+  }
+
   async undo(): Promise<void> {
     await this.page.getByTitle("Undo (Ctrl/Cmd+Z)").click();
+  }
+
+  /** The clips in the autosaved working copy (on the tracks' lanes, or in
+   * a take with `lane`), each with whether its audio was saved with it. */
+  autosavedClips(): Promise<SavedClip[]> {
+    return this.page.evaluate(
+      () =>
+        new Promise<SavedClip[]>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const tx = open.result.transaction(["meta", "audioBlobs"]);
+            const meta = tx.objectStore("meta").get("current");
+            const aliasesReq = tx.objectStore("meta").get("current:aliases");
+            const keys = tx.objectStore("audioBlobs").getAllKeys();
+            tx.oncomplete = () => {
+              type Raw = Omit<SavedClip, "audio" | "lane">;
+              const project = meta.result as
+                | { clipsByChannel: Record<string, Raw[]>; takesByChannel?: Record<string, { id: string; clips: Raw[] }[]> }
+                | undefined;
+              // A file clips share is stored once, under one of them.
+              const stored = new Set(keys.result as string[]);
+              const aliases = (aliasesReq.result ?? {}) as Record<string, string>;
+              const saved = (id: string) => stored.has(id) || stored.has(aliases[id]);
+              const takes = Object.values(project?.takesByChannel ?? {}).flatMap((lanes) => lanes.flatMap((lane) => lane.clips.map((c) => ({ ...c, lane: lane.id }))));
+              resolve(
+                [...Object.values(project?.clipsByChannel ?? {}).flat(), ...takes].map(({ id, kind, name, color, fileName, durationSeconds, lane }: Raw & { lane?: string }) => ({
+                  id,
+                  kind,
+                  name,
+                  color,
+                  fileName,
+                  durationSeconds,
+                  ...(lane ? { lane } : {}),
+                  audio: saved(id),
+                }))
+              );
+            };
+          };
+        })
+    );
+  }
+
+  /** How many audio files autosave keeps. */
+  autosavedFileCount(): Promise<number> {
+    return this.page.evaluate(
+      () =>
+        new Promise<number>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const count = open.result.transaction("audioBlobs").objectStore("audioBlobs").count();
+            count.onsuccess = () => resolve(count.result);
+            count.onerror = () => reject(count.error);
+          };
+        })
+    );
+  }
+
+  /** An autosaved clip's audio file: how long it is and its loudest sample
+   * (0 to 1), or null if there's none. */
+  autosavedAudio(clipId: string): Promise<{ seconds: number; peak: number } | null> {
+    return this.page.evaluate(
+      (id) =>
+        new Promise<{ seconds: number; peak: number } | null>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const tx = open.result.transaction(["meta", "audioBlobs"]);
+            const aliases = tx.objectStore("meta").get("current:aliases");
+            const own = tx.objectStore("audioBlobs").get(id);
+            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => {
+              const owner = ((aliases.result ?? {}) as Record<string, string>)[id];
+              if (own.result || !owner) return void finish(own.result as Blob | undefined);
+              const again = open.result.transaction("audioBlobs").objectStore("audioBlobs").get(owner);
+              again.onsuccess = () => void finish(again.result as Blob | undefined);
+              again.onerror = () => reject(again.error);
+            };
+            const finish = async (blob: Blob | undefined) => {
+              if (!blob) return resolve(null);
+              const buffer = await new OfflineAudioContext(1, 1, 48000).decodeAudioData(await blob.arrayBuffer());
+              let peak = 0;
+              for (let c = 0; c < buffer.numberOfChannels; c++) buffer.getChannelData(c).forEach((v) => (peak = Math.max(peak, Math.abs(v))));
+              resolve({ seconds: buffer.duration, peak });
+            };
+          };
+        }),
+      clipId
+    );
   }
 
   /** The transport's BPM field. */
   get bpm(): Locator {
     return this.page.locator('label:has-text("BPM") input');
   }
+
+  /** The tempo lane, under the loop brace. */
+  get tempoLane(): Locator {
+    return this.page.getByTestId("tempo-lane");
+  }
+
+  /** The autosaved tempo map, and where each track's clips and their
+   * notes are (s), by track name. */
+  autosavedTiming(): Promise<SavedTiming | null> {
+    return this.page.evaluate(
+      () =>
+        new Promise<SavedTiming | null>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const get = open.result.transaction("meta").objectStore("meta").get("current");
+            get.onerror = () => reject(get.error);
+            get.onsuccess = () => {
+              type Raw = { offset: number; length: number; notes?: { time: number; duration: number }[]; warp?: { bpm: number; mode: string } };
+              const p = get.result as
+                | { bpm: number; tempoChanges?: { beat: number; bpm: number }[]; channels: { id: string; name: string }[]; clipsByChannel: Record<string, Raw[]> }
+                | undefined;
+              if (!p) return resolve(null);
+              const clips = Object.fromEntries(
+                p.channels.map((c) => [
+                  c.name,
+                  (p.clipsByChannel[c.id] ?? []).map((clip) => ({
+                    offset: clip.offset,
+                    length: clip.length,
+                    notes: (clip.notes ?? []).map((n) => ({ time: n.time, duration: n.duration })),
+                    ...(clip.warp ? { warp: { bpm: clip.warp.bpm, mode: clip.warp.mode } } : {}),
+                  })),
+                ])
+              );
+              resolve({ bpm: p.bpm, tempoChanges: p.tempoChanges ?? [], clips });
+            };
+          };
+        })
+    );
+  }
+}
+
+/** The autosaved timing (Studio.autosavedTiming). */
+export interface SavedTiming {
+  bpm: number;
+  tempoChanges: { beat: number; bpm: number }[];
+  clips: Record<string, { offset: number; length: number; notes: { time: number; duration: number }[]; warp?: { bpm: number; mode: string } }[]>;
+}
+
+/** A clip as autosaved (Studio.autosavedClips). */
+export interface SavedClip {
+  id: string;
+  kind: string;
+  name?: string;
+  color?: string;
+  fileName?: string;
+  /** How long its file is (audio clips). */
+  durationSeconds?: number;
+  /** Its audio was saved with it (audio clips). */
+  audio: boolean;
+  /** The take lane it's in, if it's a take's. */
+  lane?: string;
 }
 
 function escape(text: string): string {

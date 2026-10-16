@@ -8,6 +8,7 @@ import {
   isBlackKey,
   midiToNoteName,
 } from "@/instruments/piano/piano";
+import { keyName, keyOf, readChord, type ChordReading } from "@/project/chords";
 import { isNoteInScale, type ScaleSetting } from "@/project/scales";
 import { useShortcuts } from "@/ui/shortcuts";
 
@@ -110,6 +111,15 @@ export function PianoKeyboard({
     if (!keyboardShortcutsEnabled) releaseHeldKeys(octaveShift);
   }, [keyboardShortcutsEnabled, octaveShift]);
 
+  // What the held notes make, named in the scale's key (E Major while no
+  // scale is picked) - whatever's playing them, a MIDI keyboard too.
+  const key = useMemo(() => keyOf(scaleSetting), [scaleSetting]);
+  const chord = useMemo(() => {
+    const held: number[] = [];
+    for (let m = 0; m < 128; m++) if (activeNotes.has(midiToNoteName(m))) held.push(m);
+    return readChord(held, key);
+  }, [activeNotes, key]);
+
   const handleMouseDown = (note: string) => {
     pressedMouseNote.current = note;
     onNoteOn(note, 0.9);
@@ -124,7 +134,7 @@ export function PianoKeyboard({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-xs text-muted">
+      <div className="flex items-center gap-2 whitespace-nowrap text-xs text-muted">
         <span>Computer keyboard octave</span>
         <button
           type="button"
@@ -143,9 +153,10 @@ export function PianoKeyboard({
         >
           +
         </button>
-        <span className="text-muted/70">
+        <span className="min-w-0 truncate text-muted/70">
           play with Z…M / Q…P, an external MIDI keyboard, or click the keys
         </span>
+        <ChordReadout chord={chord} keyLabel={keyName(key)} picked={scaleSetting.enabled} />
       </div>
       <div
         className="relative h-36 w-full touch-none select-none"
@@ -194,6 +205,35 @@ export function PianoKeyboard({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** The chord being played: its name, its degree in the key, and whether
+ * it's in the key. */
+function ChordReadout({ chord, keyLabel, picked }: { chord: ChordReading | null; keyLabel: string; picked: boolean }) {
+  const title = picked
+    ? `Chords are named in ${keyLabel}, the scale picked in the toolbar`
+    : `Chords are named in ${keyLabel} until you pick a scale (Scale, in the toolbar)`;
+  return (
+    // A fixed width, so the row doesn't shift as chords come and go.
+    <div data-testid="chord-readout" aria-live="polite" title={title} className="ml-auto flex w-80 shrink-0 items-baseline justify-end gap-2">
+      {chord ? (
+        <>
+          <span data-chord-name className="shrink-0 font-mono text-sm font-semibold text-foreground" title={chord.notes.join(" ")}>
+            {chord.name ?? chord.notes.join(" ")}
+          </span>
+          {chord.degree && (
+            <span data-chord-degree className="shrink-0 font-mono text-accent">
+              {chord.degree}
+            </span>
+          )}
+          {chord.quality && <span className="min-w-0 truncate text-muted/80">{chord.quality}</span>}
+          <span className={`shrink-0 ${chord.inKey ? "text-muted" : "text-[#E6AD5E]"}`}>{chord.inKey ? `in ${keyLabel}` : `outside ${keyLabel}`}</span>
+        </>
+      ) : (
+        <span className="text-muted/70">Chords in {keyLabel}</span>
+      )}
     </div>
   );
 }

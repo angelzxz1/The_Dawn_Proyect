@@ -8,9 +8,11 @@ import type { ProjectState } from "@/project/project";
 import {
   MAX_SAVED_HISTORY,
   deserializeClips,
+  deserializeTakes,
   referencedClipIds,
   serializeClips,
   serializeSnapshot,
+  serializeTakes,
   type ProjectDocument,
   type SavedHistory,
   type SerializedSnapshot,
@@ -18,19 +20,26 @@ import {
 import { PROJECT_VERSION, type SerializedProject } from "@/project/projectSchema";
 import { audioBlobs } from "./audioBlobs";
 import { bumpIdFrom } from "./ids";
-import { projectStore } from "./projectStore";
+import { audioClipsOf, projectStore } from "./projectStore";
 
 /** What's saved with a project but kept by the studio rather than the
  * project store (no undo): the limiter ceiling, scale, snap, count-in,
  * metronome, the arrangement loop and which tracks are monitoring. */
 export type SessionSettings = Pick<
   SerializedProject,
-  "masterLimiterThreshold" | "scaleSetting" | "snapResolution" | "countInBars" | "metronomeEnabled" | "loop" | "monitoredTracks"
+  "masterLimiterThreshold" | "scaleSetting" | "snapResolution" | "countInBars" | "metronomeEnabled" | "midiOverdub" | "loop" | "monitoredTracks"
 >;
 
 /** The project as saved (clips without their session-only URLs). */
 export function serializeProject(doc: ProjectState, session: SessionSettings): SerializedProject {
-  return { ...doc, ...session, version: PROJECT_VERSION, savedAt: Date.now(), clipsByChannel: serializeClips(doc.clipsByChannel) };
+  return {
+    ...doc,
+    ...session,
+    version: PROJECT_VERSION,
+    savedAt: Date.now(),
+    clipsByChannel: serializeClips(doc.clipsByChannel),
+    takesByChannel: serializeTakes(doc.takesByChannel),
+  };
 }
 
 const effectListsOf = (st: Pick<ProjectState, "channelEffects" | "busEffects" | "masterEffects">) => [
@@ -82,25 +91,25 @@ export function openInStore(project: SerializedProject, blobs: Map<string, Blob>
   const oldUrls = new Set<string>();
   const steps = projectStore.allSteps();
   [steps.doc, ...steps.past, ...steps.future].forEach((st) =>
-    Object.values(st.clipsByChannel).forEach((list) =>
-      list.forEach((c) => {
-        if (c.kind === "audio" && c.url) oldUrls.add(c.url);
-      })
-    )
+    audioClipsOf(st).forEach((c) => {
+      if (c.url) oldUrls.add(c.url);
+    })
   );
   oldUrls.forEach((u) => URL.revokeObjectURL(u));
   audioBlobs.clear();
 
-  // One playable URL per recording or imported file, shared by the song
-  // and its history.
-  const urls = new Map<string, string>();
+  // One playable URL per recording or imported file, shared by the song,
+  // its takes and its history - and by clips that share a file
+  // (sharedFiles.ts), as they did before it was saved.
+  const urls = new Map<Blob, string>();
   const urlFor = (id: string) => {
-    let url = urls.get(id);
-    if (url) return url;
     const blob = blobs.get(id);
     if (!blob) return "";
-    url = URL.createObjectURL(blob);
-    urls.set(id, url);
+    let url = urls.get(blob);
+    if (!url) {
+      url = URL.createObjectURL(blob);
+      urls.set(blob, url);
+    }
     audioBlobs.set(id, blob);
     return url;
   };
@@ -109,6 +118,12 @@ export function openInStore(project: SerializedProject, blobs: Map<string, Blob>
   let maxEffectN = 0;
   snapshots.forEach((snap) => {
     Object.values(snap.clipsByChannel).forEach((list) => list.forEach((c) => bumpIdFrom(c.id)));
+    Object.values(snap.takesByChannel ?? {}).forEach((lanes) =>
+      lanes.forEach((lane) => {
+        bumpIdFrom(lane.id);
+        lane.clips.forEach((c) => bumpIdFrom(c.id));
+      })
+    );
     snap.channels.forEach((c) => {
       bumpIdFrom(c.id);
       (c.automationLanes ?? []).forEach((lane) => bumpIdFrom(lane.id));
@@ -130,10 +145,12 @@ export function openInStore(project: SerializedProject, blobs: Map<string, Blob>
   const toState = (snap: SerializedSnapshot): ProjectState => ({
     channels: snap.channels,
     clipsByChannel: deserializeClips(snap.clipsByChannel, urlFor),
+    takesByChannel: deserializeTakes(snap.takesByChannel ?? {}, urlFor),
     channelEffects: snap.channelEffects,
     buses: snap.buses,
     busEffects: snap.busEffects,
     bpm: snap.bpm,
+    tempoChanges: snap.tempoChanges ?? [],
     timeSignature: snap.timeSignature,
     masterVolume: snap.masterVolume,
     masterPan: snap.masterPan,

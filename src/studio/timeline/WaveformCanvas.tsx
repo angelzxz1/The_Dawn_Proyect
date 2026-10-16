@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cachedWaveform, loadWaveform, waveformFromPeaks, waveformSpan, type Waveform } from "@/engine/waveform";
+import { sourceInPieces, type WarpPiece } from "@/project/warp";
 
 /** Canvas tiles this wide (px); only those on screen are drawn, so a long
  * clip zoomed in never needs one giant canvas. */
@@ -21,6 +22,8 @@ export interface WaveformView {
   fadeIn?: number;
   fadeOut?: number;
   color: string;
+  /** A warped clip's pieces (warp.ts): where in the file each moment is. */
+  pieces?: WarpPiece[];
 }
 
 /** The waveform of a source by URL: the full-resolution one once decoded,
@@ -68,9 +71,17 @@ function drawTile(canvas: HTMLCanvasElement, wf: Waveform, x0: number, w: number
     const t0 = (x0 + px) / pps;
     if (t0 >= view.length) break;
     const t1 = Math.min(view.length, (x0 + px + 1) / pps);
-    const s0 = view.sourceOffset + (loop ? t0 % loop : t0);
-    const s1 = s0 + (t1 - t0);
-    const span = waveformSpan(wf, s0, s1);
+    let s0: number | null;
+    let s1: number | null;
+    if (view.pieces) {
+      s0 = sourceInPieces(view.pieces, t0);
+      s1 = sourceInPieces(view.pieces, Math.max(t0, t1 - 1e-6));
+    } else {
+      s0 = view.sourceOffset + (loop ? t0 % loop : t0);
+      s1 = s0 + (t1 - t0);
+    }
+    if (s0 === null || s1 === null) continue;
+    const span = waveformSpan(wf, Math.min(s0, s1), Math.max(s0, s1));
     if (!span) continue;
     let env = gain;
     if (fadeIn > 0 && t0 < fadeIn) env *= t0 / fadeIn;
@@ -119,12 +130,12 @@ export function WaveformCanvas({
   view: WaveformView;
   version?: number;
 }) {
-  const { pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color } = view;
+  const { pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color, pieces } = view;
   const draw = useCallback(
     (canvas: HTMLCanvasElement, x0: number, w: number) => {
-      if (waveform) drawTile(canvas, waveform, x0, w, height, { pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color });
+      if (waveform) drawTile(canvas, waveform, x0, w, height, { pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color, pieces });
     },
-    [waveform, height, pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color]
+    [waveform, height, pxPerSecond, sourceOffset, loopLength, length, gain, fadeIn, fadeOut, color, pieces]
   );
   if (!waveform || width <= 0) return null;
   const tiles = Math.ceil(width / TILE);

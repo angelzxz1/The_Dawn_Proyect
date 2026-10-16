@@ -38,10 +38,28 @@ Live and Reaper.
   or drum pads, or a MIDI controller. Record audio from a microphone or an
   audio interface, with a count-in and a metronome. Each clip is drawn on
   its track while you record it.
+- **Takes and comping**: loop recording makes a take each time round, and
+  recording over a clip keeps it as a take; put the comp together by
+  dragging across the takes.
+- **Clip names and colors**, and **consolidate**, **reverse**, **normalize**
+  and **fade presets** from a clip's right-click menu.
+- **Time selection**, like Ableton's: drag across lanes to select a span of
+  time, then cut, copy, paste, duplicate, empty it, insert silence or delete
+  the time, on every track at once.
+- **Zoom** with Ctrl/Cmd+wheel or a pinch around the pointer, zoom to fit
+  the song or the selection, and tracks of any height.
 - **Arrangement loop**, like Ableton's: a loop brace under the ruler you
   draw, drag and resize, Ctrl+L to loop the selected clips, start and length
   fields, and the arrow keys to move it. It stays on its bars when the tempo
   changes and is saved with the project.
+- **Tempo changes.** A tempo lane under the ruler where the tempo can change
+  at any bar. The ruler, the grid, the loop and the metronome follow it, and
+  MIDI clips, notes and automation stay on their beats when you edit it.
+- **Warping.** Audio clips can follow the tempo, stretched (keeping their
+  pitch) or repitched like tape. A clip's own tempo can be typed in or
+  detected, so a loop recorded at any tempo plays at the song's.
+- **Quantize audio**: the hits and notes in an audio clip, moved onto the
+  grid.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
 - **Three instruments:** a sampled grand piano, a 16-pad Drum Rack (modeled
@@ -467,9 +485,9 @@ The app works best in **Chrome** or **Edge** on a desktop computer.
 - **Transport.** Record, play/pause, stop, metronome, loop, tempo, time
   signature, count-in, and the click's level.
 - **Effect browser** (left). Every effect and preset, with a search box.
-- **Arrangement.** The ruler, then one row per track: its header on the left
-  (name, color, arm, monitor, mute, solo, FX, input, import and export) and
-  its clips on the right.
+- **Arrangement.** The ruler, the loop brace and the tempo lane, then one
+  row per track: its header on the left (name, color, arm, monitor, mute,
+  solo, FX, input, import and export) and its clips on the right.
 - **Buses and master.** The send/return buses and the master bus with its
   volume, pan and limiter ceiling.
 - **Instrument panel.** The on-screen piano or drum pads for the selected
@@ -550,6 +568,17 @@ haven't saved to a folder yet.
 - **Scroll the timeline** with the bar pinned under the tracks: drag it,
   click where you want to go, or use the mouse wheel over it. Shift+wheel
   over the lanes scrolls sideways too.
+- **Zoom** with Ctrl/Cmd+wheel or a trackpad pinch: it zooms around the
+  pointer. The zoom buttons above the tracks, and **=** and **-**, zoom
+  around the playhead (or the middle of the view). **Zoom to fit**
+  (the button next to them, or **Shift+Z**) fits the time selection, or the
+  whole song. Zoomed far out, the ruler shows every 2nd, 4th or 8th bar.
+- **Make a track taller or shorter** by dragging the bottom edge of its
+  header; hold **Alt** to set every track to that height, and double-click
+  the edge for the standard height. **Alt+wheel** over the arrangement makes
+  every track taller or shorter. A shorter track's header shows what fits:
+  its controls (mute, solo, FX), then pan and volume, then its import and
+  export buttons. Heights are saved with the project.
 - **Fold** a track with the arrow left of its name: it becomes a short row
   with its name, mute and solo, and its clips show as bars. Alt-click the
   arrow, or click **Fold** above the track list, to fold or unfold every
@@ -581,6 +610,12 @@ haven't saved to a folder yet.
 - **Scale.** The scale selector (Major, Minor, the modes, pentatonics and so
   on, with any root) highlights the notes in the key on the piano and in the
   piano roll.
+- **Chords.** Above the on-screen piano, the notes you hold are named as a
+  chord in the scale's key: `G#m7`, `C/E` or `E5`, spelled the way the key
+  spells them (`Bb` in F Major, `A#` in E Major), with its degree in the key
+  as a Roman numeral (`V7`, `iii`, `bVII`) and whether all of it is in the
+  key. Until you pick a scale, chords are named in E Major. A MIDI keyboard
+  counts too.
 - Keys play the **armed** track (the red button in its header). Only one
   track is armed at a time.
 
@@ -608,14 +643,19 @@ Everything the synth can do is described in
    moment on the page (like the start of a recording) or a tab in the
    background can't delay or drop one. **Click** next to the count-in sets
    how loud the metronome and count-in are (from −30 to +3 dB, double-click
-   to reset); it's kept on this computer, not in the project. Recording
-   always runs straight through, even with the loop on.
+   to reset); it's kept on this computer, not in the project. With the
+   **loop** on, recording from before the loop's end goes round it, and each
+   time round is a take (see "Takes and comping" below).
 3. Click the ruler where you want to start (the marker), then press
    **Record**. Recording starts at the marker, like Ableton; the count-in
    plays the bars just before it, on the beat grid, so starting mid-bar
    counts in correctly. The take appears on its track as a red clip that
    grows while you play.
-4. Press **Stop**. The take becomes a normal clip.
+4. Press **Stop**. The take becomes a normal clip. Recorded over a clip, it
+   replaces it, and the clip is kept as a take you can go back to.
+   **MIDI overdub** (the layers button in the transport) makes a MIDI
+   recording add to what's on the track instead, as before; round the loop,
+   every time round goes into one clip.
 
 For audio:
 
@@ -644,6 +684,33 @@ For audio:
   nudge takes further, set a **recording offset** there too. Bluetooth
   headphones add 100 ms or more; wired ones are better for recording.
 
+### Takes and comping
+
+A track keeps the takes recorded on it, in **take lanes** under it, like
+Ableton's take lanes or Logic's take folders. Takes don't play: the track's
+own lane does. It's the **comp**, put together from the best parts of the
+takes.
+
+- **Making takes.** Recording over a clip makes the clip **Take 1** and the
+  new recording **Take 2**, and so on. With the loop on, each time round the
+  loop is a take (a last one under a beat long, from stopping just after the
+  loop came round, is dropped; for MIDI, so is a time round you didn't play
+  in). The track plays the latest take at each point.
+- **Showing them.** The take lanes open under the track the first time it
+  gets takes. The layers button in the track header (it shows how many)
+  hides and shows them; so does the header's right-click menu.
+- **Comping.** Drag across a take to put that part of it in the track, on
+  the grid (turn **Snap** off for any part). Click one of a take's clips to
+  put all of it in. **Use** in the take's header puts in the whole take. The
+  parts of a take the track plays are lit, with a bar along the top; the rest
+  is darker. Each change is one undo step.
+- **Deleting takes.** The **×** in a take's header deletes it, and **Delete
+  all takes (keep what plays)** in the track header's menu deletes them all.
+  What the track plays stays either way.
+- Inserting silence or deleting time across a track (see "Editing a span of
+  time") moves its takes too. Takes are saved with the project; a recording
+  is saved once, however many takes and parts of the comp play it.
+
 ### Editing clips
 
 The **edit tools**, next to the zoom buttons above the tracks, set what a
@@ -670,16 +737,68 @@ With the pointer:
 - **Resize.** Drag a clip's right edge.
 - **Audio clips** also have handles for **fade-in**, **fade-out** and
   **gain**. Double-click the gain handle to reset it.
-- **Right-click** a clip for **Split at playhead**, **Duplicate**, **Loop
-  clip**, **Copy**, **Paste** and **Delete**, plus **Edit in piano roll** and
-  **Export .mid** for MIDI clips.
+- **Right-click** a clip for **Rename**, **Color**, **Split at playhead**,
+  **Duplicate**, **Loop clip**, **Consolidate**, **Reverse**, **Copy**,
+  **Paste** and **Delete**, plus **Edit in piano roll** and **Export .mid**
+  for MIDI clips, and **Normalize** and **Fades** for audio clips (see
+  below). What it does applies to every selected clip.
 - **Right-click an empty part of a lane** to add an empty MIDI clip, import
   an audio clip there, or paste.
+- **Select time** by dragging on an empty part of a lane, as in Ableton: the
+  span you drag, on the grid, on every lane you cross (see below).
 - **Import audio** by dropping a file onto a track, or with the import button
   in the track's header. The same buttons import and export `.mid` files.
 - **Move the playhead** by clicking or dragging on the ruler. Play always
   starts from there.
 - **Loop part of the song** with the arrangement loop (see below).
+
+### Naming, coloring and processing clips
+
+- **Rename** a clip from its menu, or select it and press **F2**; clicking
+  an audio clip twice does it too. Type the name and press Enter (Esc keeps
+  the old one). An empty name gives back what the clip shows by itself: its
+  file's name, or how many notes it has.
+- **Color** clips from the menu's row of colors; **Track color** gives them
+  back their track's. Names and colors are saved with the project.
+- **Consolidate** (**Ctrl+J**) joins the selected clips on each track, and
+  whatever is between them, into one clip. With a time selection, each
+  track's clips over it become one clip exactly as long. MIDI clips' notes
+  are joined (loops played out); audio clips are rendered to a new file, with
+  their gain and fades, and the new clip starts with neither.
+- **Reverse** plays clips back to front. A MIDI clip's notes are turned
+  around (within its loop, if it loops); an audio clip plays a reversed copy
+  of its file.
+- **Normalize** sets an audio clip's gain so it peaks at full scale (0 dB).
+  It only changes the clip's gain handle, so you can still adjust it.
+- **Fades** sets an audio clip's fade-in and fade-out at once: none, 10 ms
+  (takes the click out of a cut), a beat or a bar. The handles still adjust
+  each one.
+
+Each of these is one undo step.
+
+### Editing a span of time
+
+With the pointer, drag on an empty part of a lane to select a span of time
+on the lanes you cross. It snaps to the grid and shows as a band across
+those lanes. A group's lane counts as all of its tracks. These act on it,
+each as one undo step:
+
+- **Delete** empties it: clips that cross its edges are cut there, and what
+  was inside is gone.
+- **Ctrl+X** cuts it and **Ctrl+C** copies it. **Ctrl+V** pastes it on the
+  tracks it came from, at the start of the time selection or else at the
+  playhead, over what's there. What was pasted is then selected.
+- **Ctrl+D** copies it right after itself, over what's there, and selects
+  the copy, so pressing it again carries on.
+- **Ctrl+I** inserts silence as long as the selection at its start:
+  everything after moves later.
+- **Shift+Delete** deletes the time: what's in it is gone, and everything
+  after moves earlier to close the gap.
+- **Ctrl+L** loops it, and **Ctrl+J** consolidates it (see above).
+
+Use Cmd instead of Ctrl on a Mac. Right-click inside the selection, on a
+clip or not, for the same actions. **Esc**, a click on a lane or a click on
+a clip ends the selection.
 
 ### The arrangement loop
 
@@ -709,6 +828,64 @@ and grey when it's off.
   on through, like in Ableton.
 - The loop is kept in bars and beats, so changing the tempo leaves it on the
   same bars. It's saved with the project.
+
+### Tempo changes
+
+The **Tempo** lane, under the loop brace, shows the song's tempo and every
+place it changes.
+
+- **Add a change:** double-click the lane. The change goes on the nearest
+  bar; type its tempo and press **Enter**. (**Escape** leaves it out.)
+- **Change a tempo:** click it and type a new one. The first one is the
+  song's starting tempo, the same as the **BPM** field.
+- **Move a change:** drag it along the beats. It snaps to the grid shown on
+  the ruler; hold **Alt** to place it freely. It stays between the changes on
+  either side.
+- **Remove a change:** right-click it.
+- The ruler, the snap grid, the loop and the metronome (with its count-in)
+  all follow the tempo changes. A tempo change is a step: the new tempo
+  starts right on its beat.
+- **What moves with the tempo:** MIDI clips and their notes, warped audio
+  clips (see below), takes, and the automation on MIDI and group tracks stay
+  on the beats they were written on, so changing the tempo speeds them up or
+  slows them down. Audio clips that aren't warped keep their place in time,
+  and so does the automation on audio tracks.
+- The piano roll's grid is at the tempo where its clip starts.
+- MIDI files are read and written with their tempo changes: an imported file
+  lands on its beats wherever the project's tempo changes, and an exported
+  one carries the project's tempo map.
+- Every tempo edit is one undo step, and the tempo map is saved with the
+  project.
+
+### Warping audio
+
+A warped audio clip follows the song's tempo: its file is played faster or
+slower so its beats stay on the song's beats. Right-click an audio clip:
+
+- **Warp clip: follow the tempo** warps it as it sounds now. Nothing changes
+  until the tempo does; after that, the clip stretches or shrinks with it.
+- **Detect the clip's tempo** finds the tempo of what the clip plays and
+  warps it by that, so a loop made at any tempo plays at the song's. (If
+  there's no clear beat, it says so.)
+- **Stretch** or **Repitch**: stretching keeps the pitch; repitching speeds
+  the audio up or slows it down like tape, so the pitch goes with it.
+- **Stop warping clip** plays the file at its own speed again.
+- **Quantize audio to the grid** finds where each hit or note in the clip
+  starts and moves it onto the nearest line of the snap grid (16th notes
+  when the grid is bars or off), stretching the audio between. The clip
+  stays where it is and as long; its warp markers show as faint lines.
+  **Clear warp markers** takes them away again.
+
+A warped clip shows its own tempo in its title bar. Click it to type a
+tempo: the file is taken to be at that tempo and is played at the song's.
+Whenever a clip's warp changes, it keeps playing the same part of its file,
+so its box grows or shrinks to fit.
+
+Splitting, trimming, the slip tool, time selections, comping, consolidating,
+reversing and normalizing all work on warped clips, and exports play them as
+you hear them. The stretched audio is worked out in the background when the
+tempo or the clip changes, so a long clip can take a moment to sound again
+after an edit.
 
 ### The piano roll
 
@@ -906,18 +1083,27 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Esc | Close the topmost menu, dialog or window |
 | Ctrl/Cmd+Z | Undo |
 | Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | Redo |
-| Ctrl/Cmd+C | Copy the clip under the playhead on the selected track |
-| Ctrl/Cmd+V | Paste the copied clip at the playhead |
-| Ctrl/Cmd+D | Duplicate the selected clips |
-| Ctrl/Cmd+L | Loop the selected clips, or switch the loop on/off |
+| Ctrl/Cmd+C | Copy the time selection, or the clip under the playhead on the selected track |
+| Ctrl/Cmd+X | Cut the time selection |
+| Ctrl/Cmd+V | Paste the copied time at the time selection or the playhead, or the copied clip at the playhead |
+| Ctrl/Cmd+D | Duplicate the time selection, or the selected clips |
+| Ctrl/Cmd+I | Insert silence as long as the time selection |
+| Shift+Delete | Delete the time selected (what's after it moves earlier) |
+| Ctrl/Cmd+L | Loop the time selection or the selected clips, or switch the loop on/off |
+| Ctrl/Cmd+J | Consolidate the time selection, or the selected clips on each track |
+| = / - | Zoom in / out (around the playhead) |
+| Shift+Z | Zoom to fit the time selection, or the whole song |
+| Ctrl/Cmd+wheel, or a pinch | Zoom around the pointer |
+| Alt+wheel | Make every track taller or shorter |
+| F2 | Rename the selected clip |
 | Shift+1 … Shift+5 | Edit tool: pointer, split, draw, erase, slip |
-| Esc | Back to the pointer tool |
+| Esc | Back to the pointer tool, then end the time selection |
 | Ctrl/Cmd-click a track header | Pick tracks to group (Esc forgets them) |
 | Ctrl/Cmd+G | Group the picked tracks, or the selected one |
 | Up / Down (loop brace selected) | Move the loop by its own length |
 | Left / Right (loop brace selected) | Move the loop by one grid step |
 | Ctrl/Cmd+Left / Right (loop brace selected) | Shorten / lengthen the loop |
-| Delete / Backspace | Delete the selected clips |
+| Delete / Backspace | Empty the time selection, or delete the selected clips |
 | Ctrl/Cmd+S | Save |
 | Ctrl/Cmd+Shift+S | Save As |
 | Ctrl/Cmd+O | Open a project |
@@ -947,6 +1133,19 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   buses and the master.
 - **Scheduling.** Clips are scheduled on the Tone transport. MIDI you play
   live goes straight to the instrument, not through the transport.
+- **Tempo.** The timeline is in seconds. The tempo map
+  (`src/project/tempoMap.ts`) says where the beats fall on it, for the grid,
+  the ruler, the loop and the metronome; the transport runs at the starting
+  tempo and plays everything at its time in seconds. Editing the map moves
+  what follows the beat to its new time (`tempoEdits.ts`).
+- **Warping.** `src/project/warp.ts` maps each moment of a warped clip to a
+  point in its file, through the tempo map and the clip's own tempo. The
+  engine renders what the clip plays (`timeStretch.ts`: WSOLA for stretch,
+  resampling for repitch) a few milliseconds at a time, keeps the result
+  (`warpRender.ts`), and plays that. The export uses the same renderings.
+  Tempo detection (`tempoDetect.ts`) looks for the beat in how the
+  loudness rises; quantizing finds where the hits start (`onsets.ts`) and
+  pins each to its grid line with a warp marker.
 - **The custom effects and the synth run in AudioWorklets**, in the audio
   thread: the compressors, gate, limiter, parametric EQ, multiband effects,
   saturator, utility, Daybreak (`synthKernel.ts`) and the Drum Rack
@@ -1000,6 +1199,10 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   save writes only new sample files, removes ones nothing uses anymore, and
   writes `project.dawn.json` last. The single-file `.dawnproject` format is a
   small header followed by the same JSON and files.
+- **Shared files.** Clips often play the same file: the parts of a split
+  clip, a recording's takes and the comp made from them. Each file is saved
+  once, under the first clip that has it, and the others point to it
+  (`sharedFiles.ts`), in autosave, folders and `.dawnproject` files alike.
 
 ## Development
 
@@ -1013,6 +1216,9 @@ npm run typecheck # TypeScript
 npm run lint      # ESLint
 npm run build     # static site in out/ (see docs/deploy.md)
 npm start         # serve out/ locally
+npm run desktop   # the desktop app (Tauri), see docs/desktop.md
+npm run desktop:build # its installers
+npm run test:engine   # the native engine's tests (Rust)
 ```
 
 The unit tests run in Node. The component tests draw one component at a
@@ -1022,7 +1228,9 @@ browser tests need Chromium once: `npx playwright install chromium`.
 
 Every push is checked on GitHub (`.github/workflows/ci.yml`, the Actions
 tab): one job runs the typecheck, lint, unit and component tests, another
-builds the site and runs the browser tests. When the browser tests fail, the run's
+builds the site and runs the browser tests, a third tests the native
+engine; `.github/workflows/desktop.yml` builds the desktop app on Windows,
+macOS and Linux when its Rust side changes. When the browser tests fail, the run's
 page has their report to download, with a screenshot and a step-by-step
 trace of each failure (open a trace with `npx playwright show-trace`).
 
@@ -1085,14 +1293,16 @@ trace of each failure (open a trace with `npx playwright show-trace`).
   and fonts, and `useStableActions` (handlers that keep memoized rows like
   the track headers and lanes from redrawing).
 - `src/services/`: what reaches outside the app: usage statistics and error
-  reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
-  and feedback links set per deployment (`support.ts`).
+  reports (`telemetry.ts`), the issue log (`issues.ts`), the support
+  and feedback links set per deployment (`support.ts`), and whether it's
+  running in the desktop app (`desktop.ts`).
 - `src/fonts/`: the fonts, from Google Fonts, kept here so building needs
   no network. `scripts/fonts.mjs` downloads them and writes the code that
   loads them (see `src/fonts/README.md`).
 - `src/test/`: what the component tests share: their setup (the app's
   styles, and failing a test that logs an error), a stand-in for Next's
-  fonts, and mouse drags.
+  fonts, and mouse drags; and `kernelParity.ts`, for the tests that hold
+  the native engine's kernels to the JavaScript ones.
 - `e2e/`: the browser tests. They serve the built site and use it in
   Chromium the way a person would: every page of the website, the
   templates and the start screen, the transport, each track and clip
@@ -1102,6 +1312,9 @@ trace of each failure (open a trace with `npx playwright show-trace`).
   the metronome, timed from the audio it plays. `studio.ts` finds things in the studio, `speakers.ts`
   listens to what reaches the speakers, and `fixtures.ts` fails a test on
   any error on the page and keeps it off the network.
+- `src-tauri/`: the desktop app (Tauri), and `crates/dawn-engine/`: the
+  native audio engine in Rust, its kernels ported from the JavaScript ones
+  and tested against them. See [docs/desktop.md](docs/desktop.md).
 
 ### Stack
 
@@ -1114,6 +1327,8 @@ trace of each failure (open a trace with `npx playwright show-trace`).
 - [Neural Amp Modeler](https://www.neuralampmodeler.com) (WebAssembly) for
   the NAM Amp. Its licenses are in `public/nam`.
 - [lucide-react](https://lucide.dev) for icons.
+- [Tauri](https://v2.tauri.app) 2 and Rust for the desktop app and its
+  native engine.
 
 ## License and credits
 

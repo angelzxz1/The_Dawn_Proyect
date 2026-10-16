@@ -3,6 +3,7 @@
 import type { AutomationPoint } from "@/project/types";
 import type { TrackColor } from "@/project/colors";
 import { computeAdaptiveMarks } from "@/studio/timeline/layout";
+import type { TempoMap } from "@/project/tempoMap";
 
 let pointIdCounter = 0;
 function newPointId(): string {
@@ -23,7 +24,8 @@ interface AutomationLaneProps {
   currentValue: number;
   totalSeconds: number;
   pxPerSecond: number;
-  bpm: number;
+  /** Where the beats are, for the grid. */
+  tempo: TempoMap;
   beatsPerBar: number;
   height: number;
   color: TrackColor;
@@ -48,7 +50,7 @@ export function AutomationLane({
   currentValue,
   totalSeconds,
   pxPerSecond,
-  bpm,
+  tempo,
   beatsPerBar,
   height,
   color,
@@ -58,7 +60,7 @@ export function AutomationLane({
 }: AutomationLaneProps) {
   const width = totalSeconds * pxPerSecond;
   const range = valueMax - valueMin || 1;
-  const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
+  const marks = computeAdaptiveMarks(tempo, totalSeconds, pxPerSecond, beatsPerBar);
 
   const valueToY = (v: number) => height - ((v - valueMin) / range) * height;
   const yToValue = (y: number) =>

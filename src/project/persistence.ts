@@ -5,6 +5,7 @@
 // audio clip when the project is loaded back.
 
 import { normalizeProject, type SerializedProject } from "./projectSchema";
+import { shareFiles, unshareFiles } from "./sharedFiles";
 import { noteIssue } from "../services/issues";
 
 export type { SerializedClip, SerializedProject } from "./projectSchema";
@@ -14,6 +15,8 @@ const DB_VERSION = 1;
 const META_STORE = "meta";
 const BLOB_STORE = "audioBlobs";
 const PROJECT_KEY = "current";
+/** Which clips play another clip's stored file (sharedFiles.ts). */
+const ALIASES_KEY = "current:aliases";
 const BACKUP_PREFIX = "backup:";
 const MAX_BACKUPS = 3;
 
@@ -52,20 +55,23 @@ export async function saveProject(
   audioBlobs: Map<string, Blob>,
   replaceAll = false
 ): Promise<void> {
+  // A file several clips play is stored once.
+  const { files, aliases } = shareFiles(audioBlobs);
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([META_STORE, BLOB_STORE], "readwrite");
       tx.objectStore(META_STORE).put(project, PROJECT_KEY);
+      tx.objectStore(META_STORE).put(aliases, ALIASES_KEY);
       const blobs = tx.objectStore(BLOB_STORE);
       const keysReq = blobs.getAllKeys();
       keysReq.onsuccess = () => {
         const stored = new Set(replaceAll ? [] : keysReq.result.map(String));
         if (replaceAll) blobs.clear();
         stored.forEach((id) => {
-          if (!audioBlobs.has(id)) blobs.delete(id);
+          if (!files.has(id)) blobs.delete(id);
         });
-        audioBlobs.forEach((blob, id) => {
+        files.forEach((blob, id) => {
           if (!stored.has(id)) blobs.put(blob, id);
         });
       };
@@ -86,15 +92,16 @@ export async function loadProject(): Promise<
 > {
   const db = await openDb();
   try {
-    const raw = await new Promise<unknown>((resolve, reject) => {
+    const [raw, aliases] = await new Promise<[unknown, unknown]>((resolve, reject) => {
       const tx = db.transaction(META_STORE, "readonly");
-      const req = tx.objectStore(META_STORE).get(PROJECT_KEY);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      const project = tx.objectStore(META_STORE).get(PROJECT_KEY);
+      const shared = tx.objectStore(META_STORE).get(ALIASES_KEY);
+      tx.oncomplete = () => resolve([project.result, shared.result]);
+      tx.onerror = () => reject(tx.error);
     });
     if (raw === undefined) return null;
 
-    const blobs = new Map<string, Blob>();
+    const stored = new Map<string, Blob>();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(BLOB_STORE, "readonly");
       const store = tx.objectStore(BLOB_STORE);
@@ -102,7 +109,7 @@ export async function loadProject(): Promise<
       req.onsuccess = () => {
         const cursor = req.result;
         if (cursor) {
-          blobs.set(String(cursor.key), cursor.value as Blob);
+          stored.set(String(cursor.key), cursor.value as Blob);
           cursor.continue();
         } else {
           resolve();
@@ -110,6 +117,7 @@ export async function loadProject(): Promise<
       };
       req.onerror = () => reject(req.error);
     });
+    const blobs = unshareFiles(stored, aliases);
     let project: SerializedProject | null = null;
     try {
       project = normalizeProject(raw);

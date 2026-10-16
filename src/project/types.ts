@@ -59,6 +59,11 @@ export interface ChannelConfig extends InstrumentSettings {
   /** Folded: a short row in the arrangement (for a group: its members are
    * hidden too). */
   folded?: boolean;
+  /** Its row's height in the arrangement when it isn't folded (px,
+   * trackHeight.ts); unset, the standard height. */
+  height?: number;
+  /** Its take lanes are showing under it (when it has takes). */
+  showTakes?: boolean;
   /** Automation lanes recorded for this channel's volume/pan/effect knobs.
    * Each lane's points are edited on the arrangement timeline's automation
    * strip and replayed by the engine during playback. */
@@ -126,6 +131,14 @@ interface ClipBase {
   offset: number;
   /** The clip box's length, in seconds. */
   length: number;
+  /** A name given to the clip. Unset, it shows what's in it: its file's
+   * name, or how many notes. */
+  name?: string;
+  /** A color given to the clip ("#rrggbb"). Unset, it has its track's. */
+  color?: string;
+  /** On a track's own lane: the take lane (its id) this part of the comp
+   * was taken from (takes.ts). */
+  take?: string;
   /** When set and > 0, the clip's content (its notes, or its audio source
    * region) repeats every `loopLength` seconds to fill the box's full
    * `length` - lets you drag the clip's right edge out past its natural
@@ -163,6 +176,39 @@ export interface AudioClipInstance extends ClipBase {
   fadeOut: number;
   /** This clip's own gain, in dB, independent of the channel fader. */
   gainDb: number;
+  /** Warped, the clip follows the song's tempo (warp.ts): its file is
+   * played faster or slower so its beats stay on the song's. Unset, it
+   * plays at its own speed whatever the tempo. */
+  warp?: AudioWarp;
+}
+
+/** A point in a warped clip's file pinned to a beat (warp.ts). */
+export interface WarpMarker {
+  /** Seconds into the file. */
+  source: number;
+  /** Beats (quarter notes) from the file's start, at its own tempo. */
+  beat: number;
+}
+
+/** How a warped audio clip follows the tempo (warp.ts). */
+export interface AudioWarp {
+  /** "stretch" keeps the pitch; "repitch" speeds the audio up or slows it
+   * down like tape, pitch and all. */
+  mode: "stretch" | "repitch";
+  /** The file's own tempo, where no markers say otherwise. */
+  bpm: number;
+  /** Points pinned to beats, in order (of both); between two, the file's
+   * time is spread evenly over their beats. */
+  markers: WarpMarker[];
+}
+
+/** One of a track's takes, in a lane under it: what was recorded in one go
+ * (or one pass of a loop recording). Takes don't play; the track's own
+ * lane - the comp - is put together from parts of them (takes.ts). */
+export interface TakeLane {
+  id: string;
+  name: string;
+  clips: ClipInstance[];
 }
 
 /** One clip box placed on a track - a track can hold any number of these,

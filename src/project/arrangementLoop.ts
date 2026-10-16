@@ -27,9 +27,6 @@ export function normalizeArrangementLoop(raw: unknown, beatsPerBar = 4): Arrange
   return { on: typeof r.on === "boolean" ? r.on : d.on, start: lo, end: Math.max(start, end, lo + MIN_LOOP_BEATS) };
 }
 
-export const beatsToSeconds = (beats: number, bpm: number) => (beats * 60) / bpm;
-export const secondsToBeats = (seconds: number, bpm: number) => (seconds * bpm) / 60;
-
 /** Rounds to the nearest `unit` beats (no rounding when unit is 0). */
 export function snapBeats(beats: number, unit: number): number {
   return unit > 0 ? Math.round(beats / unit) * unit : beats;

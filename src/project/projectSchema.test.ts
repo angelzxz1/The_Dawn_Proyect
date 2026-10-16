@@ -303,6 +303,82 @@ describe("groups, routing and colors", () => {
     expect(synth.color).toBeUndefined();
   });
 
+  it("keeps a track's takes, and drops broken ones and marks of takes that aren't there", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const clip = (id: string, extra = {}) => ({ id, kind: "midi", offset: 0, length: 1, notes: [], ...extra });
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [
+        { ...base, id: "m", name: "Keys", type: "midi", showTakes: true },
+        { ...base, id: "g", name: "Group", type: "group", showTakes: true },
+      ],
+      clipsByChannel: { m: [clip("a", { take: "take-1" }), clip("b", { take: "take-9" })] },
+      takesByChannel: {
+        m: [
+          { id: "take-1", name: "Take 1", clips: [clip("t1", { take: "take-1" }), clip("a")] },
+          { id: "take-1", name: "Again", clips: [] },
+          { name: "No id", clips: [] },
+        ],
+        g: [{ id: "take-2", name: "Take 2", clips: [] }],
+        nowhere: [{ id: "take-3", name: "Take 3", clips: [] }],
+      },
+    })!;
+    expect(Object.keys(project.takesByChannel)).toEqual(["m"]);
+    const [lane] = project.takesByChannel.m;
+    expect(project.takesByChannel.m).toHaveLength(1);
+    // A take's clip isn't marked, and its id can't be one the track has.
+    expect(lane.clips.map((c) => [c.id, c.take])).toEqual([["t1", undefined]]);
+    expect(project.clipsByChannel.m.map((c) => [c.id, c.take])).toEqual([
+      ["a", "take-1"],
+      ["b", undefined],
+    ]);
+    expect(project.channels.find((c) => c.id === "m")!.showTakes).toBe(true);
+    expect(project.channels.find((c) => c.id === "g")!.showTakes).toBeUndefined();
+  });
+
+  it("keeps a clip's name (one line, not too long) and color, and drops bad ones", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [{ ...base, id: "m", name: "Keys", type: "midi" }],
+      clipsByChannel: {
+        m: [
+          { id: "a", kind: "midi", offset: 0, length: 1, notes: [], name: "  Verse\n  riff ", color: "#AABBCC" },
+          { id: "b", kind: "midi", offset: 1, length: 1, notes: [], name: "x".repeat(200), color: "blue" },
+          { id: "c", kind: "midi", offset: 2, length: 1, notes: [], name: "   ", color: 7 },
+        ],
+      },
+    })!;
+    const [a, b, c] = project.clipsByChannel.m;
+    expect(a).toMatchObject({ name: "Verse riff", color: "#aabbcc" });
+    expect(b.name).toHaveLength(80);
+    expect(b.color).toBeUndefined();
+    expect("name" in c || "color" in c).toBe(false);
+  });
+
+  it("keeps an audio clip's warp (a tempo in range, markers in order), and drops a broken one", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const audio = { kind: "audio", length: 2, fileName: "loop.wav", durationSeconds: 2, peaks: [], sourceOffset: 0, fadeIn: 0, fadeOut: 0, gainDb: 0 };
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [{ ...base, id: "v", name: "Loop", type: "audio" }],
+      clipsByChannel: {
+        v: [
+          { ...audio, id: "a", offset: 0, warp: { mode: "repitch", bpm: 98.5, markers: [{ source: 1, beat: 2 }, { source: 0.5, beat: 3 }, { source: 2, beat: 4 }] } },
+          { ...audio, id: "b", offset: 2, warp: { mode: "?", bpm: 900, markers: "no" } },
+          { ...audio, id: "c", offset: 4, warp: { mode: "stretch" } },
+        ],
+      },
+    })!;
+    const [a, b, c] = project.clipsByChannel.v;
+    expect("warp" in a && a.warp).toEqual({ mode: "repitch", bpm: 98.5, markers: [{ source: 0.5, beat: 3 }, { source: 2, beat: 4 }] });
+    expect("warp" in b && b.warp).toEqual({ mode: "stretch", bpm: 300, markers: [] });
+    expect("warp" in c).toBe(false);
+  });
+
   it("keeps an audio track's input from another track, and drops bad ones", () => {
     const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
     const project = normalizeProject({
@@ -336,5 +412,37 @@ describe("monitored tracks", () => {
 
   it("keeps only audio tracks that exist, once each", () => {
     expect(normalizeProject({ channels, monitoredTracks: ["ch-1", "ch-1", "ch-2", "ch-9", 5] })?.monitoredTracks).toEqual(["ch-1"]);
+  });
+});
+
+describe("track heights", () => {
+  it("keeps a track's height, in range, and drops a broken one", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null, type: "midi" };
+    const project = normalizeProject({
+      channels: [
+        { ...base, id: "a", name: "A", height: 200 },
+        { ...base, id: "b", name: "B", height: 9999 },
+        { ...base, id: "c", name: "C", height: "tall" },
+        { ...base, id: "d", name: "D" },
+      ],
+    })!;
+    expect(project.channels.map((c) => c.height)).toEqual([200, 320, undefined, undefined]);
+  });
+});
+
+describe("tempo changes", () => {
+  it("an older project, saved before tempo changes were, has none", () => {
+    expect(normalizeProject({ bpm: 100 })?.tempoChanges).toEqual([]);
+  });
+
+  it("keeps them in order, once a beat, in range, and drops ones that change nothing or are broken", () => {
+    const project = normalizeProject({
+      bpm: 100,
+      tempoChanges: [{ beat: 16, bpm: 90 }, { beat: 8, bpm: 500 }, { beat: 12, bpm: 300 }, { beat: 0, bpm: 80 }, { beat: "x", bpm: 1 }, null],
+    });
+    expect(project?.tempoChanges).toEqual([
+      { beat: 8, bpm: 300 },
+      { beat: 16, bpm: 90 },
+    ]);
   });
 });

@@ -49,7 +49,7 @@ export interface ProjectFilesEvents {
 
 export function useProjectFiles(session: SessionSettings, events: ProjectFilesEvents) {
   const doc = useProjectDoc();
-  const { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop, monitoredTracks } = session;
+  const { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, midiOverdub, loop, monitoredTracks } = session;
 
   const eventsRef = useRef(events);
   useEffect(() => {
@@ -79,8 +79,8 @@ export function useProjectFiles(session: SessionSettings, events: ProjectFilesEv
    * which is what tells unsaved changes and autosave something changed. */
   const buildProject = useCallback(
     (): SerializedProject =>
-      serializeProject(doc, { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop, monitoredTracks }),
-    [doc, masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, loop, monitoredTracks]
+      serializeProject(doc, { masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, midiOverdub, loop, monitoredTracks }),
+    [doc, masterLimiterThreshold, scaleSetting, snapResolution, countInBars, metronomeEnabled, midiOverdub, loop, monitoredTracks]
   );
 
   const persistNow = useCallback(async () => {

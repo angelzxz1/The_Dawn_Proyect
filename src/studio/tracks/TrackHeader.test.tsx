@@ -28,7 +28,7 @@ beforeEach(() => {
 const ACTIONS = [
   "select", "rename", "setVolume", "setPan", "adjustStart", "toggleMute", "toggleSolo", "toggleArm",
   "toggleMonitor", "openFx", "importMidi", "exportMidi", "importAudio", "clear", "remove", "contextMenu",
-  "recolor", "move", "toggleAutomation", "setInputDevice", "requestInputDevices", "toggleFold", "pick",
+  "recolor", "move", "toggleAutomation", "setInputDevice", "requestInputDevices", "toggleFold", "pick", "resizeHeight",
 ] as const satisfies readonly (keyof TrackHeaderActions)[];
 
 type Actions = { [K in keyof TrackHeaderActions]: Mock<TrackHeaderActions[K]> };
@@ -219,6 +219,31 @@ describe("other kinds of track", () => {
     await expect.element(screen.getByTitle("Export .mid")).not.toBeInTheDocument();
     await screen.getByTitle(/^Unfold/).click({ modifiers: ["Alt"] });
     expect(actions.toggleFold).toHaveBeenCalledWith("bass", true);
+  });
+
+  test("a shorter track shows the rows that fit: controls, then pan and volume, then its files", async () => {
+    const short = renderHeader({ channel: channel({ height: 70 }), rowHeight: 70 });
+    await expect.element(short.screen.getByTitle("Mute", { exact: true })).toBeVisible();
+    await expect.element(short.screen.getByRole("slider", { name: "Vol" })).not.toBeInTheDocument();
+    short.screen.unmount();
+    const mid = renderHeader({ channel: channel({ height: 100 }), rowHeight: 100 });
+    await expect.element(mid.screen.getByRole("slider", { name: "Vol" })).toBeVisible();
+    await expect.element(mid.screen.getByTitle("Export .mid")).not.toBeInTheDocument();
+    mid.screen.unmount();
+    const tall = renderHeader({ channel: channel({ height: 200 }), rowHeight: 200 });
+    await expect.element(tall.screen.getByTitle("Export .mid")).toBeVisible();
+  });
+
+  test("double-clicking its bottom edge gives it the standard height (Alt: every track); a folded one has none", async () => {
+    const { screen, actions } = renderHeader({ channel: channel({ height: 200 }), rowHeight: 200 });
+    await screen.getByRole("separator", { name: "Track height" }).dblClick();
+    expect(actions.resizeHeight).toHaveBeenCalledWith("bass", null, false);
+    await screen.getByRole("separator", { name: "Track height" }).dblClick({ modifiers: ["Alt"] });
+    expect(actions.resizeHeight).toHaveBeenCalledWith("bass", null, true);
+    expect(actions.select).not.toHaveBeenCalled();
+    screen.unmount();
+    const folded = renderHeader({ channel: channel({ folded: true }), rowHeight: FOLDED_ROW_HEIGHT });
+    await expect.element(folded.screen.getByRole("separator", { name: "Track height" })).not.toBeInTheDocument();
   });
 
   test("the master: no color picker, no track buttons, and the master's meter", async () => {

@@ -3,6 +3,7 @@
 // opened and what the studio can do there (MenuActions).
 
 import {
+  AlignHorizontalJustifyStart,
   AudioLines,
   ChevronsDownUp,
   Clipboard,
@@ -69,6 +70,9 @@ export interface MenuActions {
   warpModeSelected: (mode: AudioWarp["mode"]) => void;
   /** Finds the selected audio clips' tempos and warps them by it. */
   detectTempoSelected: () => void;
+  /** Moves the hits in the selected audio clips onto the grid. */
+  quantizeAudioSelected: () => void;
+  clearWarpMarkersSelected: () => void;
   addEmptyClip: (channelId: string, atSeconds: number) => void;
   importAudio: (channelId: string, atSeconds: number) => void;
   /** Pastes the copied clip on the lane at the nearest bar. */
@@ -205,7 +209,11 @@ function warpItems(clip: AudioClipInstance, ctx: MenuContext, actions: MenuActio
       ? { label: `Stop warping ${clips}`, icon: <Gauge size={13} />, onSelect: () => actions.warpSelected(false) }
       : { label: `Warp ${clips}: follow the tempo`, icon: <Gauge size={13} />, onSelect: () => actions.warpSelected(true) },
     { label: many ? "Detect the clips' tempos" : "Detect the clip's tempo", icon: <ScanSearch size={13} />, onSelect: actions.detectTempoSelected },
+    { label: "Quantize audio to the grid", icon: <AlignHorizontalJustifyStart size={13} />, onSelect: actions.quantizeAudioSelected },
   ];
+  if (clip.warp && clip.warp.markers.length > 0) {
+    items.push({ label: "Clear warp markers", icon: <Eraser size={13} />, onSelect: actions.clearWarpMarkersSelected });
+  }
   if (clip.warp) {
     const mode = clip.warp.mode;
     items.push({

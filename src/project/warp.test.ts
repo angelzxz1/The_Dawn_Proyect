@@ -7,15 +7,17 @@ import {
   partFrom,
   playedSource,
   playsAtOwnSpeed,
+  quantizedWarp,
   reverseWarp,
   rewarp,
   sourceAt,
   sourceAtFileBeat,
   warpAtTempo,
   warpPieces,
+  warpView,
   type WarpedClip,
 } from "./warp";
-import type { AudioWarp } from "./types";
+import type { AudioClipInstance, AudioWarp } from "./types";
 
 const AT_120 = makeTempoMap(120);
 // 120 for two bars (to 4 s), then 60.
@@ -149,5 +151,35 @@ describe("followingWarp / rewarp / warpAtTempo / reverseWarp", () => {
     expect(fileBeatAt(back, 3)).toBeCloseTo(fileBeatAt(w, 4) - 2);
     expect(fileBeatAt(back, 1)).toBeCloseTo(fileBeatAt(w, 4) - 3);
     expect(reverseWarp(warp(90), 4)).toEqual(warp(90));
+  });
+});
+
+describe("quantizedWarp", () => {
+  it("puts each onset on the nearest grid line, the clip's ends where they are", () => {
+    // A 4 s clip at the song's 120 (a beat is 0.5 s), hits a bit off the beat.
+    const c = { ...clip({ offset: 2, length: 4 }), warp: warp(120) };
+    const onsets = [0.53, 0.97, 1.6, 2.44];
+    const q = { ...c, warp: quantizedWarp(c, onsets, AT_120, 1) };
+    // Each lands on its beat (the clip starts at 2 s, on a beat).
+    [0.5, 1, 1.5, 2.5].forEach((t, i) => expect(sourceAt(q, 2 + t, AT_120)).toBeCloseTo(onsets[i], 6));
+    expect(sourceAt(q, 2, AT_120)).toBeCloseTo(0);
+    expect(sourceAt(q, 6, AT_120)).toBeCloseTo(4);
+    // Half way.
+    const half = { ...c, warp: quantizedWarp(c, [0.6], AT_120, 1, 0.5) };
+    expect(sourceAt(half, 2.55, AT_120)).toBeCloseTo(0.6, 6);
+  });
+
+  it("goes by the song's beats on the tempo map, and keeps what's warped already", () => {
+    // From beat 4 (2 s) on SLOWER; the file at 120: what's at 2.9 s in it
+    // (song beat 9.8, at 5.8 s) goes to beat 10 (6 s).
+    const c = { ...clip({ offset: 2, length: 4 }), warp: warp(120) };
+    const q = { ...c, warp: quantizedWarp(c, [2.9], SLOWER, 1) };
+    expect(sourceAt(q, 6, SLOWER)).toBeCloseTo(2.9, 6);
+  });
+
+  it("shows where its markers are", () => {
+    const c = { ...clip({ offset: 2, length: 4 }), warp: warp(120) };
+    const q = { ...c, warp: quantizedWarp(c, [0.53, 0.97], AT_120, 1) } as AudioClipInstance;
+    expect(warpView(q, AT_120)!.markers).toEqual([expect.closeTo(0.5), expect.closeTo(1)]);
   });
 });

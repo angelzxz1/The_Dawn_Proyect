@@ -1384,6 +1384,14 @@ export function Daw() {
         if (tempos.length > 0 && tempos.every((t) => t === null)) noticeRef.current("No clear beat to find a tempo by");
         else if (tempos.length === 1 && tempos[0] !== null) noticeRef.current(`Clip tempo: ${formatBpm(tempos[0])} BPM`);
       }),
+    /** On the snap grid when it's finer than a bar; else (bars, or no
+     * snapping) on 16th notes - a bar would pull a whole beat's hits onto
+     * its first. */
+    quantizeAudio: () =>
+      void clipEditActions.quantize(selectedClipIds, grid.stepBeats > 0 && grid.stepBeats < beatsPerBar ? grid.stepBeats : 0.25).then((moved) => {
+        if (moved === 0) noticeRef.current("No hits to quantize found");
+      }),
+    clearWarpMarkers: () => void clipEditActions.clearWarpMarkers(selectedClipIds),
     /** Pasting over an audio clip makes a new clip: that's selected. */
     pasteOver: (channelId: string, clipId: string) =>
       void clipActions.pasteOver(channelId, clipId).then((id) => {
@@ -1572,6 +1580,8 @@ export function Daw() {
               warpSelected: clipEdits.warp,
               warpModeSelected: clipEdits.warpMode,
               detectTempoSelected: clipEdits.detectTempo,
+              quantizeAudioSelected: clipEdits.quantizeAudio,
+              clearWarpMarkersSelected: clipEdits.clearWarpMarkers,
               toggleTakes: takeActions.toggleShowTakes,
               deleteAllTakes: takeActions.deleteAllTakes,
               time: timeEdits,

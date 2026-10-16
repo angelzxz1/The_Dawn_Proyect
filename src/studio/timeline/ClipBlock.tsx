@@ -509,6 +509,14 @@ export function ClipBlock({
               );
             })
         )}
+        {clipType === "audio" && warped && warped.markers.length > 0 && (
+          // Its warp markers (a quantize's), as faint lines.
+          <div className="pointer-events-none absolute inset-0" data-warp-markers={warped.markers.length}>
+            {warped.markers.map((t, i) => (
+              <span key={i} className="absolute top-0 h-full w-px opacity-40" style={{ left: t * pxPerSecond, background: color.accent }} />
+            ))}
+          </div>
+        )}
         {clipType === "audio" && (fadeInPx > 0 || fadeOutPx > 0) && (
           <svg
             className="pointer-events-none absolute inset-0 h-full w-full"

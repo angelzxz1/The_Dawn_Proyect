@@ -17,11 +17,17 @@ const MIN_BPM = 60;
 const MIN_RISE = 0.023;
 const MAX_BPM = 200;
 
-/** How the loudness rises over time: one value per HOP_SECONDS. */
-export function onsetCurve(channels: Float32Array[], sampleRate: number): Float32Array {
-  const frames = Math.min(channels[0]?.length ?? 0, Math.round(MAX_SECONDS * sampleRate));
+/** The curve's step and frame, in samples at a rate. */
+export function curveFrames(sampleRate: number): { hop: number; size: number } {
   const hop = Math.max(1, Math.round(HOP_SECONDS * sampleRate));
-  const size = Math.max(hop, Math.round(FRAME_SECONDS * sampleRate));
+  return { hop, size: Math.max(hop, Math.round(FRAME_SECONDS * sampleRate)) };
+}
+
+/** How the loudness rises over time (over the first `maxSeconds`): one
+ * value per step (curveFrames), for the frame starting there. */
+export function onsetCurve(channels: Float32Array[], sampleRate: number, maxSeconds = MAX_SECONDS): Float32Array {
+  const frames = Math.min(channels[0]?.length ?? 0, Math.round(maxSeconds * sampleRate));
+  const { hop, size } = curveFrames(sampleRate);
   // The channels together, the highs brought up (where hits start).
   const mono = new Float32Array(frames);
   channels.forEach((ch) => {

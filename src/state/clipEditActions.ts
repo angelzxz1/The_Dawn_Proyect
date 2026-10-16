@@ -23,7 +23,8 @@ import {
 import { HEX_COLOR } from "@/project/colors";
 import { clearRange, type TimeRange } from "@/project/timeRange";
 import { bpmAtSeconds, type TempoMap } from "@/project/tempoMap";
-import { followingWarp, playedSource, reverseWarp, rewarp, warpAtTempo, warpPieces } from "@/project/warp";
+import { followingWarp, playedSource, quantizedWarp, reverseWarp, rewarp, warpAtTempo, warpPieces } from "@/project/warp";
+import { detectOnsets } from "@/engine/onsets";
 import { clampBpm } from "@/project/tempoMap";
 import { detectTempo } from "@/engine/tempoDetect";
 import type { AudioWarp } from "@/project/types";
@@ -191,6 +192,37 @@ export const clipEditActions = {
       });
     }
     return found;
+  },
+
+  /** Puts the notes and hits in audio clips on the grid (`gridBeats`
+   * apart): their onsets are found (onsets.ts), and each clip warped so
+   * they land on the nearest line (warp.ts quantizedWarp). Returns how many
+   * onsets were moved, all told. */
+  async quantize(ids: ReadonlySet<string>, gridBeats: number): Promise<number> {
+    const tempo = currentTempo();
+    const sampleRate = audioEngine.sampleRate;
+    const warps = new Map<string, AudioWarp>();
+    let moved = 0;
+    for (const { clip, channels } of await decodeAll(clipsIn(ids).filter(isAudio), sampleRate)) {
+      const { start, end } = playedSource(clip, tempo);
+      const from = Math.max(0, Math.round(start * sampleRate));
+      const to = Math.max(from, Math.round(end * sampleRate));
+      const onsets = detectOnsets(channels.map((ch) => ch.subarray(from, to)), sampleRate).map((t) => start + t);
+      if (onsets.length === 0) continue;
+      const warped = { ...clip, warp: clip.warp ?? followingWarp(clip, tempo) };
+      const warp = quantizedWarp(warped, onsets, tempo, gridBeats);
+      moved += Math.max(0, warp.markers.length - 2);
+      warps.set(clip.id, warp);
+    }
+    if (warps.size > 0) changeClips(new Set(warps.keys()), (c) => (isAudio(c) && warps.has(c.id) ? { ...c, warp: warps.get(c.id) } : c));
+    return moved;
+  },
+
+  /** Takes away audio clips' warp markers (a quantize's, say): they play
+   * at their own tempo again from where they start. */
+  clearWarpMarkers(ids: ReadonlySet<string>): boolean {
+    const tempo = currentTempo();
+    return changeClips(ids, (c) => (isAudio(c) && c.warp && c.warp.markers.length > 0 ? rewarp(c, warpAtTempo(c.warp, c.warp.bpm), tempo) : c));
   },
 
   /** Sets each audio clip's gain so what it plays peaks at full scale;

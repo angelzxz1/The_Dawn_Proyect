@@ -5,14 +5,14 @@
 
 import { test, expect } from "./fixtures";
 import { gaps, listen, wireSpeakers } from "./speakers";
-import { beatWav } from "./wav";
+import { beatWav, blipsWav } from "./wav";
 import type { Page } from "@playwright/test";
 import type { Studio } from "./studio";
 
 const PX = 70;
 
-async function importBeat(studio: Studio, bpm: number, beats: number) {
-  await studio.header("Audio 1").locator('input[type="file"][accept="audio/*"]').setInputFiles({ name: "beat.wav", mimeType: "audio/wav", buffer: beatWav(bpm, beats) });
+async function importBeat(studio: Studio, bpm: number, beats: number, buffer = beatWav(bpm, beats)) {
+  await studio.header("Audio 1").locator('input[type="file"][accept="audio/*"]').setInputFiles({ name: "beat.wav", mimeType: "audio/wav", buffer });
   await expect(studio.clipsOn("Audio 1")).toHaveCount(1);
   return studio.clipsOn("Audio 1").first();
 }
@@ -104,4 +104,29 @@ test("a warped clip stays warped after a reload, and on its beats when the tempo
   await page.getByLabel("Tempo (BPM)").press("Enter");
   // Beats 0-4 take 2 s, beats 4-8 take 4.
   await expect.poll(async () => (await audioClips(studio))[0]?.length).toBeCloseTo(6);
+});
+
+test("quantize audio: hits played a little off the beat land on it", async ({ page, studio }) => {
+  await wireSpeakers(page);
+  await studio.open("Empty Project");
+  // At 120 BPM, a beat every 0.5 s - the hits up to 40 ms off.
+  const played = [0, 0.53, 0.97, 1.54, 2.02, 2.46, 3.04, 3.5];
+  const clip = await importBeat(studio, 120, 8, blipsWav(played, 4));
+  const before = await heardGaps(page, 6);
+  expect(before.some((g) => Math.abs(g - 0.5) > 0.02), before.join(" ")).toBe(true);
+
+  // The snap grid is bars: quantizing goes to 16th notes then, which
+  // puts these on their beats.
+  await menuItem(page, clip, "Quantize audio to the grid");
+  await expect(clip.locator("[data-warp-markers]")).toHaveAttribute("data-warp-markers", "7");
+  await expect(clip.getByRole("button", { name: "Clip tempo 120 BPM" })).toBeVisible();
+  const after = await heardGaps(page, 6);
+  expect(after.every((g) => Math.abs(g - 0.5) < 0.02), after.join(" ")).toBe(true);
+  // The clip is where it was, as long.
+  await expect.poll(() => audioClips(studio)).toEqual([expect.objectContaining({ offset: 0, length: expect.closeTo(4) })]);
+
+  await menuItem(page, clip, "Clear warp markers");
+  await expect(clip.locator("[data-warp-markers]")).toHaveCount(0);
+  await studio.undo();
+  await expect(clip.locator("[data-warp-markers]")).toHaveCount(1);
 });

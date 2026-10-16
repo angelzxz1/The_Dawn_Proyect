@@ -56,6 +56,8 @@ Live and Reaper.
 - **Warping.** Audio clips can follow the tempo, stretched (keeping their
   pitch) or repitched like tape. A clip's own tempo can be typed in or
   detected, so a loop recorded at any tempo plays at the song's.
+- **Quantize audio**: the hits and notes in an audio clip, moved onto the
+  grid.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
 - **Three instruments:** a sampled grand piano, a 16-pad Drum Rack (modeled
@@ -849,6 +851,11 @@ slower so its beats stay on the song's beats. Right-click an audio clip:
 - **Stretch** or **Repitch**: stretching keeps the pitch; repitching speeds
   the audio up or slows it down like tape, so the pitch goes with it.
 - **Stop warping clip** plays the file at its own speed again.
+- **Quantize audio to the grid** finds where each hit or note in the clip
+  starts and moves it onto the nearest line of the snap grid (16th notes
+  when the grid is bars or off), stretching the audio between. The clip
+  stays where it is and as long; its warp markers show as faint lines.
+  **Clear warp markers** takes them away again.
 
 A warped clip shows its own tempo in its title bar. Click it to type a
 tempo: the file is taken to be at that tempo and is played at the song's.
@@ -1114,7 +1121,8 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   resampling for repitch) a few milliseconds at a time, keeps the result
   (`warpRender.ts`), and plays that. The export uses the same renderings.
   Tempo detection (`tempoDetect.ts`) looks for the beat in how the
-  loudness rises.
+  loudness rises; quantizing finds where the hits start (`onsets.ts`) and
+  pins each to its grid line with a warp marker.
 - **The custom effects and the synth run in AudioWorklets**, in the audio
   thread: the compressors, gate, limiter, parametric EQ, multiband effects,
   saturator, utility, Daybreak (`synthKernel.ts`) and the Drum Rack

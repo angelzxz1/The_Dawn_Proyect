@@ -22,7 +22,17 @@ export function toneWav(seconds = 1, frequency = 440, sampleRate = 48000): Buffe
 
 /** A mono 16-bit WAV with a short 1 kHz blip on every beat, at `bpm`. */
 export function beatWav(bpm: number, beats: number, sampleRate = 48000): Buffer {
-  const frames = Math.round(((beats * 60) / bpm) * sampleRate);
+  return blipsWav(
+    Array.from({ length: beats }, (_, k) => (k * 60) / bpm),
+    (beats * 60) / bpm,
+    sampleRate
+  );
+}
+
+/** A mono 16-bit WAV `seconds` long with a short 1 kHz blip at each of
+ * `times` (s). */
+export function blipsWav(times: number[], seconds: number, sampleRate = 48000): Buffer {
+  const frames = Math.round(seconds * sampleRate);
   const buffer = Buffer.alloc(44 + frames * 2);
   buffer.write("RIFF", 0);
   buffer.writeUInt32LE(36 + frames * 2, 4);
@@ -36,13 +46,13 @@ export function beatWav(bpm: number, beats: number, sampleRate = 48000): Buffer 
   buffer.writeUInt16LE(16, 34);
   buffer.write("data", 36);
   buffer.writeUInt32LE(frames * 2, 40);
-  const beat = (60 / bpm) * sampleRate;
   const blip = Math.round(0.03 * sampleRate);
-  for (let i = 0; i < frames; i++) {
-    const k = i % beat;
-    const v = k < blip ? Math.sin((2 * Math.PI * 1000 * k) / sampleRate) * Math.exp(-k / (0.008 * sampleRate)) * 0.6 : 0;
-    buffer.writeInt16LE(Math.round(v * 32767), 44 + i * 2);
-  }
+  const samples = new Float32Array(frames);
+  times.forEach((t) => {
+    const start = Math.round(t * sampleRate);
+    for (let k = 0; k < blip && start + k < frames; k++) samples[start + k] += Math.sin((2 * Math.PI * 1000 * k) / sampleRate) * Math.exp(-k / (0.008 * sampleRate)) * 0.6;
+  });
+  samples.forEach((v, i) => buffer.writeInt16LE(Math.round(Math.max(-1, Math.min(1, v)) * 32767), 44 + i * 2));
   return buffer;
 }
 

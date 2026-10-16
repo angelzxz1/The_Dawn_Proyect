@@ -234,6 +234,31 @@ export function rewarp<C extends WarpedClip>(clip: C, warp: AudioWarp | undefine
   return { ...next, loopLength: span, length: (clip.length * span) / loop };
 }
 
+/** A warp that puts each onset (a point in the file where a note or hit
+ * starts, onsets.ts) on the nearest line of a grid `gridBeats` apart - or
+ * `strength` of the way there - with a marker at each, the clip's start
+ * and end where they are. What doesn't have an onset is spread evenly
+ * between. Quantizing audio. */
+export function quantizedWarp(clip: WarpedClip & { warp: AudioWarp }, onsets: readonly number[], tempo: TempoMap, gridBeats: number, strength = 1): AudioWarp {
+  const { warp } = clip;
+  const b0 = beatAtSeconds(tempo, clip.offset);
+  const fb0 = fileBeatAt(warp, clip.sourceOffset);
+  const played = playedSource(clip, tempo);
+  // Song beats for file beats, from the clip's start.
+  const songBeat = (s: number) => b0 + fileBeatAt(warp, s) - fb0;
+  const markers: WarpMarker[] = [{ source: clip.sourceOffset, beat: fb0 }];
+  onsets
+    // Not on the clip's ends: they stay.
+    .filter((s) => s > played.start + 0.01 && s < played.end - 0.01)
+    .forEach((s) => {
+      const at = songBeat(s);
+      const line = gridBeats > 0 ? Math.round(at / gridBeats) * gridBeats : at;
+      markers.push({ source: s, beat: fb0 + at + strength * (line - at) - b0 });
+    });
+  markers.push({ source: played.end, beat: fileBeatAt(warp, played.end) });
+  return { ...warp, markers: cleanMarkers(markers) };
+}
+
 export interface WarpView {
   bpm: number;
   mode: AudioWarp["mode"];
@@ -242,6 +267,8 @@ export interface WarpView {
   /** File seconds a second where it starts: how far a slip drag moves
    * what plays. */
   speed: number;
+  /** Where its markers are, in seconds from its start (inside it). */
+  markers: number[];
 }
 
 const views = new WeakMap<object, { tempo: TempoMap; view: WarpView }>();
@@ -255,7 +282,12 @@ export function warpView(clip: AudioClipInstance, tempo: TempoMap): WarpView | u
   const pieces = warpPieces(clip, tempo);
   const first = pieces[0];
   const speed = first && first.t1 - first.t0 > EPS ? (first.s1 - first.s0) / (first.t1 - first.t0) : 1;
-  const view = { bpm: clip.warp.bpm, mode: clip.warp.mode, pieces, speed };
+  const b0 = beatAtSeconds(tempo, clip.offset);
+  const fb0 = fileBeatAt(clip.warp, clip.sourceOffset);
+  const markers = clip.warp.markers
+    .map((m) => secondsAtBeat(tempo, b0 + m.beat - fb0) - clip.offset)
+    .filter((t) => t > 1e-3 && t < (loopOf(clip) || clip.length) - 1e-3);
+  const view = { bpm: clip.warp.bpm, mode: clip.warp.mode, pieces, speed, markers };
   views.set(clip, { tempo, view });
   return view;
 }

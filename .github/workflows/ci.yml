@@ -1,6 +1,7 @@
 # Checks every push: the types, lint, unit and component tests in one job;
-# in the other, the site is built and tested in a browser (Playwright,
-# e2e/).
+# in another, the site is built and tested in a browser (Playwright,
+# e2e/); a third tests the native engine (crates/dawn-engine, Rust).
+# The desktop app itself is built by desktop.yml.
 # A failed browser run keeps its report and traces as a download on the
 # run's page.
 
@@ -66,3 +67,16 @@ jobs:
             test-results/
           retention-days: 14
           if-no-files-found: ignore
+
+  engine:
+    name: Native engine (Rust)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      # Includes the parity tests against the JavaScript kernels' fixtures.
+      - run: cargo test -p dawn-engine
+      - run: cargo clippy -p dawn-engine --all-targets -- -D warnings
+      - run: cargo fmt -p dawn-engine --check

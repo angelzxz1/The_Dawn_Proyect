@@ -1,0 +1,21 @@
+[package]
+name = "dawn-desktop"
+# The app's version is package.json's (tauri.conf.json reads it); this one
+# is only Cargo's.
+version = "0.2.0"
+description = "The Dawn Project as a desktop app."
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+name = "dawn_desktop_lib"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+dawn-engine = { path = "../crates/dawn-engine" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.12", features = [] }

@@ -1,32 +1,26 @@
 import { Midi } from "@tonejs/midi";
 import type { NoteEvent } from "../project/types";
+import { beatAtSeconds, type TempoMap } from "../project/tempoMap";
 
 /**
  * Parses a standard MIDI file into a flat list of note events (all tracks
- * merged). `@tonejs/midi` reports each note's `time`/`duration` in seconds
- * computed from the FILE's own embedded tempo, which has nothing to do with
- * this project's tempo - every other note time in the app is stored in
- * seconds-at-the-project's-current-bpm, so importing a file authored at a
- * different tempo without correcting for that would play it at the wrong
- * speed (too fast/slow, and out of sync with the grid). `projectBpm`
- * rescales the parsed times so the imported clip lands on the same beats
- * it was written on, just timed to this project's tempo instead of the
- * file's - assumes a single, constant tempo, which covers the vast
- * majority of real-world MIDI files (mid-file tempo ramps aren't
- * corrected beat-for-beat).
+ * merged), timed in beats (quarter notes) from the file's start rather than
+ * in seconds: a file's own tempo (and its tempo changes) has nothing to do
+ * with this project's, so the notes land on the beats they were written on
+ * and the caller places them on the project's tempo map
+ * (tempoEdits.ts notesAtBeats).
  */
-export async function parseMidiFile(file: File, projectBpm: number): Promise<NoteEvent[]> {
+export async function parseMidiFile(file: File): Promise<NoteEvent[]> {
   const buffer = await file.arrayBuffer();
   const midi = new Midi(buffer);
-  const fileBpm = midi.header.tempos[0]?.bpm ?? projectBpm;
-  const ratio = fileBpm / projectBpm;
+  const ppq = midi.header.ppq || 480;
   const notes: NoteEvent[] = [];
   midi.tracks.forEach((track) => {
     track.notes.forEach((note) => {
       notes.push({
         note: note.name,
-        time: note.time * ratio,
-        duration: note.duration * ratio,
+        time: note.ticks / ppq,
+        duration: note.durationTicks / ppq,
         velocity: note.velocity,
       });
     });
@@ -34,34 +28,41 @@ export async function parseMidiFile(file: File, projectBpm: number): Promise<Not
   return notes.sort((a, b) => a.time - b.time);
 }
 
-/** Encodes a clip as a standard MIDI file and returns it as a downloadable Blob. */
-export function encodeMidiFile(
-  notes: NoteEvent[],
-  trackName: string,
-  bpm: number
-): Blob {
+/** Encodes notes (in seconds from `origin` on the timeline) as a standard
+ * MIDI file with the project's tempo map from there, and returns it as a
+ * downloadable Blob. */
+export function encodeMidiFile(notes: NoteEvent[], trackName: string, tempo: TempoMap, origin = 0): Blob {
   const midi = new Midi();
-  midi.header.setTempo(bpm);
+  const ppq = midi.header.ppq;
+  const from = beatAtSeconds(tempo, origin);
+  const ticksAt = (seconds: number) => Math.max(0, Math.round((beatAtSeconds(tempo, seconds) - from) * ppq));
+  // The tempo where the file starts, then the changes after it.
+  let bpm = tempo.segments[0].bpm;
+  tempo.segments.forEach((s) => {
+    if (s.beat <= from + 1e-9) bpm = s.bpm;
+  });
+  midi.header.tempos = [
+    { ticks: 0, bpm },
+    ...tempo.segments.filter((s) => s.beat > from + 1e-9).map((s) => ({ ticks: Math.round((s.beat - from) * ppq), bpm: s.bpm })),
+  ];
+  midi.header.update();
   midi.header.name = trackName;
   const track = midi.addTrack();
   track.name = trackName;
   notes.forEach((note) => {
+    const ticks = ticksAt(origin + note.time);
     track.addNote({
       name: note.note,
-      time: note.time,
-      duration: note.duration,
+      ticks,
+      durationTicks: Math.max(1, ticksAt(origin + note.time + note.duration) - ticks),
       velocity: note.velocity,
     });
   });
   return new Blob([new Uint8Array(midi.toArray())], { type: "audio/midi" });
 }
 
-export function downloadMidiFile(
-  notes: NoteEvent[],
-  trackName: string,
-  bpm: number
-): void {
-  const blob = encodeMidiFile(notes, trackName, bpm);
+export function downloadMidiFile(notes: NoteEvent[], trackName: string, tempo: TempoMap, origin = 0): void {
+  const blob = encodeMidiFile(notes, trackName, tempo, origin);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

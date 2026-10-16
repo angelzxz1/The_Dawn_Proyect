@@ -30,6 +30,7 @@ import {
 import { audioEngine } from "@/engine/audioEngine";
 import { getCopiedClip, getCopiedRange } from "@/state/clipboard";
 import { FADE_PRESETS, presetFades, type FadePreset } from "@/project/clipEdits";
+import { bpmAtSeconds, type TempoMap } from "@/project/tempoMap";
 import { TRACK_COLOR_PALETTE, trackColorOf } from "@/project/colors";
 import type { AudioClipInstance, ChannelConfig, ClipInstance } from "@/project/types";
 import type { ContextMenuEntry, ContextMenuItem } from "@/studio/shell/ContextMenu";
@@ -98,8 +99,8 @@ export interface MenuContext {
   trackPicks: ReadonlySet<string>;
   /** How many takes a track has (takes.ts). */
   takeCount: (channelId: string) => number;
-  /** For the fade presets: a beat and a bar. */
-  bpm: number;
+  /** For the fade presets: a beat and a bar (at the clip). */
+  tempo: TempoMap;
   beatsPerBar: number;
 }
 
@@ -169,7 +170,7 @@ function clipMenu(channelId: string, clipId: string, ctx: MenuContext, actions: 
  * fades are now, if any, shows as picked). */
 function audioProcess(clip: AudioClipInstance, ctx: MenuContext, actions: MenuActions, many: boolean): MenuItems {
   const current = FADE_PRESETS.find((p) => {
-    const f = presetFades(p.id, clip.length, ctx.bpm, ctx.beatsPerBar);
+    const f = presetFades(p.id, clip.length, bpmAtSeconds(ctx.tempo, clip.offset), ctx.beatsPerBar);
     return Math.abs(f.fadeIn - clip.fadeIn) < 1e-6 && Math.abs(f.fadeOut - clip.fadeOut) < 1e-6;
   });
   return [

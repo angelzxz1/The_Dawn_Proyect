@@ -150,6 +150,7 @@ export function openInStore(project: SerializedProject, blobs: Map<string, Blob>
     buses: snap.buses,
     busEffects: snap.busEffects,
     bpm: snap.bpm,
+    tempoChanges: snap.tempoChanges ?? [],
     timeSignature: snap.timeSignature,
     masterVolume: snap.masterVolume,
     masterPan: snap.masterPan,

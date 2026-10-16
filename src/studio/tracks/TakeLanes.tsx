@@ -12,6 +12,7 @@ import { TAKE_LANE_HEIGHT, TRACK_HEADER_WIDTH } from "@/studio/timeline/layout";
 import type { TrackColor } from "@/project/colors";
 import { trackColorFromHex } from "@/project/colors";
 import type { TimeRange } from "@/project/timeRange";
+import type { Grid } from "@/project/tempoMap";
 import type { TakeLane } from "@/project/types";
 
 const noop = () => {};
@@ -36,13 +37,13 @@ interface TakeLaneRowProps {
   color: TrackColor;
   pxPerSecond: number;
   totalSeconds: number;
-  /** The grid a drag snaps to (s); 0 for none. */
-  snapSeconds: number;
+  /** The grid a drag snaps to. */
+  grid: Grid;
   /** Puts what the take has between the range's ends in the comp. */
   onComp: (laneId: string, range: TimeRange) => void;
 }
 
-export const TakeLaneRow = memo(function TakeLaneRow({ lane, used, color, pxPerSecond, totalSeconds, snapSeconds, onComp }: TakeLaneRowProps) {
+export const TakeLaneRow = memo(function TakeLaneRow({ lane, used, color, pxPerSecond, totalSeconds, grid, onComp }: TakeLaneRowProps) {
   const [dragging, setDragging] = useState<TimeRange | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -51,7 +52,7 @@ export const TakeLaneRow = memo(function TakeLaneRow({ lane, used, color, pxPerS
     row.setPointerCapture(e.pointerId);
     const left = row.getBoundingClientRect().left;
     const at = (x: number) => Math.max(0, (x - left) / pxPerSecond);
-    const snap = (t: number) => (snapSeconds > 0 ? Math.round(t / snapSeconds) * snapSeconds : t);
+    const snap = grid.snap;
     const anchor = at(e.clientX);
     let moved = false;
     let range: TimeRange | null = null;

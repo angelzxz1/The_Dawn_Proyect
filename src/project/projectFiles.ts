@@ -35,6 +35,7 @@ export type SerializedSnapshot = Pick<
   | "buses"
   | "busEffects"
   | "bpm"
+  | "tempoChanges"
   | "timeSignature"
   | "masterVolume"
   | "masterPan"
@@ -136,6 +137,7 @@ export function serializeSnapshot(s: ProjectState): SerializedSnapshot {
     buses: s.buses,
     busEffects: s.busEffects,
     bpm: s.bpm,
+    tempoChanges: s.tempoChanges,
     timeSignature: s.timeSignature,
     masterVolume: s.masterVolume,
     masterPan: s.masterPan,
@@ -158,6 +160,7 @@ export function normalizeSnapshot(raw: unknown, base: SerializedProject): Serial
     buses: p.buses,
     busEffects: p.busEffects,
     bpm: p.bpm,
+    tempoChanges: p.tempoChanges,
     timeSignature: p.timeSignature,
     masterVolume: p.masterVolume,
     masterPan: p.masterPan,

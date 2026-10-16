@@ -13,6 +13,7 @@ import type { EffectInstance } from "../effects/registry";
 import { changedInstrumentSettings } from "../instruments/registry";
 import { notesWithinClip, type ProjectState } from "../project/project";
 import { quarterNotesPerBar } from "../project/musicTime";
+import { makeTempoMap } from "../project/tempoMap";
 import type { AudioClipInstance, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent } from "../project/types";
 
 /** The engine calls the sync makes (the real engine, or a test's fake). */
@@ -46,6 +47,7 @@ export type EngineApi = Pick<
   | "setMasterVolume"
   | "setMasterPan"
   | "setBpm"
+  | "setTempoMap"
   | "setTimeSignature"
 >;
 
@@ -190,6 +192,7 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>, e
   // The tempo first: Tone fixes a scheduled note's place at the tempo of
   // the moment it's scheduled.
   engine.setBpm(state.bpm);
+  engine.setTempoMap(makeTempoMap(state.bpm, state.tempoChanges));
   engine.setTimeSignature(quarterNotesPerBar(state.timeSignature.numerator, state.timeSignature.denominator));
   state.buses.forEach((bus) => {
     engine.addBus(bus.id);
@@ -208,14 +211,28 @@ export function hydrateEngine(state: ProjectState, registeredIds: Set<string>, e
   syncEffects(engine, "master", [], state.masterEffects);
 }
 
+/** After a tempo edit (Daw changeTempo, tempoEdits.ts): the new tempo,
+ * then what moved with it. Unlike an undo, a new starting tempo needn't
+ * rebuild everything - every clip that follows the beat was just moved, so
+ * the diff rebuilds those (their notes are scheduled in ticks, at the
+ * tempo of the moment: so the tempo goes first). */
+export function retimeEngine(prev: ProjectState, next: ProjectState, registeredIds: Set<string>, engine: EngineApi): void {
+  engine.setBpm(next.bpm);
+  engine.setTempoMap(makeTempoMap(next.bpm, next.tempoChanges));
+  syncEngine({ ...prev, bpm: next.bpm, tempoChanges: next.tempoChanges }, next, registeredIds, engine);
+}
+
 /** Moves the engine from `prev` to `next` (undo, redo), changing only what
- * differs. A tempo change rescales every clip, so it rebuilds it all. */
+ * differs. A change of the starting tempo or the meter rebuilds it all;
+ * tempo changes further on move only the clips and automation that
+ * follow the beat (tempoEdits.ts), which the diff below picks up. */
 export function syncEngine(prev: ProjectState, next: ProjectState, registeredIds: Set<string>, engine: EngineApi): void {
   if (prev === next) return;
   if (prev.bpm !== next.bpm || prev.timeSignature !== next.timeSignature) {
     hydrateEngine(next, registeredIds, engine);
     return;
   }
+  if (prev.tempoChanges !== next.tempoChanges) engine.setTempoMap(makeTempoMap(next.bpm, next.tempoChanges));
 
   // Buses first: tracks' sends need them.
   const prevBuses = new Set(prev.buses.map((b) => b.id));

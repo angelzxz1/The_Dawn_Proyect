@@ -18,6 +18,7 @@ import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoo
 import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registry";
 import { HEX_COLOR } from "./colors";
 import { cleanClipName } from "./clipEdits";
+import { makeTempoMap, type TempoChange } from "./tempoMap";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
 import type {
   AutomationLane,
@@ -86,6 +87,8 @@ export interface SerializedProject {
   buses: BusConfig[];
   busEffects: Record<string, EffectInstance[]>;
   bpm: number;
+  /** Tempo changes after the start (tempoMap.ts). */
+  tempoChanges: TempoChange[];
   timeSignature: TimeSignature;
   masterVolume: number;
   masterPan: number;
@@ -484,6 +487,14 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     buses: busList,
     busEffects,
     bpm: num(r.bpm, 120, 20, 300),
+    // Each beat once, in order, only ones that change the tempo.
+    tempoChanges: makeTempoMap(
+      num(r.bpm, 120, 20, 300),
+      arr(r.tempoChanges).flatMap((c) => {
+        const cr = obj(c);
+        return typeof cr.beat === "number" && typeof cr.bpm === "number" ? [{ beat: cr.beat, bpm: cr.bpm }] : [];
+      })
+    ).changes,
     timeSignature: {
       numerator: int(ts.numerator, 4, 1, 32),
       denominator: oneOf(ts.denominator, [1, 2, 4, 8, 16], 4),

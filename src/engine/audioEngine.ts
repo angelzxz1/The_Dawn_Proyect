@@ -1,4 +1,5 @@
 import * as Tone from "tone";
+import type { TempoMap } from "../project/tempoMap";
 import { PREFERRED_SAMPLE_RATE, nativeAudioContext } from "./context";
 
 export { PREFERRED_SAMPLE_RATE };
@@ -1601,6 +1602,11 @@ class AudioEngine {
 
   get isAudioRecording(): boolean {
     return this.audioRecording !== null;
+  }
+
+  /** Where the beats are, for the metronome (tempoMap.ts). */
+  setTempoMap(map: TempoMap): void {
+    this.transport.setTempoMap(map.segments);
   }
 
   setBpm(bpm: number): void {

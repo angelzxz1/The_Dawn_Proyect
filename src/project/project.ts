@@ -12,6 +12,7 @@ import type {
   TimeSignature,
 } from "./types";
 import type { EffectInstance } from "../effects/registry";
+import type { TempoChange } from "./tempoMap";
 
 export interface ProjectState {
   channels: ChannelConfig[];
@@ -22,6 +23,8 @@ export interface ProjectState {
   buses: BusConfig[];
   busEffects: Record<string, EffectInstance[]>;
   bpm: number;
+  /** Tempo changes after the start (tempoMap.ts); none for one tempo. */
+  tempoChanges: TempoChange[];
   timeSignature: TimeSignature;
   masterVolume: number;
   masterPan: number;

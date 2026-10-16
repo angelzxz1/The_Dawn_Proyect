@@ -23,6 +23,7 @@ import {
 } from "@/project/clipEdits";
 import { HEX_COLOR } from "@/project/colors";
 import { clearRange, type TimeRange } from "@/project/timeRange";
+import { bpmAtSeconds, type TempoMap } from "@/project/tempoMap";
 import type { AudioClipInstance, ClipInstance } from "@/project/types";
 import { noteIssue } from "@/services/issues";
 import { audioBlobs } from "./audioBlobs";
@@ -113,11 +114,12 @@ export const clipEditActions = {
     return changeClips(ids, (c) => relabel(c, "color", color?.toLowerCase() ?? undefined));
   },
 
-  /** Audio clips' fades from a preset (clipEdits.ts). */
-  setFades(ids: ReadonlySet<string>, preset: FadePreset, bpm: number, beatsPerBar: number): boolean {
+  /** Audio clips' fades from a preset (clipEdits.ts), at the tempo where
+   * each clip starts. */
+  setFades(ids: ReadonlySet<string>, preset: FadePreset, tempo: TempoMap, beatsPerBar: number): boolean {
     return changeClips(ids, (c) => {
       if (!isAudio(c)) return c;
-      const { fadeIn, fadeOut } = presetFades(preset, c.length, bpm, beatsPerBar);
+      const { fadeIn, fadeOut } = presetFades(preset, c.length, bpmAtSeconds(tempo, c.offset), beatsPerBar);
       return fadeIn === c.fadeIn && fadeOut === c.fadeOut ? c : { ...c, fadeIn, fadeOut };
     });
   },

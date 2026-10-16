@@ -3,7 +3,7 @@
 // loop all go through here so the clicks always match the music.
 
 import * as Tone from "tone";
-import { Metronome } from "./metronome";
+import { Metronome, type ClickTempo } from "./metronome";
 
 /** How far ahead of the audio clock (s) Play and Record start the
  * transport: past the scheduling window (context.ts), with room for the
@@ -13,6 +13,8 @@ const START_LEAD = 0.13;
 
 export class Transport {
   private readonly metronome: Metronome;
+  /** The tempo map (setTempoMap); none set yet: Tone's tempo throughout. */
+  private segments: ClickTempo[] = [];
 
   /** `clickOutput`: where the metronome and count-in go. */
   constructor(clickOutput: () => Tone.InputNode) {
@@ -28,14 +30,15 @@ export class Transport {
     return Tone.getTransport();
   }
 
-  /** Where the transport is now, in beats (stopped or paused: where it'll start). */
-  private get positionBeats(): number {
-    return this.tone.ticks / this.tone.PPQ;
+  /** Where the transport is now, in seconds (stopped or paused: where
+   * it'll start). The metronome works in these, with the tempo map. */
+  private get position(): number {
+    return this.tone.seconds;
   }
 
-  /** Where the transport is, in beats, at context time `time`. */
-  private beatsAt(time: number): number {
-    return this.tone.getTicksAtTime(time) / this.tone.PPQ;
+  /** Where the transport is, in seconds, at context time `time`. */
+  private positionAt(time: number): number {
+    return this.tone.getSecondsAtTime(time);
   }
 
   /** After the transport jumps or changes tempo or loop while playing, the
@@ -43,12 +46,12 @@ export class Transport {
   private resyncMetronome(): void {
     if (!this.metronome.running || this.tone.state !== "started") return;
     const now = Tone.now();
-    this.metronome.resync(now, this.beatsAt(now));
+    this.metronome.resync(now, this.positionAt(now));
   }
 
   /** Plays from wherever the transport sits. */
   play(): void {
-    const pos = this.positionBeats;
+    const pos = this.position;
     const time = Tone.immediate() + START_LEAD;
     this.tone.start(time);
     this.metronome.start(time, pos);
@@ -67,8 +70,10 @@ export class Transport {
       this.metronome.setLoop(null);
     }
     this.tone.seconds = Math.max(0, fromSeconds);
-    const pos = this.positionBeats;
-    const startTime = Tone.immediate() + START_LEAD + countInBeats * (60 / this.tone.bpm.value);
+    const pos = this.position;
+    // The count-in is at the tempo where recording starts (as the
+    // metronome counts it).
+    const startTime = Tone.immediate() + START_LEAD + countInBeats * (60 / this.bpmAt(pos));
     this.tone.start(startTime);
     this.metronome.start(startTime, pos, countInBeats);
     return startTime;
@@ -104,10 +109,25 @@ export class Transport {
     return this.tone.state;
   }
 
+  /** The tempo at the start (Tone's transport, which plays everything in
+   * seconds, keeps this; the beats follow the tempo map, setTempoMap). */
   setBpm(bpm: number): void {
     this.tone.bpm.value = bpm;
-    this.metronome.setTempo(bpm);
+  }
+
+  /** Where the beats are (tempoMap.ts segments, in transport seconds): what
+   * the metronome clicks on. */
+  setTempoMap(segments: ClickTempo[]): void {
+    this.segments = segments;
+    this.metronome.setTempo(segments);
     this.resyncMetronome();
+  }
+
+  /** The tempo at a transport position (s). */
+  private bpmAt(seconds: number): number {
+    let bpm = this.segments[0]?.bpm ?? this.tone.bpm.value;
+    for (const s of this.segments) if (s.seconds <= seconds + 1e-6) bpm = s.bpm;
+    return bpm;
   }
 
   setBeatsPerBar(beatsPerBar: number): void {
@@ -121,8 +141,7 @@ export class Transport {
     this.tone.loopStart = startSeconds;
     this.tone.loopEnd = Math.max(startSeconds + 0.05, endSeconds);
     this.tone.loop = enabled;
-    const beat = this.tone.bpm.value / 60;
-    this.metronome.setLoop(enabled ? { start: Number(this.tone.loopStart) * beat, end: Number(this.tone.loopEnd) * beat } : null);
+    this.metronome.setLoop(enabled ? { start: startSeconds, end: Math.max(startSeconds + 0.05, endSeconds) } : null);
     this.resyncMetronome();
   }
 

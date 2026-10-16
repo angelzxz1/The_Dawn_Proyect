@@ -8,6 +8,7 @@ import { TRACK_ROW_HEIGHT } from "./layout";
 import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 import { TOOL_CURSORS, type ClipTool } from "./clipTools";
 import { MAX_CLIP_NAME } from "@/project/clipEdits";
+import { NO_GRID, type Grid } from "@/project/tempoMap";
 
 /** What the slip tool changes: where an audio clip's content starts in its
  * file, or a MIDI clip's notes. */
@@ -44,9 +45,9 @@ interface ClipBlockProps {
   offset: number;
   length: number;
   pxPerSecond: number;
-  /** Grid size (seconds) a drag snaps to; 0/undefined means free (no
-   * snapping) - drag position follows the pointer exactly. */
-  snapSeconds?: number;
+  /** The grid drags snap to (tempoMap.ts); none means free - drag
+   * position follows the pointer exactly. */
+  grid?: Grid;
   selected: boolean;
   /** `additive` is true for a Ctrl/Cmd-click, which should toggle this
    * clip's membership in the current selection instead of replacing it. */
@@ -139,7 +140,7 @@ export function ClipBlock({
   offset,
   length,
   pxPerSecond,
-  snapSeconds,
+  grid = NO_GRID,
   selected,
   onSelect,
   onEdit,
@@ -164,9 +165,14 @@ export function ClipBlock({
   const laneHeight = rowHeight - pad * 2 - 18;
   const lastClickAt = useRef(0);
 
-  const grid = snapSeconds && snapSeconds > 0 ? snapSeconds : null;
-  const snap = (seconds: number) => (grid ? Math.round(seconds / grid) * grid : seconds);
-  const minLength = grid ?? MIN_RESIZE_SECONDS;
+  const snap = grid.snap;
+  const minLength = grid.stepAt(offset) || MIN_RESIZE_SECONDS;
+  /** A distance on the grid: whole grid steps (from the grid line nearest
+   * where it starts). */
+  const snapDistance = (from: number, distance: number) => {
+    const base = snap(from);
+    return snap(base + distance) - base;
+  };
   /** The pointer and draw tools keep the clip's own handles (resize,
    * fades, gain); the others act on the whole clip. */
   const handles = !passive && (tool === "pointer" || tool === "draw");
@@ -198,7 +204,7 @@ export function ClipBlock({
       if (!moved && Math.abs(dx) <= DRAG_THRESHOLD_PX) return;
       if (!moved) onDragStart?.();
       moved = true;
-      const shift = snap(dx / pxPerSecond);
+      const shift = snapDistance(offset, dx / pxPerSecond);
       if (clipType === "audio") onSlip?.({ sourceOffset: Math.min(maxSource, Math.max(0, startSource - shift)) });
       else onSlip?.({ notes: startNotes.map((n) => ({ ...n, time: n.time + shift })) });
     };
@@ -274,7 +280,7 @@ export function ClipBlock({
         onDragStart?.();
       }
       const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
-      const newLength = Math.max(minLength, snap(startLength + deltaSeconds));
+      const newLength = Math.max(minLength, snapDistance(offset, startLength + deltaSeconds));
       onResize(newLength);
     };
     const onUp = () => {

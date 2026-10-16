@@ -393,3 +393,20 @@ describe("monitored tracks", () => {
     expect(normalizeProject({ channels, monitoredTracks: ["ch-1", "ch-1", "ch-2", "ch-9", 5] })?.monitoredTracks).toEqual(["ch-1"]);
   });
 });
+
+describe("tempo changes", () => {
+  it("an older project, saved before tempo changes were, has none", () => {
+    expect(normalizeProject({ bpm: 100 })?.tempoChanges).toEqual([]);
+  });
+
+  it("keeps them in order, once a beat, in range, and drops ones that change nothing or are broken", () => {
+    const project = normalizeProject({
+      bpm: 100,
+      tempoChanges: [{ beat: 16, bpm: 90 }, { beat: 8, bpm: 500 }, { beat: 12, bpm: 300 }, { beat: 0, bpm: 80 }, { beat: "x", bpm: 1 }, null],
+    });
+    expect(project?.tempoChanges).toEqual([
+      { beat: 8, bpm: 300 },
+      { beat: 16, bpm: 90 },
+    ]);
+  });
+});

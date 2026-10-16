@@ -27,6 +27,7 @@ function initialProject(): ProjectState {
     buses: [],
     busEffects: {},
     bpm: 120,
+    tempoChanges: [],
     timeSignature: { numerator: 4, denominator: 4 },
     masterVolume: 0,
     masterPan: 0,

@@ -9,6 +9,8 @@ import { audioEngine } from "@/engine/audioEngine";
 import type { DecodedAudioClip } from "@/engine/audioFile";
 import { copyClip, getCopiedClip } from "./clipboard";
 import { grooveBeats, grooveKit, grooveNotes, type Groove } from "@/library/grooves";
+import { makeTempoMap } from "@/project/tempoMap";
+import { notesAtBeats, secondsForBeats } from "@/project/tempoEdits";
 import { audioClipTiming, midiTimeline } from "@/engine/engineSync";
 import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, NoteEvent } from "@/project/types";
 import { audioBlobs } from "./audioBlobs";
@@ -111,11 +113,13 @@ export const clipActions = {
     return clip.id;
   },
 
-  /** Puts a groove on a MIDI track as a clip at `offset`, at the project's
-   * tempo; a track without drums gets the kit the groove was made with.
+  /** Puts a groove on a MIDI track as a clip at `offset`, on the beats of
+   * the project's tempo map; a track without drums gets the kit the groove
+   * was made with.
    * Returns the clip's id (null if it isn't a MIDI track). */
   addGroove(channelId: string, groove: Groove, offset: number): string | null {
-    const { channels, bpm } = projectStore.get();
+    const { channels, bpm, tempoChanges } = projectStore.get();
+    const tempo = makeTempoMap(bpm, tempoChanges);
     const channel = channels.find((c) => c.id === channelId);
     if (!channel || channel.type !== "midi") return null;
     projectStore.push();
@@ -128,8 +132,9 @@ export const clipActions = {
       id: newClipId(),
       kind: "midi",
       offset,
-      length: (grooveBeats(groove) * 60) / bpm,
-      notes: grooveNotes(groove, bpm),
+      length: secondsForBeats(tempo, offset, grooveBeats(groove)),
+      // At 60 bpm a second is a beat: the notes in beats, then on the map.
+      notes: notesAtBeats(grooveNotes(groove, 60), tempo, offset),
       loopLength: null,
     };
     const updated = [...clipsOf(channelId), clip];

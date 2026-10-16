@@ -213,6 +213,52 @@ export class Studio {
   get bpm(): Locator {
     return this.page.locator('label:has-text("BPM") input');
   }
+
+  /** The tempo lane, under the loop brace. */
+  get tempoLane(): Locator {
+    return this.page.getByTestId("tempo-lane");
+  }
+
+  /** The autosaved tempo map, and where each track's clips and their
+   * notes are (s), by track name. */
+  autosavedTiming(): Promise<SavedTiming | null> {
+    return this.page.evaluate(
+      () =>
+        new Promise<SavedTiming | null>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const get = open.result.transaction("meta").objectStore("meta").get("current");
+            get.onerror = () => reject(get.error);
+            get.onsuccess = () => {
+              type Raw = { offset: number; length: number; notes?: { time: number; duration: number }[] };
+              const p = get.result as
+                | { bpm: number; tempoChanges?: { beat: number; bpm: number }[]; channels: { id: string; name: string }[]; clipsByChannel: Record<string, Raw[]> }
+                | undefined;
+              if (!p) return resolve(null);
+              const clips = Object.fromEntries(
+                p.channels.map((c) => [
+                  c.name,
+                  (p.clipsByChannel[c.id] ?? []).map((clip) => ({
+                    offset: clip.offset,
+                    length: clip.length,
+                    notes: (clip.notes ?? []).map((n) => ({ time: n.time, duration: n.duration })),
+                  })),
+                ])
+              );
+              resolve({ bpm: p.bpm, tempoChanges: p.tempoChanges ?? [], clips });
+            };
+          };
+        })
+    );
+  }
+}
+
+/** The autosaved timing (Studio.autosavedTiming). */
+export interface SavedTiming {
+  bpm: number;
+  tempoChanges: { beat: number; bpm: number }[];
+  clips: Record<string, { offset: number; length: number; notes: { time: number; duration: number }[] }[]>;
 }
 
 /** A clip as autosaved (Studio.autosavedClips). */

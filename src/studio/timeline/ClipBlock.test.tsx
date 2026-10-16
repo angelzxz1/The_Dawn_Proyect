@@ -8,6 +8,7 @@ import type { ComponentProps } from "react";
 import { ClipBlock } from "./ClipBlock";
 import { TRACK_COLOR_PALETTE } from "@/project/colors";
 import { drag, pointIn } from "@/test/pointer";
+import { fixedGrid } from "@/project/tempoMap";
 
 const PX = 100;
 
@@ -32,7 +33,7 @@ function renderClip(props: Partial<ComponentProps<typeof ClipBlock>> = {}) {
         offset={2}
         length={4}
         pxPerSecond={PX}
-        snapSeconds={0.5}
+        grid={fixedGrid(0.5)}
         selected={false}
         {...callbacks}
         {...props}

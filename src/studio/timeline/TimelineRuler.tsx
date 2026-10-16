@@ -2,9 +2,11 @@
 
 import { useMemo } from "react";
 import { RULER_HEIGHT, computeAdaptiveMarks, snapUnitFor } from "./layout";
+import { makeGrid, type TempoMap } from "@/project/tempoMap";
 
 interface TimelineRulerProps {
-  bpm: number;
+  /** Where the beats and bars are. */
+  tempo: TempoMap;
   totalSeconds: number;
   pxPerSecond: number;
   beatsPerBar: number;
@@ -16,7 +18,7 @@ interface TimelineRulerProps {
 }
 
 export function TimelineRuler({
-  bpm,
+  tempo,
   totalSeconds,
   pxPerSecond,
   beatsPerBar,
@@ -29,15 +31,14 @@ export function TimelineRuler({
   // (with their labels) fade in as you zoom in, the same progression as the
   // piano roll editor's ruler - "1", then "1.2", then "1.2.3".
   const marks = useMemo(
-    () => computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar),
-    [bpm, totalSeconds, pxPerSecond, beatsPerBar]
+    () => computeAdaptiveMarks(tempo, totalSeconds, pxPerSecond, beatsPerBar),
+    [tempo, totalSeconds, pxPerSecond, beatsPerBar]
   );
+  /** The finest grid drawn: what clicks and drags here snap to. */
+  const grid = useMemo(() => makeGrid(tempo, snapUnitFor(tempo, pxPerSecond, beatsPerBar)), [tempo, pxPerSecond, beatsPerBar]);
+  const snappedAt = (clientX: number, rect: DOMRect) => Math.max(0, grid.snap(Math.max(0, (clientX - rect.left) / pxPerSecond)));
 
-  const seekFromClientX = (clientX: number, rect: DOMRect) => {
-    const raw = Math.max(0, (clientX - rect.left) / pxPerSecond);
-    const unit = snapUnitFor(bpm, pxPerSecond, beatsPerBar);
-    onSeek(Math.max(0, Math.round(raw / unit) * unit));
-  };
+  const seekFromClientX = (clientX: number, rect: DOMRect) => onSeek(snappedAt(clientX, rect));
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -46,12 +47,12 @@ export function TimelineRuler({
     target.setPointerCapture(e.pointerId);
 
     if (e.shiftKey) {
-      const unit = snapUnitFor(bpm, pxPerSecond, beatsPerBar);
-      const anchor = Math.max(0, Math.round((e.clientX - rect.left) / pxPerSecond / unit) * unit);
-      onSetLoopRegion(anchor, anchor + unit);
+      const anchor = snappedAt(e.clientX, rect);
+      const step = grid.stepAt(anchor);
+      onSetLoopRegion(anchor, anchor + step);
       const onMove = (ev: PointerEvent) => {
-        const cur = Math.max(0, Math.round((ev.clientX - rect.left) / pxPerSecond / unit) * unit);
-        onSetLoopRegion(Math.min(anchor, cur), Math.max(anchor, cur, anchor + unit));
+        const cur = snappedAt(ev.clientX, rect);
+        onSetLoopRegion(Math.min(anchor, cur), Math.max(anchor, cur, anchor + step));
       };
       const onUp = () => {
         target.releasePointerCapture(e.pointerId);

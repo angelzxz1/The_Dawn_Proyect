@@ -6,6 +6,7 @@ import { RecordingClip } from "@/studio/timeline/RecordingClip";
 import { TOOL_CURSORS, type ClipTool } from "@/studio/timeline/clipTools";
 import type { ClipInstance } from "@/project/types";
 import type { TimeRange } from "@/project/timeRange";
+import { beatAtSeconds, secondsAtBeat, type Grid, type TempoMap } from "@/project/tempoMap";
 import { trackColorFromHex, type TrackColor } from "@/project/colors";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
@@ -51,12 +52,13 @@ export interface TrackLaneActions {
 interface TrackLaneProps {
   clips: ClipInstance[];
   color: TrackColor;
-  bpm: number;
+  /** Where the beats and bars are (tempoMap.ts). */
+  tempo: TempoMap;
   beatsPerBar: number;
   totalSeconds: number;
   pxPerSecond: number;
-  /** Grid size (seconds) a clip drag snaps to; 0 means free positioning. */
-  snapSeconds: number;
+  /** The grid clip drags and drawing snap to. */
+  grid: Grid;
   /** Whether this track is the clicked/focused one - tints the whole lane. */
   selected: boolean;
   /** Whether this track is record-armed - shows a small indicator dot. */
@@ -107,11 +109,11 @@ const MIN_DRAWN = 0.25;
 export const TrackLane = memo(function TrackLane({
   clips,
   color,
-  bpm,
+  tempo,
   beatsPerBar,
   totalSeconds,
   pxPerSecond,
-  snapSeconds,
+  grid,
   selected,
   armed,
   recording = false,
@@ -142,7 +144,7 @@ export const TrackLane = memo(function TrackLane({
   const onClipDragStart = actions.clipDragStart;
   const onDropAudioFile = (file: File, atSeconds: number) => actions.dropAudioFile(channelId, file, atSeconds);
   const onDropGroove = acceptsGrooves ? (grooveId: string, atSeconds: number) => actions.dropGroove(channelId, grooveId, atSeconds) : undefined;
-  const marks = computeAdaptiveMarks(bpm, totalSeconds, pxPerSecond, beatsPerBar);
+  const marks = computeAdaptiveMarks(tempo, totalSeconds, pxPerSecond, beatsPerBar);
   const [fileDragOver, setFileDragOver] = useState(false);
   const [grooveDragOver, setGrooveDragOver] = useState(false);
   const isGroove = (e: React.DragEvent) => !!onDropGroove && e.dataTransfer.types.includes(GROOVE_DRAG_MIME);
@@ -169,18 +171,15 @@ export const TrackLane = memo(function TrackLane({
     lane.setPointerCapture(e.pointerId);
     const left = lane.getBoundingClientRect().left;
     const at = (clientX: number) => Math.max(0, (clientX - left) / pxPerSecond);
-    const grid = snapSeconds > 0 ? snapSeconds : 0;
-    const bar = (60 / bpm) * beatsPerBar;
     const anchor = at(e.clientX);
     const span = (x: number) => {
-      const lo = Math.min(anchor, x);
-      const hi = Math.max(anchor, x);
-      const start = grid ? Math.floor(lo / grid) * grid : lo;
-      const end = grid ? Math.ceil(hi / grid) * grid : hi;
-      return { start, end: Math.max(end, start + (grid || MIN_DRAWN)) };
+      const start = Math.max(0, grid.floor(Math.min(anchor, x)));
+      const end = grid.ceil(Math.max(anchor, x));
+      return { start, end: Math.max(end, start + (grid.stepAt(start) || MIN_DRAWN)) };
     };
-    const firstBar = { start: grid ? Math.floor(anchor / grid) * grid : anchor, end: 0 };
-    firstBar.end = firstBar.start + bar;
+    // A click: one bar, from the grid line before it.
+    const barStart = Math.max(0, grid.floor(anchor));
+    const firstBar = { start: barStart, end: secondsAtBeat(tempo, beatAtSeconds(tempo, barStart) + beatsPerBar) };
     let dragged = false;
     let current = firstBar;
     setDrawing(current);
@@ -335,7 +334,7 @@ export const TrackLane = memo(function TrackLane({
           offset={clip.offset}
           length={clip.length}
           pxPerSecond={pxPerSecond}
-          snapSeconds={snapSeconds}
+          grid={grid}
           selected={selectedClipIds.has(clip.id)}
           onSelect={(additive) => onSelectClip(clip.id, additive)}
           onEdit={() => onEditClip(clip.id)}

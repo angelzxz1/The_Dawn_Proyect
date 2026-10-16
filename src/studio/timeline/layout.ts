@@ -1,6 +1,6 @@
 // Shared layout constants and helpers for the horizontal arrangement view.
 
-import { secondsPerBar } from "../../project/musicTime";
+import { beatAtSeconds, maxBpm, secondsAtBeat, type TempoMap } from "../../project/tempoMap";
 
 export const TRACK_HEADER_WIDTH = 202;
 // Tall enough for the header's four rows - name, pan/vol + meter, the
@@ -40,42 +40,31 @@ export interface AdaptiveMark {
 const SHOW_BEATS_PX = 22;
 const SHOW_16THS_PX = 16;
 
-/** Bar gridline positions (in px) for a timeline at the given tempo/zoom. */
-export function computeBarMarks(
-  bpm: number,
-  totalSeconds: number,
-  pxPerSecond: number,
-  beatsPerBar: number = 4
-): BarMark[] {
-  const bar = secondsPerBar(bpm, beatsPerBar);
-  const count = Math.ceil(totalSeconds / bar) + 1;
-  return Array.from({ length: count }, (_, i) => ({
-    index: i,
-    left: i * bar * pxPerSecond,
-  }));
-}
-
 /**
  * Adaptive grid marks shared by the main timeline ruler/lanes and the piano
  * roll editor: bars are always shown; beat subdivisions fade in as you zoom
  * in, then 16th-note ticks once you're zoomed in further still - the same
- * "1" / "1.2" / "1.2.3" progression in both places.
+ * "1" / "1.2" / "1.2.3" progression in both places. They follow the tempo
+ * map (tempoMap.ts), counted from `originSeconds` (a clip's start, in the
+ * piano roll); how fine they go is set by the fastest tempo, so the
+ * densest stretch doesn't clutter.
  */
 export function computeAdaptiveMarks(
-  bpm: number,
+  tempo: TempoMap,
   totalSeconds: number,
   pxPerSecond: number,
-  beatsPerBar: number
+  beatsPerBar: number,
+  originSeconds = 0
 ): AdaptiveMark[] {
-  const secondsPerBeat = 60 / bpm;
-  const secondsPer16th = secondsPerBeat / 4;
+  const secondsPerBeat = 60 / maxBpm(tempo);
   const beatPx = secondsPerBeat * pxPerSecond;
-  const sixteenthPx = secondsPer16th * pxPerSecond;
+  const sixteenthPx = (secondsPerBeat / 4) * pxPerSecond;
   const showBeats = beatPx >= SHOW_BEATS_PX;
   const show16ths = sixteenthPx >= SHOW_16THS_PX;
-  const step = show16ths ? secondsPer16th : secondsPerBeat;
-  const totalSteps = Math.ceil(totalSeconds / step);
+  const stepBeats = show16ths ? 0.25 : 1;
   const stepsPerBeat = show16ths ? 4 : 1;
+  const origin = beatAtSeconds(tempo, originSeconds);
+  const totalSteps = Math.ceil((beatAtSeconds(tempo, originSeconds + totalSeconds) - origin) / stepBeats - 1e-9);
   const marks: AdaptiveMark[] = [];
   for (let i = 0; i <= totalSteps; i++) {
     const beatIndex = Math.floor(i / stepsPerBeat);
@@ -96,17 +85,18 @@ export function computeAdaptiveMarks(
     } else if (show16ths) {
       label = `${bar}.${beat}.${sixteenth}`;
     }
-    marks.push({ index: i, left: i * step * pxPerSecond, strength, label });
+    const left = (secondsAtBeat(tempo, origin + i * stepBeats) - originSeconds) * pxPerSecond;
+    marks.push({ index: i, left, strength, label });
   }
   return marks;
 }
 
 /** The finest grid line currently visible at this zoom level (bar, beat, or
- * 16th) - what a click-to-seek should snap to, matching what's drawn. */
-export function snapUnitFor(bpm: number, pxPerSecond: number, beatsPerBar: number): number {
-  const secondsPerBeat = 60 / bpm;
-  const secondsPer16th = secondsPerBeat / 4;
-  if (secondsPer16th * pxPerSecond >= SHOW_16THS_PX) return secondsPer16th;
-  if (secondsPerBeat * pxPerSecond >= SHOW_BEATS_PX) return secondsPerBeat;
-  return secondsPerBar(bpm, beatsPerBar);
+ * 16th), in beats - what a click-to-seek should snap to, matching what's
+ * drawn. */
+export function snapUnitFor(tempo: TempoMap, pxPerSecond: number, beatsPerBar: number): number {
+  const secondsPerBeat = 60 / maxBpm(tempo);
+  if ((secondsPerBeat / 4) * pxPerSecond >= SHOW_16THS_PX) return 0.25;
+  if (secondsPerBeat * pxPerSecond >= SHOW_BEATS_PX) return 1;
+  return beatsPerBar;
 }

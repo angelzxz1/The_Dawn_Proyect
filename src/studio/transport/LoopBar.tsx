@@ -2,24 +2,24 @@
 
 import { useEffect, useRef } from "react";
 import {
-  beatsToSeconds,
   formatLength,
   formatPosition,
   moveLoop,
   parseLength,
   parsePosition,
-  secondsToBeats,
   setLoopEdge,
   snapBeats,
   type ArrangementLoop,
 } from "@/project/arrangementLoop";
+import { beatAtSeconds, secondsAtBeat, type TempoMap } from "@/project/tempoMap";
 
 export const LOOP_BAR_HEIGHT = 14;
 const HANDLE_PX = 7;
 
 interface LoopBarProps {
   loop: ArrangementLoop;
-  bpm: number;
+  /** Where the beats are (the loop is in beats). */
+  tempo: TempoMap;
   pxPerSecond: number;
   totalSeconds: number;
   beatsPerBar: number;
@@ -36,10 +36,10 @@ type Drag = { kind: "move" | "start" | "end" | "draw"; x0: number; loop: Arrange
  * its ends to resize it, or drag on the strip to draw a new one (hold Alt
  * to skip the grid). Click it to select it for the arrow keys; double-click
  * to switch looping on or off. */
-export function LoopBar({ loop, bpm, pxPerSecond, totalSeconds, beatsPerBar, snapUnit, selected, onSelect, onChange }: LoopBarProps) {
+export function LoopBar({ loop, tempo, pxPerSecond, totalSeconds, beatsPerBar, snapUnit, selected, onSelect, onChange }: LoopBarProps) {
   const drag = useRef<Drag | null>(null);
   const brace = useRef<HTMLDivElement>(null);
-  const toX = (beats: number) => beatsToSeconds(beats, bpm) * pxPerSecond;
+  const toX = (beats: number) => secondsAtBeat(tempo, beats) * pxPerSecond;
   const left = toX(loop.start);
   const width = Math.max(4, toX(loop.end) - left);
   const color = loop.on ? "#E6AD5E" : "#6B6C78";
@@ -52,7 +52,7 @@ export function LoopBar({ loop, bpm, pxPerSecond, totalSeconds, beatsPerBar, sna
     return () => window.removeEventListener("pointerdown", down, true);
   }, [selected, onSelect]);
 
-  const beatsAt = (clientX: number, el: HTMLElement) => secondsToBeats(Math.max(0, (clientX - el.getBoundingClientRect().left) / pxPerSecond), bpm);
+  const beatsAt = (clientX: number, el: HTMLElement) => beatAtSeconds(tempo, Math.max(0, (clientX - el.getBoundingClientRect().left) / pxPerSecond));
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -78,7 +78,7 @@ export function LoopBar({ loop, bpm, pxPerSecond, totalSeconds, beatsPerBar, sna
     const unit = e.altKey ? 0 : snapUnit;
     const at = beatsAt(e.clientX, e.currentTarget);
     if (d.kind === "move") {
-      const delta = secondsToBeats((e.clientX - d.x0) / pxPerSecond, bpm);
+      const delta = at - beatsAt(d.x0, e.currentTarget);
       onChange(moveLoop(d.loop, snapBeats(d.loop.start + delta, unit)));
     } else if (d.kind === "start" || d.kind === "end") {
       onChange(setLoopEdge(d.loop, d.kind, snapBeats(at, unit)));

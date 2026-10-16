@@ -50,6 +50,9 @@ Live and Reaper.
   draw, drag and resize, Ctrl+L to loop the selected clips, start and length
   fields, and the arrow keys to move it. It stays on its bars when the tempo
   changes and is saved with the project.
+- **Tempo changes.** A tempo lane under the ruler where the tempo can change
+  at any bar. The ruler, the grid, the loop and the metronome follow it, and
+  MIDI clips, notes and automation stay on their beats when you edit it.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
 - **Three instruments:** a sampled grand piano, a 16-pad Drum Rack (modeled
@@ -475,9 +478,9 @@ The app works best in **Chrome** or **Edge** on a desktop computer.
 - **Transport.** Record, play/pause, stop, metronome, loop, tempo, time
   signature, count-in, and the click's level.
 - **Effect browser** (left). Every effect and preset, with a search box.
-- **Arrangement.** The ruler, then one row per track: its header on the left
-  (name, color, arm, monitor, mute, solo, FX, input, import and export) and
-  its clips on the right.
+- **Arrangement.** The ruler, the loop brace and the tempo lane, then one
+  row per track: its header on the left (name, color, arm, monitor, mute,
+  solo, FX, input, import and export) and its clips on the right.
 - **Buses and master.** The send/return buses and the master bus with its
   volume, pan and limiter ceiling.
 - **Instrument panel.** The on-screen piano or drum pads for the selected
@@ -802,6 +805,34 @@ and grey when it's off.
 - The loop is kept in bars and beats, so changing the tempo leaves it on the
   same bars. It's saved with the project.
 
+### Tempo changes
+
+The **Tempo** lane, under the loop brace, shows the song's tempo and every
+place it changes.
+
+- **Add a change:** double-click the lane. The change goes on the nearest
+  bar; type its tempo and press **Enter**. (**Escape** leaves it out.)
+- **Change a tempo:** click it and type a new one. The first one is the
+  song's starting tempo, the same as the **BPM** field.
+- **Move a change:** drag it along the beats. It snaps to the grid shown on
+  the ruler; hold **Alt** to place it freely. It stays between the changes on
+  either side.
+- **Remove a change:** right-click it.
+- The ruler, the snap grid, the loop and the metronome (with its count-in)
+  all follow the tempo changes. A tempo change is a step: the new tempo
+  starts right on its beat.
+- **What moves with the tempo:** MIDI clips and their notes, MIDI takes, and
+  the automation on MIDI and group tracks stay on the beats they were
+  written on, so changing the tempo speeds them up or slows them down.
+  Audio clips aren't stretched, so they keep their place in time, and so
+  does the automation on audio tracks.
+- The piano roll's grid is at the tempo where its clip starts.
+- MIDI files are read and written with their tempo changes: an imported file
+  lands on its beats wherever the project's tempo changes, and an exported
+  one carries the project's tempo map.
+- Every tempo edit is one undo step, and the tempo map is saved with the
+  project.
+
 ### The piano roll
 
 Double-click a MIDI clip to open it.
@@ -1044,6 +1075,11 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   buses and the master.
 - **Scheduling.** Clips are scheduled on the Tone transport. MIDI you play
   live goes straight to the instrument, not through the transport.
+- **Tempo.** The timeline is in seconds. The tempo map
+  (`src/project/tempoMap.ts`) says where the beats fall on it, for the grid,
+  the ruler, the loop and the metronome; the transport runs at the starting
+  tempo and plays everything at its time in seconds. Editing the map moves
+  what follows the beat to its new time (`tempoEdits.ts`).
 - **The custom effects and the synth run in AudioWorklets**, in the audio
   thread: the compressors, gate, limiter, parametric EQ, multiband effects,
   saturator, utility, Daybreak (`synthKernel.ts`) and the Drum Rack

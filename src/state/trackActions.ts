@@ -1,9 +1,10 @@
 // What you can do to a track: add, remove, rename, recolor, move, its
 // fader, pan, mute, solo, arm and instrument, its sends, and its place in
-// the routing (groups, Audio To / From) and the view (folded). Each changes
-// the project (and the audio engine where it hears about it directly), as
-// one undo step where it's an edit. What the view does around it - which
-// track is selected, which FX rack is open - stays with the view.
+// the routing (groups, Audio To / From) and the view (folded, its height).
+// Each changes the project (and the audio engine where it hears about it
+// directly), as one undo step where it's an edit. What the view does around
+// it - which track is selected, which FX rack is open - stays with the
+// view.
 
 import { audioEngine } from "@/engine/audioEngine";
 import type { TrackColorPick } from "@/project/colors";
@@ -12,6 +13,7 @@ import { startingSettings, type InstrumentSettings } from "@/instruments/registr
 import { track } from "@/services/telemetry";
 import { automationTargetKey } from "@/project/automationTargets";
 import type { AutomationPoint, AutomationTarget, ChannelConfig, ChannelType, InstrumentType, TrackInput } from "@/project/types";
+import { clampTrackHeight, DEFAULT_TRACK_HEIGHT } from "@/project/trackHeight";
 import { createChannel, newAutomationLaneId } from "./ids";
 import { projectStore } from "./projectStore";
 
@@ -201,6 +203,23 @@ export const trackActions = {
 
   toggleFold(id: string): void {
     updateTrack(id, (c) => ({ ...c, folded: !c.folded }));
+  },
+
+  /** Sets a track's height (trackHeight.ts), or gives it back the
+   * standard one (null). Like folding, it's the view: not an undo step. */
+  setHeight(id: string, height: number | null): void {
+    updateTrack(id, (c) => (height === null ? without(c, "height") : { ...c, height: clampTrackHeight(height) }));
+  },
+
+  /** Every track this tall (null: the standard height). */
+  setAllHeights(height: number | null): void {
+    setChannels((prev) => prev.map((c) => (height === null ? without(c, "height") : { ...c, height: clampTrackHeight(height) })));
+  },
+
+  /** Every track taller or shorter by `factor` (zooming the arrangement
+   * vertically). */
+  scaleHeights(factor: number): void {
+    setChannels((prev) => prev.map((c) => ({ ...c, height: clampTrackHeight((c.height ?? DEFAULT_TRACK_HEIGHT) * factor) })));
   },
 
   /** Folds every track to a short row, or unfolds them all; with no

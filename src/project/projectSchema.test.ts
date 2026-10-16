@@ -415,6 +415,21 @@ describe("monitored tracks", () => {
   });
 });
 
+describe("track heights", () => {
+  it("keeps a track's height, in range, and drops a broken one", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null, type: "midi" };
+    const project = normalizeProject({
+      channels: [
+        { ...base, id: "a", name: "A", height: 200 },
+        { ...base, id: "b", name: "B", height: 9999 },
+        { ...base, id: "c", name: "C", height: "tall" },
+        { ...base, id: "d", name: "D" },
+      ],
+    })!;
+    expect(project.channels.map((c) => c.height)).toEqual([200, 320, undefined, undefined]);
+  });
+});
+
 describe("tempo changes", () => {
   it("an older project, saved before tempo changes were, has none", () => {
     expect(normalizeProject({ bpm: 100 })?.tempoChanges).toEqual([]);

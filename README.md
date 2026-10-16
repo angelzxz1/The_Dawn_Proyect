@@ -46,6 +46,8 @@ Live and Reaper.
 - **Time selection**, like Ableton's: drag across lanes to select a span of
   time, then cut, copy, paste, duplicate, empty it, insert silence or delete
   the time, on every track at once.
+- **Zoom** with Ctrl/Cmd+wheel or a pinch around the pointer, zoom to fit
+  the song or the selection, and tracks of any height.
 - **Arrangement loop**, like Ableton's: a loop brace under the ruler you
   draw, drag and resize, Ctrl+L to loop the selected clips, start and length
   fields, and the arrow keys to move it. It stays on its bars when the tempo
@@ -566,6 +568,17 @@ haven't saved to a folder yet.
 - **Scroll the timeline** with the bar pinned under the tracks: drag it,
   click where you want to go, or use the mouse wheel over it. Shift+wheel
   over the lanes scrolls sideways too.
+- **Zoom** with Ctrl/Cmd+wheel or a trackpad pinch: it zooms around the
+  pointer. The zoom buttons above the tracks, and **=** and **-**, zoom
+  around the playhead (or the middle of the view). **Zoom to fit**
+  (the button next to them, or **Shift+Z**) fits the time selection, or the
+  whole song. Zoomed far out, the ruler shows every 2nd, 4th or 8th bar.
+- **Make a track taller or shorter** by dragging the bottom edge of its
+  header; hold **Alt** to set every track to that height, and double-click
+  the edge for the standard height. **Alt+wheel** over the arrangement makes
+  every track taller or shorter. A shorter track's header shows what fits:
+  its controls (mute, solo, FX), then pan and volume, then its import and
+  export buttons. Heights are saved with the project.
 - **Fold** a track with the arrow left of its name: it becomes a short row
   with its name, mute and solo, and its clips show as bars. Alt-click the
   arrow, or click **Fold** above the track list, to fold or unfold every
@@ -1072,6 +1085,10 @@ and Ctrl/Cmd+O work everywhere but in the tour.
 | Shift+Delete | Delete the time selected (what's after it moves earlier) |
 | Ctrl/Cmd+L | Loop the time selection or the selected clips, or switch the loop on/off |
 | Ctrl/Cmd+J | Consolidate the time selection, or the selected clips on each track |
+| = / - | Zoom in / out (around the playhead) |
+| Shift+Z | Zoom to fit the time selection, or the whole song |
+| Ctrl/Cmd+wheel, or a pinch | Zoom around the pointer |
+| Alt+wheel | Make every track taller or shorter |
 | F2 | Rename the selected clip |
 | Shift+1 … Shift+5 | Edit tool: pointer, split, draw, erase, slip |
 | Esc | Back to the pointer tool, then end the time selection |

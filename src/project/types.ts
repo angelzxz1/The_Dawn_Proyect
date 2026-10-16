@@ -59,6 +59,9 @@ export interface ChannelConfig extends InstrumentSettings {
   /** Folded: a short row in the arrangement (for a group: its members are
    * hidden too). */
   folded?: boolean;
+  /** Its row's height in the arrangement when it isn't folded (px,
+   * trackHeight.ts); unset, the standard height. */
+  height?: number;
   /** Its take lanes are showing under it (when it has takes). */
   showTakes?: boolean;
   /** Automation lanes recorded for this channel's volume/pan/effect knobs.

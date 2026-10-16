@@ -25,6 +25,11 @@ import { TRACK_COLOR_PALETTE, type TrackColor, type TrackColorPick } from "@/pro
 import { CustomColorButton } from "./CustomColorButton";
 import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 
+/** From these heights (px) the header shows its controls row (input,
+ * mute, solo, FX), then pan and volume too. */
+const CONTROLS_ROW_FROM = 62;
+const MIX_ROW_FROM = 92;
+
 /** Mute and solo, shared by the full and the folded header. */
 function MuteSolo({ channel, onMuteToggle, onSoloToggle }: { channel: ChannelConfig; onMuteToggle: () => void; onSoloToggle: () => void }) {
   return (
@@ -99,6 +104,9 @@ export interface TrackHeaderActions {
   requestInputDevices(): void;
   /** Folds or unfolds the track; `all` (Alt-click) does every track. */
   toggleFold(id: string, all: boolean): void;
+  /** Its height dragged to (px), or the standard one (null); `all` (Alt)
+   * does every track. */
+  resizeHeight(id: string, height: number | null, all: boolean): void;
   /** Ctrl/Cmd-click: picks the track to be grouped with the other picked ones. */
   pick(id: string): void;
   /** Shows or hides the track's take lanes. */
@@ -134,7 +142,8 @@ interface TrackHeaderProps {
    * it armed first. Unused for a MIDI track. */
   inputDevices?: { deviceId: string; label: string }[];
   selectedInputDeviceId?: string | null;
-  /** The row's height: short when the track is folded. */
+  /** The row's height: short when the track is folded; the header shows as
+   * many of its rows as fit. */
   rowHeight?: number;
   /** For a group's member: the group's color, drawn as a bar at its left. */
   groupColor?: TrackColor;
@@ -251,7 +260,11 @@ export const TrackHeader = memo(function TrackHeader({
   const [showColorPicker, setShowColorPicker] = useState(false);
   const isMidi = channel.type === "midi";
   const isGroup = channel.type === "group";
-  const folded = rowHeight < TRACK_ROW_HEIGHT;
+  // As many of its rows as fit: the name (with mute and solo, alone),
+  // the input, mute, solo and FX row, pan and volume, then the files row.
+  const oneRow = rowHeight < CONTROLS_ROW_FROM;
+  const showMix = rowHeight >= MIX_ROW_FROM;
+  const showFiles = rowHeight >= TRACK_ROW_HEIGHT;
 
   const commitRename = () => {
     const trimmed = draftName.trim();
@@ -272,12 +285,12 @@ export const TrackHeader = memo(function TrackHeader({
       title="Ctrl/Cmd-click to pick several tracks, then Ctrl+G to group them"
       className={`relative flex shrink-0 cursor-pointer flex-col gap-1 border-b border-r border-border py-1.5 pr-1.5 transition-colors ${
         groupColor ? "pl-3" : "pl-1.5"
-      } ${folded ? "justify-center" : ""} ${picked ? "ring-2 ring-inset ring-accent" : ""} ${
+      } ${oneRow ? "justify-center" : ""} ${picked ? "ring-2 ring-inset ring-accent" : ""} ${
         picked ? "bg-accent/10" : selected ? "bg-surface-raised" : isGroup ? "bg-surface-raised/40 hover:bg-surface-raised/70" : "bg-surface hover:bg-surface-raised/60"
       }`}
     >
       {groupColor && <div className="pointer-events-none absolute inset-y-0 left-0 w-1.5" style={{ background: groupColor.accent, opacity: 0.7 }} />}
-      {isGroup && !folded && <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5" style={{ background: color.accent }} />}
+      {isGroup && !oneRow && <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5" style={{ background: color.accent }} />}
       <div className="relative flex items-center gap-1.5">
         <button
           type="button"
@@ -375,13 +388,13 @@ export const TrackHeader = memo(function TrackHeader({
             {channel.name}
           </span>
         )}
-        {isGroup && !folded && (
+        {isGroup && !oneRow && (
           <span title={`${memberCount} track${memberCount === 1 ? "" : "s"} in this group`} className="shrink-0 rounded border border-border px-1 text-[9px] text-muted">
             {memberCount}
           </span>
         )}
-        {folded && !isMaster && <MuteSolo channel={channel} onMuteToggle={onMuteToggle} onSoloToggle={onSoloToggle} />}
-        {!isMaster && !isMidi && !isGroup && !folded && (
+        {oneRow && !isMaster && <MuteSolo channel={channel} onMuteToggle={onMuteToggle} onSoloToggle={onSoloToggle} />}
+        {!isMaster && !isMidi && !isGroup && !oneRow && (
           <button
             type="button"
             title={
@@ -428,7 +441,7 @@ export const TrackHeader = memo(function TrackHeader({
         )}
       </div>
 
-      {!folded && (
+      {showMix && (
       <div
         className="flex items-center gap-2"
         onClick={(e) => e.stopPropagation()}
@@ -462,7 +475,7 @@ export const TrackHeader = memo(function TrackHeader({
       </div>
       )}
 
-      {!isMaster && !folded && (
+      {!isMaster && !oneRow && (
         <div
           className="flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
@@ -526,7 +539,7 @@ export const TrackHeader = memo(function TrackHeader({
         </div>
       )}
 
-      {!isMaster && !folded && (
+      {!isMaster && showFiles && (
         <div
           className="flex items-center gap-1"
           onClick={(e) => e.stopPropagation()}
@@ -612,6 +625,44 @@ export const TrackHeader = memo(function TrackHeader({
           )}
         </div>
       )}
+      {!isMaster && !channel.folded && <HeightHandle height={rowHeight} onResize={(height, all) => actions.resizeHeight(id, height, all)} />}
     </div>
   );
 });
+
+/** The header's bottom edge: drag it to make the track taller or shorter
+ * (Alt: every track); double-click for the standard height. */
+function HeightHandle({ height, onResize }: { height: number; onResize: (height: number | null, all: boolean) => void }) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Track height"
+      aria-valuenow={height}
+      title="Drag to make the track taller or shorter (Alt: every track) · double-click for the standard height"
+      className="absolute inset-x-0 -bottom-px z-10 h-[5px] cursor-row-resize hover:bg-accent/40"
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onResize(null, e.altKey);
+      }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const target = e.currentTarget;
+        target.setPointerCapture(e.pointerId);
+        const y0 = e.clientY;
+        const move = (ev: PointerEvent) => onResize(height + ev.clientY - y0, ev.altKey);
+        const up = () => {
+          target.removeEventListener("pointermove", move);
+          target.removeEventListener("pointerup", up);
+          target.removeEventListener("pointercancel", up);
+        };
+        target.addEventListener("pointermove", move);
+        target.addEventListener("pointerup", up);
+        target.addEventListener("pointercancel", up);
+      }}
+    />
+  );
+}

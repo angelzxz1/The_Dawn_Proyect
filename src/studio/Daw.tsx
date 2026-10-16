@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -25,6 +26,7 @@ import {
   KeyboardMusic,
   Scissors,
   Undo2,
+  Expand,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -33,6 +35,7 @@ import { TrackHeader, type TrackHeaderActions } from "@/studio/tracks/TrackHeade
 import { TrackLane, type TrackLaneActions } from "@/studio/tracks/TrackLane";
 import { useStableActions } from "@/ui/useStableActions";
 import { TimelineScrollbar } from "@/studio/timeline/TimelineScrollbar";
+import { clampZoom, fitSpan, scrollKeeping, wheelZoomFactor, ZOOM_STEP } from "@/studio/timeline/zoom";
 import { TimelineRuler } from "@/studio/timeline/TimelineRuler";
 import { Playhead } from "@/studio/timeline/Playhead";
 import { TransportBar } from "@/studio/transport/TransportBar";
@@ -501,6 +504,95 @@ export function Daw() {
     if (rulerViewportRef.current) {
       rulerViewportRef.current.scrollLeft = e.currentTarget.scrollLeft;
     }
+  }, []);
+
+  // --- Zoom (zoom.ts) ---
+  /** The arrangement (its vertical scroller): where the wheel and a pinch
+   * zoom. */
+  const arrangementRef = useRef<HTMLDivElement>(null);
+  /** The zoom asked for last - ahead of the redraw, as a fast wheel turns
+   * it several times between redraws - and where the lanes scroll to once
+   * it's drawn. */
+  const zoomRef = useRef(pxPerSecond);
+  const pendingScrollRef = useRef<number | null>(null);
+  /** Zooms to `next` px a second (kept in range), then scrolls the lanes to
+   * where `scrollAt` says for the zoom it ends up at. */
+  const setZoom = useCallback((next: number, scrollAt: (px: number) => number) => {
+    const px = clampZoom(next);
+    const scroll = scrollAt(px);
+    if (px === zoomRef.current) {
+      if (lanesScrollRef.current) lanesScrollRef.current.scrollLeft = scroll;
+      return;
+    }
+    zoomRef.current = px;
+    pendingScrollRef.current = scroll;
+    setPxPerSecond(px);
+  }, []);
+  useLayoutEffect(() => {
+    zoomRef.current = pxPerSecond;
+    const lanes = lanesScrollRef.current;
+    if (lanes && pendingScrollRef.current !== null) lanes.scrollLeft = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+  }, [pxPerSecond]);
+  /** Zooms by `factor`, keeping the time under `clientX` (on the lanes)
+   * where it is - with no point, the playhead when it's on screen, else
+   * the middle of the view. */
+  const zoomBy = useCallback(
+    (factor: number, clientX?: number) => {
+      const lanes = lanesScrollRef.current;
+      if (!lanes) return;
+      const px = zoomRef.current;
+      const scrollLeft = pendingScrollRef.current ?? lanes.scrollLeft;
+      const width = lanes.clientWidth;
+      let x: number;
+      if (clientX !== undefined) {
+        x = Math.min(width, Math.max(0, clientX - lanes.getBoundingClientRect().left));
+      } else {
+        const playhead = audioEngine.getTransportSeconds() * px - scrollLeft;
+        x = playhead >= 0 && playhead <= width ? playhead : width / 2;
+      }
+      const seconds = (scrollLeft + x) / px;
+      setZoom(px * factor, (next) => scrollKeeping(seconds, x, next));
+    },
+    [setZoom]
+  );
+  // Ctrl/Cmd+wheel (and a trackpad's pinch, which comes as one) zooms
+  // around the pointer; Alt+wheel makes every track taller or shorter.
+  // Safari's pinch comes as gesture events.
+  const onArrangementWheel = useEffectEvent((e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      zoomBy(wheelZoomFactor(e.deltaY, e.deltaMode), e.clientX);
+    } else if (e.altKey) {
+      e.preventDefault();
+      trackActions.scaleHeights(wheelZoomFactor(e.deltaY, e.deltaMode));
+    }
+  });
+  const onArrangementPinch = useEffectEvent((factor: number, clientX: number) => zoomBy(factor, clientX));
+  useEffect(() => {
+    const el = arrangementRef.current;
+    if (!el) return;
+    type Gesture = Event & { scale?: number; clientX?: number };
+    let lastScale = 1;
+    const wheel = (e: WheelEvent) => onArrangementWheel(e);
+    const gestureStart = (e: Event) => {
+      e.preventDefault();
+      lastScale = 1;
+    };
+    const gestureChange = (e: Gesture) => {
+      e.preventDefault();
+      const scale = e.scale ?? 1;
+      if (scale > 0) onArrangementPinch(scale / lastScale, e.clientX ?? 0);
+      lastScale = scale;
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    el.addEventListener("gesturestart", gestureStart);
+    el.addEventListener("gesturechange", gestureChange);
+    return () => {
+      el.removeEventListener("wheel", wheel);
+      el.removeEventListener("gesturestart", gestureStart);
+      el.removeEventListener("gesturechange", gestureChange);
+    };
   }, []);
 
   // --- Time selection (rangeActions.ts) ---
@@ -1402,6 +1494,19 @@ export function Daw() {
   // The studio's keys (shortcuts.ts). The piano roll, dialogs and the note
   // keys sit above them: while the note keys play a MIDI track, R is a note
   // and Shift+R records.
+  /** Zooms to fit the time selection, or else the whole song. */
+  const zoomToFit = () => {
+    const lanes = lanesScrollRef.current;
+    if (!lanes) return;
+    const songEnd = Math.max(
+      channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
+      secondsAtBeat(tempo, 4 * beatsPerBar)
+    );
+    const span = timeSelection ?? { start: 0, end: songEnd };
+    const fit = fitSpan(span.start, span.end, lanes.clientWidth);
+    setZoom(fit.pxPerSecond, () => fit.scrollLeft);
+  };
+
   const nudgeLoopWith = (e: KeyboardEvent) => {
     if (!loopSelected) return false;
     // Arrows move the loop (up/down by its length, left/right by the grid);
@@ -1412,6 +1517,9 @@ export function Daw() {
   };
   useShortcuts("studio", [
     { keys: "space", label: "Play / pause", run: () => handleTogglePlay() },
+    { keys: "=", label: "Zoom in", run: () => zoomBy(ZOOM_STEP) },
+    { keys: "-", label: "Zoom out", run: () => zoomBy(1 / ZOOM_STEP) },
+    { keys: "shift+z", label: "Zoom to fit the time selection, or the whole song", run: zoomToFit },
     { keys: ["r", "shift+r"], label: "Record", run: () => void handleRecord() },
     { keys: "mod+z", label: "Undo", run: () => undo() },
     { keys: ["mod+shift+z", "mod+y"], label: "Redo", run: () => redo() },
@@ -1870,6 +1978,7 @@ export function Daw() {
     setInputDevice: handleInputDeviceChange,
     requestInputDevices: handleRequestInputDevices,
     toggleFold: (id, all) => (all ? handleFoldAll(!channels.find((c) => c.id === id)?.folded) : handleToggleFold(id)),
+    resizeHeight: (id, height, all) => (all ? trackActions.setAllHeights(height) : trackActions.setHeight(id, height)),
     pick: handlePickTrack,
     toggleTakes: takeActions.toggleShowTakes,
   });
@@ -2106,23 +2215,29 @@ export function Daw() {
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() =>
-                setPxPerSecond((z) => Math.max(MIN_PX_PER_SECOND, z - 20))
-              }
-              title="Zoom out"
-              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+              disabled={pxPerSecond <= MIN_PX_PER_SECOND}
+              title="Zoom out (-) · Ctrl/Cmd+wheel or pinch zooms around the pointer"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
             >
               <ZoomOut size={12} />
             </button>
             <button
               type="button"
-              onClick={() =>
-                setPxPerSecond((z) => Math.min(MAX_PX_PER_SECOND, z + 20))
-              }
-              title="Zoom in"
-              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+              onClick={() => zoomBy(ZOOM_STEP)}
+              disabled={pxPerSecond >= MAX_PX_PER_SECOND}
+              title="Zoom in (=) · Ctrl/Cmd+wheel or pinch zooms around the pointer"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised disabled:opacity-30"
             >
               <ZoomIn size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={zoomToFit}
+              title="Zoom to fit (Shift+Z): the time selection, or the whole song"
+              className="flex h-6 w-6 items-center justify-center rounded border border-border hover:bg-surface-raised"
+            >
+              <Expand size={12} />
             </button>
           </div>
           <div role="group" aria-label="Edit tool" className="flex overflow-hidden rounded border border-border">
@@ -2205,7 +2320,7 @@ export function Daw() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border">
+      <div ref={arrangementRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-lg border border-border">
         {/* Sticky ruler row - a direct child of the vertical scroller (not
             nested inside the horizontally-scrolling lanes column), so
             position: sticky actually has that scroller as its containing

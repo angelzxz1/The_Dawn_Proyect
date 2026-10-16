@@ -115,6 +115,23 @@ export class Studio {
     );
   }
 
+  /** Each autosaved track's height (unset: the standard one), by name. */
+  autosavedHeights(): Promise<Record<string, number | undefined> | null> {
+    return this.page.evaluate(
+      () =>
+        new Promise<Record<string, number | undefined> | null>((resolve, reject) => {
+          const open = indexedDB.open("dawn-project-db");
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const get = open.result.transaction("meta").objectStore("meta").get("current");
+            get.onerror = () => reject(get.error);
+            get.onsuccess = () =>
+              resolve(get.result ? Object.fromEntries(get.result.channels.map((c: { name: string; height?: number }) => [c.name, c.height])) : null);
+          };
+        })
+    );
+  }
+
   async undo(): Promise<void> {
     await this.page.getByTitle("Undo (Ctrl/Cmd+Z)").click();
   }

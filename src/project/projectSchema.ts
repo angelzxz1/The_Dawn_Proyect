@@ -19,6 +19,7 @@ import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registr
 import { HEX_COLOR } from "./colors";
 import { cleanClipName } from "./clipEdits";
 import { clampBpm, makeTempoMap, type TempoChange } from "./tempoMap";
+import { clampTrackHeight } from "./trackHeight";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
 import { cleanMarkers } from "./warp";
 import type {
@@ -291,6 +292,7 @@ function normalizeChannel(
     ...(typeof r.output === "string" && r.output ? { output: r.output } : {}),
     ...(type === "audio" && normalizeTrackInput(r.input) ? { input: normalizeTrackInput(r.input)! } : {}),
     ...(r.folded === true ? { folded: true } : {}),
+    ...(typeof r.height === "number" && Number.isFinite(r.height) ? { height: clampTrackHeight(r.height) } : {}),
     ...(r.showTakes === true && type !== "group" ? { showTakes: true } : {}),
     sends,
     automationLanes,

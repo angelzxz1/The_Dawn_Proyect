@@ -231,7 +231,7 @@ export class Studio {
             const get = open.result.transaction("meta").objectStore("meta").get("current");
             get.onerror = () => reject(get.error);
             get.onsuccess = () => {
-              type Raw = { offset: number; length: number; notes?: { time: number; duration: number }[] };
+              type Raw = { offset: number; length: number; notes?: { time: number; duration: number }[]; warp?: { bpm: number; mode: string } };
               const p = get.result as
                 | { bpm: number; tempoChanges?: { beat: number; bpm: number }[]; channels: { id: string; name: string }[]; clipsByChannel: Record<string, Raw[]> }
                 | undefined;
@@ -243,6 +243,7 @@ export class Studio {
                     offset: clip.offset,
                     length: clip.length,
                     notes: (clip.notes ?? []).map((n) => ({ time: n.time, duration: n.duration })),
+                    ...(clip.warp ? { warp: { bpm: clip.warp.bpm, mode: clip.warp.mode } } : {}),
                   })),
                 ])
               );
@@ -258,7 +259,7 @@ export class Studio {
 export interface SavedTiming {
   bpm: number;
   tempoChanges: { beat: number; bpm: number }[];
-  clips: Record<string, { offset: number; length: number; notes: { time: number; duration: number }[] }[]>;
+  clips: Record<string, { offset: number; length: number; notes: { time: number; duration: number }[]; warp?: { bpm: number; mode: string } }[]>;
 }
 
 /** A clip as autosaved (Studio.autosavedClips). */

@@ -11,6 +11,9 @@ import { MAX_COMPENSATION } from "../engine/nodes";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
 import { notesWithinClip } from "../project/project";
+import { makeTempoMap, type TempoMap } from "../project/tempoMap";
+import { warpPieces } from "../project/warp";
+import { warpedBuffer, warpKey } from "../engine/warpRender";
 import { workletsReady } from "../engine/workletLoader";
 import { chainLatency, nodeLatency } from "../engine/latency";
 import { audibleTracks, planMix } from "../engine/mixGraph";
@@ -40,6 +43,8 @@ export interface BounceParams {
   contentEndSeconds: number;
   /** Plugin delay compensation, as in playback (default on). */
   delayCompensation?: boolean;
+  /** Where the beats are: warped clips follow it (warp.ts). */
+  tempo?: TempoMap;
   /** Audio tracks being monitored. Those taking another track's audio as
    * their input ("Audio From") play it through their effects, as heard;
    * an audio interface's input isn't part of an export. */
@@ -357,15 +362,23 @@ export async function renderProject(params: BounceParams, options: RenderOptions
           const gain = new Tone.Volume(clip.gainDb).connect(ownDelay);
           const player = new Tone.Player({ fadeIn: clip.fadeIn, fadeOut: clip.fadeOut });
           player.connect(gain);
-          if (clip.loopLength && clip.loopLength > 0) {
+          const warp = clip.warp;
+          if (!warp && clip.loopLength && clip.loopLength > 0) {
             player.loop = true;
             player.loopStart = clip.sourceOffset;
             player.loopEnd = clip.sourceOffset + clip.loopLength;
           }
           loadPromises.push(
-            player.load(clip.url).then(() => {
+            player.load(clip.url).then(async () => {
+              // A warped clip plays its rendering (the live engine's, when
+              // it has one), loop and all.
+              if (warp) {
+                const pieces = warpPieces(clip, params.tempo ?? makeTempoMap(120));
+                const source = player.buffer.get()!;
+                player.buffer.set(await warpedBuffer(warpKey(clip.url, warp.mode, pieces, clip.length), source, pieces, clip.length, warp.mode));
+              }
               try {
-                player.start(clip.offset, clip.sourceOffset, playLength);
+                player.start(clip.offset, warp ? 0 : clip.sourceOffset, playLength);
               } catch (error) {
                 // A clip running past the render window, etc.: skip it.
                 noteIssue("export.clip", error);

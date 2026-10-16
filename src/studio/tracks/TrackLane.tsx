@@ -8,6 +8,7 @@ import type { ClipInstance } from "@/project/types";
 import type { TimeRange } from "@/project/timeRange";
 import { beatAtSeconds, secondsAtBeat, type Grid, type TempoMap } from "@/project/tempoMap";
 import { trackColorFromHex, type TrackColor } from "@/project/colors";
+import { warpView } from "@/project/warp";
 import { computeAdaptiveMarks, TRACK_ROW_HEIGHT } from "@/studio/timeline/layout";
 import { GROOVE_DRAG_MIME } from "@/library/grooves";
 
@@ -47,6 +48,8 @@ export interface TrackLaneActions {
   startTimeSelection(clientX: number, clientY: number): void;
   /** A clip's name typed in, or null when renaming was let go of (Esc). */
   renameClip(channelId: string, clipId: string, name: string | null): void;
+  /** A warped clip's own tempo typed in (warp.ts). */
+  setClipTempo(channelId: string, clipId: string, bpm: number): void;
 }
 
 interface TrackLaneProps {
@@ -349,6 +352,8 @@ export const TrackLane = memo(function TrackLane({
           onEraseStart={() => actions.startErase(clip.id)}
           onSlip={(change) => actions.slipClip(channelId, clip.id, change)}
           erasing={erasingIds.has(clip.id)}
+          warped={clip.kind === "audio" ? warpView(clip, tempo) : undefined}
+          onClipTempo={(bpm) => actions.setClipTempo(channelId, clip.id, bpm)}
         />
       ))}
       {timeSelection && (

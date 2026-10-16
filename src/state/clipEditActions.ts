@@ -15,7 +15,6 @@ import {
   consolidateMidi,
   firstClipIn,
   normalizeGain,
-  playedRegion,
   presetFades,
   reverseNotes,
   taggedFileName,
@@ -24,11 +23,16 @@ import {
 import { HEX_COLOR } from "@/project/colors";
 import { clearRange, type TimeRange } from "@/project/timeRange";
 import { bpmAtSeconds, type TempoMap } from "@/project/tempoMap";
+import { followingWarp, playedSource, reverseWarp, rewarp, warpAtTempo, warpPieces } from "@/project/warp";
+import { clampBpm } from "@/project/tempoMap";
+import { detectTempo } from "@/engine/tempoDetect";
+import type { AudioWarp } from "@/project/types";
+import { renderInSteps } from "@/engine/timeStretch";
 import type { AudioClipInstance, ClipInstance } from "@/project/types";
 import { noteIssue } from "@/services/issues";
 import { audioBlobs } from "./audioBlobs";
 import { newClipId } from "./ids";
-import { projectStore } from "./projectStore";
+import { currentTempo, projectStore } from "./projectStore";
 import { changeTracks } from "./trackClips";
 
 /** The clips in `ids`, wherever they are. */
@@ -72,6 +76,16 @@ async function fileOf(clip: AudioClipInstance): Promise<Blob | null> {
 
 /** Each clip's file as samples at `sampleRate`, each file decoded once. A
  * clip whose audio can't be had is left out (it renders as silence). */
+/** A warped clip's source as what it plays (its file stretched, loop and
+ * all): to mix it like an unwarped clip starting its file there. */
+async function warpedSource(source: ClipSource, tempo: TempoMap, sampleRate: number): Promise<ClipSource> {
+  const { clip, channels } = source;
+  if (!clip.warp) return source;
+  const frames = Math.max(1, Math.round(clip.length * sampleRate));
+  const played = await renderInSteps(channels, sampleRate, warpPieces(clip, tempo), frames, clip.warp.mode);
+  return { clip: { ...clip, sourceOffset: 0, loopLength: null, warp: undefined }, channels: played };
+}
+
 async function decodeAll(clips: AudioClipInstance[], sampleRate: number): Promise<ClipSource[]> {
   const byUrl = new Map<string, Promise<Float32Array[] | null>>();
   const sources: ClipSource[] = [];
@@ -124,13 +138,68 @@ export const clipEditActions = {
     });
   },
 
+  // --- Warping (warp.ts): each change keeps the part of the file a clip
+  // plays, its box growing or shrinking to fit. ---
+
+  /** Warps audio clips (they follow the tempo from now on, sounding as
+   * they do now) or unwarps them (they play at their own speed). */
+  setWarp(ids: ReadonlySet<string>, on: boolean): boolean {
+    const tempo = currentTempo();
+    return changeClips(ids, (c) => {
+      if (!isAudio(c) || !!c.warp === on) return c;
+      return rewarp(c, on ? followingWarp(c, tempo) : undefined, tempo);
+    });
+  },
+
+  /** Stretch (keeps the pitch) or repitch (like tape). */
+  setWarpMode(ids: ReadonlySet<string>, mode: AudioWarp["mode"]): boolean {
+    return changeClips(ids, (c) => (isAudio(c) && c.warp && c.warp.mode !== mode ? { ...c, warp: { ...c.warp, mode } } : c));
+  },
+
+  /** Gives audio clips their file's own tempo (warping them if they
+   * weren't): they play at the song's tempo, beat for beat, from where
+   * they start. */
+  setClipTempo(ids: ReadonlySet<string>, bpm: number): boolean {
+    const tempo = currentTempo();
+    const value = clampBpm(bpm);
+    return changeClips(ids, (c) => {
+      if (!isAudio(c)) return c;
+      const warp = warpAtTempo(c.warp ?? followingWarp(c, tempo), value);
+      return rewarp(c, warp, tempo);
+    });
+  },
+
+  /** Finds each audio clip's tempo in what it plays (tempoDetect.ts) and
+   * gives it that one. Returns the tempos found, by clip id (null where
+   * there's no clear beat). */
+  async detectTempo(ids: ReadonlySet<string>): Promise<Map<string, number | null>> {
+    const tempo = currentTempo();
+    const sampleRate = audioEngine.sampleRate;
+    const found = new Map<string, number | null>();
+    for (const { clip, channels } of await decodeAll(clipsIn(ids).filter(isAudio), sampleRate)) {
+      const { start, end } = playedSource(clip, tempo);
+      const from = Math.max(0, Math.round(start * sampleRate));
+      const to = Math.max(from, Math.round(end * sampleRate));
+      found.set(clip.id, detectTempo(channels.map((ch) => ch.subarray(from, to)), sampleRate)?.bpm ?? null);
+    }
+    const tempos = [...found].filter((entry): entry is [string, number] => entry[1] !== null);
+    if (tempos.length > 0) {
+      const byId = new Map(tempos);
+      changeClips(new Set(byId.keys()), (c) => {
+        if (!isAudio(c) || !byId.has(c.id)) return c;
+        return rewarp(c, warpAtTempo(c.warp ?? followingWarp(c, tempo), byId.get(c.id)!), tempo);
+      });
+    }
+    return found;
+  },
+
   /** Sets each audio clip's gain so what it plays peaks at full scale;
    * returns how many it changed. */
   async normalize(ids: ReadonlySet<string>): Promise<number> {
     const gains = new Map<string, number>();
     for (const clip of clipsIn(ids).filter(isAudio)) {
       const waveform = clip.url ? await loadWaveform(clip.url) : null;
-      const { start, end } = playedRegion(clip);
+      const { start, end } = playedSource(clip, currentTempo());
       const span = waveform ? waveformSpan(waveform, start, end) : null;
       const gain = span ? normalizeGain(Math.max(-span[0], span[1])) : null;
       if (gain !== null) gains.set(clip.id, gain);
@@ -161,13 +230,16 @@ export const clipEditActions = {
         const id = newClipId();
         renamed.set(c.id, id);
         const { url, peaks, durationSeconds } = file.decoded;
+        // A warped clip's file turns around with its warp.
+        const played = playedSource(c, currentTempo());
         return {
           ...c,
           id,
           url,
           peaks,
           durationSeconds,
-          sourceOffset: reversedSourceOffset(c, durationSeconds),
+          sourceOffset: c.warp ? Math.max(0, durationSeconds - played.end) : reversedSourceOffset(c, durationSeconds),
+          ...(c.warp ? { warp: reverseWarp(c.warp, durationSeconds) } : {}),
           fileName: taggedFileName(c.fileName, "reversed", true),
         };
       },
@@ -183,15 +255,20 @@ export const clipEditActions = {
     const state = projectStore.get();
     const typeOf = (id: string) => state.channels.find((c) => c.id === id)?.type;
     const sampleRate = audioEngine.sampleRate;
+    const tempo = currentTempo();
     const rendered = new Map<string, AudioClipInstance>();
     const audio = new Map<string, Blob>();
     for (const [channelId, span] of spans) {
       if (typeOf(channelId) !== "audio") continue;
       const clips = (state.clipsByChannel[channelId] ?? []).filter(isAudio).filter((c) => overlaps(c, span));
       if (clips.length === 0) continue;
-      const { blob, decoded } = await newFile(renderClips(await decodeAll(clips, sampleRate), span, sampleRate), sampleRate);
+      const sources = await Promise.all((await decodeAll(clips, sampleRate)).map((source) => warpedSource(source, tempo, sampleRate)));
+      const { blob, decoded } = await newFile(renderClips(sources, span, sampleRate), sampleRate);
       const first = firstClipIn(clips, span) as AudioClipInstance;
-      rendered.set(channelId, {
+      // Made of warped clips, it's warped too: as it sounds now, following
+      // the tempo from here on.
+      const warped = clips.find((c) => c.warp);
+      const joined: AudioClipInstance = {
         ...clipLabel(first),
         id: newClipId(),
         kind: "audio",
@@ -206,7 +283,8 @@ export const clipEditActions = {
         fadeOut: 0,
         gainDb: 0,
         loopLength: null,
-      });
+      };
+      rendered.set(channelId, warped?.warp ? { ...joined, warp: followingWarp(joined, tempo, warped.warp.mode) } : joined);
       audio.set(decoded.url, blob);
     }
     const made: string[] = [];
@@ -217,7 +295,7 @@ export const clipEditActions = {
         const joined = rendered.get(channelId);
         if (joined) {
           made.push(joined.id);
-          return [...clearRange(clips, span, newClipId), joined];
+          return [...clearRange(clips, span, newClipId, currentTempo()), joined];
         }
         if (typeOf(channelId) !== "midi") return clips;
         const next = consolidateMidi(clips, span, newClipId);

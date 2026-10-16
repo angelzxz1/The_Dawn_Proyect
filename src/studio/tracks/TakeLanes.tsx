@@ -12,7 +12,8 @@ import { TAKE_LANE_HEIGHT, TRACK_HEADER_WIDTH } from "@/studio/timeline/layout";
 import type { TrackColor } from "@/project/colors";
 import { trackColorFromHex } from "@/project/colors";
 import type { TimeRange } from "@/project/timeRange";
-import type { Grid } from "@/project/tempoMap";
+import type { Grid, TempoMap } from "@/project/tempoMap";
+import { warpView } from "@/project/warp";
 import type { TakeLane } from "@/project/types";
 
 const noop = () => {};
@@ -39,11 +40,13 @@ interface TakeLaneRowProps {
   totalSeconds: number;
   /** The grid a drag snaps to. */
   grid: Grid;
+  /** Where the beats are (warped clips follow it, warp.ts). */
+  tempo: TempoMap;
   /** Puts what the take has between the range's ends in the comp. */
   onComp: (laneId: string, range: TimeRange) => void;
 }
 
-export const TakeLaneRow = memo(function TakeLaneRow({ lane, used, color, pxPerSecond, totalSeconds, grid, onComp }: TakeLaneRowProps) {
+export const TakeLaneRow = memo(function TakeLaneRow({ lane, used, color, pxPerSecond, totalSeconds, grid, tempo, onComp }: TakeLaneRowProps) {
   const [dragging, setDragging] = useState<TimeRange | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -104,6 +107,8 @@ export const TakeLaneRow = memo(function TakeLaneRow({ lane, used, color, pxPerS
           durationSeconds={clip.kind === "audio" ? clip.durationSeconds : undefined}
           sourceOffset={clip.kind === "audio" ? clip.sourceOffset : undefined}
           gainDb={clip.kind === "audio" ? clip.gainDb : undefined}
+          loopLength={clip.loopLength}
+          warped={clip.kind === "audio" ? warpView(clip, tempo) : undefined}
           name={lane.name}
           color={clip.color ? trackColorFromHex(clip.color) : color}
           offset={clip.offset}

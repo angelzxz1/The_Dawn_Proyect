@@ -10,7 +10,7 @@ import { clearRange, deleteTime, extractRange, insertTime, placeRange, type Time
 import type { ProjectState } from "@/project/project";
 import { copyRange, getCopiedRange } from "./clipboard";
 import { newClipId } from "./ids";
-import { projectStore } from "./projectStore";
+import { currentTempo, projectStore } from "./projectStore";
 import { audioByUrl, changeTracks, keepAudio } from "./trackClips";
 import type { ClipInstance } from "@/project/types";
 
@@ -63,7 +63,7 @@ const lengthOf = (range: TimeRange) => range.end - range.start;
 export const rangeActions = {
   /** Empties the range on the selection's tracks. */
   clear(selection: TimeSelection): boolean {
-    return changeTracks(tracksOf(selection.channelIds), (clips) => clearRange(clips, selection, newClipId));
+    return changeTracks(tracksOf(selection.channelIds), (clips) => clearRange(clips, selection, newClipId, currentTempo()));
   },
 
   /** Copies what's in the range on the selection's tracks (Ctrl/Cmd+V puts
@@ -72,7 +72,7 @@ export const rangeActions = {
     const state = projectStore.get();
     const tracks = tracksOf(selection.channelIds, state).map((channelId) => ({
       channelId,
-      clips: extractRange(state.clipsByChannel[channelId] ?? [], selection, newClipId),
+      clips: extractRange(state.clipsByChannel[channelId] ?? [], selection, newClipId, currentTempo()),
     }));
     copyRange({ length: lengthOf(selection), lanes: selection.channelIds, tracks, audio: audioByUrl(state) });
   },
@@ -94,7 +94,7 @@ export const rangeActions = {
     const start = Math.max(0, at);
     changeTracks(
       tracks.map((t) => t.channelId),
-      (clips, channelId) => placeRange(clips, contentOf.get(channelId) ?? [], start, copied.length, newClipId),
+      (clips, channelId) => placeRange(clips, contentOf.get(channelId) ?? [], start, copied.length, newClipId, currentTempo()),
       copied.audio
     );
     const lanes = copied.lanes.filter((id) => existing.has(id));
@@ -105,7 +105,7 @@ export const rangeActions = {
    * copy's range (so duplicating again carries on). */
   duplicate(selection: TimeSelection): TimeSelection {
     const length = lengthOf(selection);
-    changeTracks(tracksOf(selection.channelIds), (clips) => placeRange(clips, extractRange(clips, selection, newClipId), selection.end, length, newClipId));
+    changeTracks(tracksOf(selection.channelIds), (clips) => placeRange(clips, extractRange(clips, selection, newClipId, currentTempo()), selection.end, length, newClipId, currentTempo()));
     return { ...selection, start: selection.end, end: selection.end + length };
   },
 
@@ -113,7 +113,7 @@ export const rangeActions = {
    * on moves later. */
   insertSilence(selection: TimeSelection): boolean {
     const tracks = tracksOf(selection.channelIds);
-    const edit = (clips: ClipInstance[]) => insertTime(clips, selection.start, lengthOf(selection), newClipId);
+    const edit = (clips: ClipInstance[]) => insertTime(clips, selection.start, lengthOf(selection), newClipId, currentTempo());
     const changed = changeTracks(tracks, edit);
     moveTakes(tracks, edit, changed);
     return changed;
@@ -122,7 +122,7 @@ export const rangeActions = {
   /** Takes the range out: everything after it moves earlier. */
   deleteTime(selection: TimeSelection): boolean {
     const tracks = tracksOf(selection.channelIds);
-    const edit = (clips: ClipInstance[]) => deleteTime(clips, selection, newClipId);
+    const edit = (clips: ClipInstance[]) => deleteTime(clips, selection, newClipId, currentTempo());
     const changed = changeTracks(tracks, edit);
     moveTakes(tracks, edit, changed);
     return changed;

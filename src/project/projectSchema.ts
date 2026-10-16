@@ -18,9 +18,11 @@ import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoo
 import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registry";
 import { HEX_COLOR } from "./colors";
 import { cleanClipName } from "./clipEdits";
-import { makeTempoMap, type TempoChange } from "./tempoMap";
+import { clampBpm, makeTempoMap, type TempoChange } from "./tempoMap";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
+import { cleanMarkers } from "./warp";
 import type {
+  AudioWarp,
   AutomationLane,
   AutomationPoint,
   BusConfig,
@@ -65,6 +67,8 @@ interface SerializedAudioClip extends SerializedClipLabel {
   fadeOut: number;
   gainDb: number;
   loopLength?: number | null;
+  /** Warped (warp.ts); unset, it plays at its own speed. */
+  warp?: AudioWarp;
 }
 
 export type SerializedClip = SerializedMidiClip | SerializedAudioClip;
@@ -350,7 +354,23 @@ function normalizeClip(raw: unknown, channelType: ChannelConfig["type"]): Serial
     fadeOut: num(r.fadeOut, 0, 0),
     gainDb: num(r.gainDb, 0, -60, 24),
     loopLength,
+    ...normalizeWarp(r.warp),
   };
+}
+
+/** A clip's warp, if it has a readable one: a tempo in range, markers in
+ * order. */
+function normalizeWarp(raw: unknown): { warp?: AudioWarp } {
+  if (!raw || typeof raw !== "object") return {};
+  const r = obj(raw);
+  if (typeof r.bpm !== "number" || !Number.isFinite(r.bpm)) return {};
+  const markers = cleanMarkers(
+    arr(r.markers).flatMap((m) => {
+      const mr = obj(m);
+      return typeof mr.source === "number" && typeof mr.beat === "number" ? [{ source: mr.source, beat: mr.beat }] : [];
+    })
+  );
+  return { warp: { mode: r.mode === "repitch" ? "repitch" : "stretch", bpm: clampBpm(r.bpm), markers } };
 }
 
 // --- project ---

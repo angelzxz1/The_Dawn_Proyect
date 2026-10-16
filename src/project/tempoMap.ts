@@ -34,6 +34,9 @@ const EPS = 1e-9;
 
 export const clampBpm = (bpm: number) => Math.min(MAX_BPM, Math.max(MIN_BPM, bpm));
 
+/** A tempo as shown and typed: whole, or up to two decimals. */
+export const formatBpm = (bpm: number) => String(Number(bpm.toFixed(2)));
+
 /** The map from a starting tempo and changes after it (in any order; one
  * per beat, the last given winning; ones at or before the start, or not
  * changing the tempo, are left out). */

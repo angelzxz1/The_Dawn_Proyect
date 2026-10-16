@@ -1,14 +1,15 @@
 // Keeping the song on its beats when the tempo map changes (tempoMap.ts).
-// What follows the beat moves with it: MIDI clips and their notes, MIDI
-// takes, and the automation on tracks that aren't audio. Audio clips
-// aren't stretched, so (like unwarped audio in most DAWs) they keep their
-// place in seconds - and so does the automation on audio tracks, which
+// What follows the beat moves with it: MIDI clips and their notes, warped
+// audio clips (warp.ts), takes, and the automation on tracks that aren't
+// audio. Unwarped audio isn't stretched, so (like in most DAWs) it keeps
+// its place in seconds - and so does the automation on audio tracks, which
 // stays with the audio it shapes. Pure: what doesn't move is returned as
 // it was, so the engine's diff (engineSync.ts) leaves it alone.
 
 import type { ProjectState } from "./project";
 import { beatAtSeconds, remapSeconds, secondsAtBeat, type TempoMap } from "./tempoMap";
-import type { AutomationLane, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent, TakeLane } from "./types";
+import { remapWarped } from "./warp";
+import type { AudioClipInstance, AutomationLane, ChannelConfig, ClipInstance, MidiClipInstance, NoteEvent, TakeLane } from "./types";
 
 /** Whether two maps put every beat in the same place. */
 export function sameTempo(a: TempoMap, b: TempoMap): boolean {
@@ -56,8 +57,20 @@ export function remapMidiClip(clip: MidiClipInstance, from: TempoMap, to: TempoM
   return moved ? { ...clip, offset, length, loopLength, notes } : clip;
 }
 
+/** A warped audio clip on its beats on the new map (the same clip when it
+ * doesn't move); an unwarped one stays. */
+function remapAudioClip(clip: AudioClipInstance, from: TempoMap, to: TempoMap): AudioClipInstance {
+  if (!clip.warp) return clip;
+  const at = (t: number) => {
+    const now = remapSeconds(t, from, to);
+    return Math.abs(now - t) < 1e-9 ? t : now;
+  };
+  const next = remapWarped(clip, at);
+  return next.offset === clip.offset && next.length === clip.length && next.loopLength === clip.loopLength ? clip : next;
+}
+
 function remapClips(clips: ClipInstance[], from: TempoMap, to: TempoMap): ClipInstance[] {
-  const next = clips.map((c) => (c.kind === "midi" ? remapMidiClip(c, from, to) : c));
+  const next = clips.map((c) => (c.kind === "midi" ? remapMidiClip(c, from, to) : remapAudioClip(c, from, to)));
   return next.every((c, i) => c === clips[i]) ? clips : next;
 }
 

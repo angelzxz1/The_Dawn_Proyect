@@ -8,7 +8,8 @@ import { TRACK_ROW_HEIGHT } from "./layout";
 import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 import { TOOL_CURSORS, type ClipTool } from "./clipTools";
 import { MAX_CLIP_NAME } from "@/project/clipEdits";
-import { NO_GRID, type Grid } from "@/project/tempoMap";
+import { formatBpm, NO_GRID, type Grid } from "@/project/tempoMap";
+import type { WarpView } from "@/project/warp";
 
 /** What the slip tool changes: where an audio clip's content starts in its
  * file, or a MIDI clip's notes. */
@@ -87,6 +88,10 @@ interface ClipBlockProps {
   /** Only drawn (a take's clip): no handles, and the pointer goes through
    * to what's under it. */
   passive?: boolean;
+  /** A warped audio clip's warp (warp.ts): it shows its tempo. */
+  warped?: WarpView;
+  /** The clip's tempo typed into its badge. */
+  onClipTempo?: (bpm: number) => void;
 }
 
 const MIN_MIDI = 36;
@@ -159,7 +164,10 @@ export function ClipBlock({
   renaming = false,
   onRename,
   passive = false,
+  warped,
+  onClipTempo,
 }: ClipBlockProps) {
+  const [typingTempo, setTypingTempo] = useState(false);
   const compact = rowHeight < COMPACT_BELOW;
   const pad = compact ? 3 : LANE_PADDING;
   const laneHeight = rowHeight - pad * 2 - 18;
@@ -195,9 +203,11 @@ export function ClipBlock({
     const startClientX = e.clientX;
     const startSource = sourceOffset;
     const startNotes = notes;
-    // An audio clip's content can slide until its file runs out.
+    // An audio clip's content can slide until its file runs out (a warped
+    // one's moves at the speed it plays its file).
+    const speed = warped?.speed ?? 1;
     const unit = loopLength && loopLength > 0 ? loopLength : length;
-    const maxSource = Math.max(0, durationSeconds - unit);
+    const maxSource = Math.max(0, durationSeconds - unit * speed);
     let moved = false;
     const onMoveEvt = (ev: PointerEvent) => {
       const dx = ev.clientX - startClientX;
@@ -205,7 +215,7 @@ export function ClipBlock({
       if (!moved) onDragStart?.();
       moved = true;
       const shift = snapDistance(offset, dx / pxPerSecond);
-      if (clipType === "audio") onSlip?.({ sourceOffset: Math.min(maxSource, Math.max(0, startSource - shift)) });
+      if (clipType === "audio") onSlip?.({ sourceOffset: Math.min(maxSource, Math.max(0, startSource - shift * speed)) });
       else onSlip?.({ notes: startNotes.map((n) => ({ ...n, time: n.time + shift })) });
     };
     const onUp = () => {
@@ -404,6 +414,31 @@ export function ClipBlock({
               <Repeat size={9} />
             </span>
           )}
+          {warped &&
+            (typingTempo ? (
+              <TempoField
+                bpm={warped.bpm}
+                onDone={(value) => {
+                  setTypingTempo(false);
+                  if (value !== null) onClipTempo?.(value);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                aria-label={`Clip tempo ${formatBpm(warped.bpm)} BPM`}
+                title={`Warped (${warped.mode === "repitch" ? "repitch" : "stretch"}): it follows the song's tempo. Its own tempo is ${formatBpm(warped.bpm)} BPM - click to type it`}
+                className="shrink-0 rounded-sm bg-black/20 px-1 font-mono text-[9px] leading-[13px]"
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!passive && onClipTempo) setTypingTempo(true);
+                }}
+              >
+                {formatBpm(warped.bpm)}
+              </button>
+            ))}
           {renaming ? (
             <RenameField name={name ?? ""} onDone={(value) => onRename?.(value)} />
           ) : (
@@ -449,6 +484,7 @@ export function ClipBlock({
               fadeIn,
               fadeOut,
               color: color.accent,
+              pieces: warped?.pieces,
             }}
           />
         ) : (
@@ -528,6 +564,37 @@ export function ClipBlock({
 
 /** A clip's name, being typed: Enter or leaving the field keeps it, Esc
  * doesn't. Keys and clicks stay in the field. */
+/** Typing a warped clip's own tempo: Enter (or leaving it) sets it, Escape
+ * doesn't. */
+function TempoField({ bpm, onDone }: { bpm: number; onDone: (bpm: number | null) => void }) {
+  const done = useRef(false);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    const parsed = value === null ? NaN : Number(value);
+    onDone(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+  };
+  return (
+    <input
+      autoFocus
+      aria-label="Clip tempo (BPM)"
+      defaultValue={formatBpm(bpm)}
+      inputMode="decimal"
+      onFocus={(e) => e.currentTarget.select()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      className="h-4 w-10 shrink-0 rounded-sm bg-black/25 px-1 font-mono text-[10px] text-black outline-none"
+    />
+  );
+}
+
 function RenameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
   const done = useRef(false);
   const finish = (value: string | null) => {

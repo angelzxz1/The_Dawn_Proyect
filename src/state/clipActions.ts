@@ -16,7 +16,8 @@ import type { AudioClipInstance, ChannelType, ClipInstance, MidiClipInstance, No
 import { audioBlobs } from "./audioBlobs";
 import { newClipId } from "./ids";
 import { clipLabel } from "@/project/clipEdits";
-import { projectStore } from "./projectStore";
+import { sourceAt } from "@/project/warp";
+import { currentTempo, projectStore } from "./projectStore";
 
 export { audioClipTiming };
 
@@ -72,7 +73,7 @@ function syncAudioClip(channelId: string, clip: AudioClipInstance): void {
   );
 }
 
-type AudioClipExtras = Partial<Pick<AudioClipInstance, "length" | "sourceOffset" | "fadeIn" | "fadeOut" | "gainDb" | "loopLength" | "name" | "color">>;
+type AudioClipExtras = Partial<Pick<AudioClipInstance, "length" | "sourceOffset" | "fadeIn" | "fadeOut" | "gainDb" | "loopLength" | "name" | "color" | "warp">>;
 type ClipLabel = Pick<ClipInstance, "name" | "color">;
 
 export const clipActions = {
@@ -106,6 +107,7 @@ export const clipActions = {
       fadeOut: extra?.fadeOut ?? 0,
       gainDb: extra?.gainDb ?? 0,
       loopLength: extra?.loopLength ?? null,
+      ...(extra?.warp ? { warp: extra.warp } : {}),
     };
     audioBlobs.set(clip.id, sourceBlob);
     setTrackClips(channelId, [...clipsOf(channelId), clip]);
@@ -209,7 +211,9 @@ export const clipActions = {
         id: secondId,
         offset: clip.offset + at,
         length: clip.length - at,
-        sourceOffset: clip.sourceOffset + at,
+        // Where the clip is in its file there (a warped clip's follows the
+        // tempo, warp.ts).
+        sourceOffset: sourceAt(clip, seconds, currentTempo()),
         fadeIn: 0,
         loopLength: null,
       };
@@ -318,8 +322,8 @@ export const clipActions = {
 
   copy(clip: ClipInstance): void {
     if (clip.kind === "audio") {
-      const { url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength } = clip;
-      copyClip({ ...clipLabel(clip), kind: "audio", url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength });
+      const { url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength, warp } = clip;
+      copyClip({ ...clipLabel(clip), kind: "audio", url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength, warp });
     } else {
       copyClip({ ...clipLabel(clip), kind: "midi", notes: clip.notes, length: clip.length, loopLength: clip.loopLength });
     }
@@ -337,8 +341,8 @@ export const clipActions = {
     }
     // The pasted clip gets its own copy of the audio file, for saving.
     const blob = await fetch(copied.url).then((r) => r.blob());
-    const { url, durationSeconds, peaks, fileName, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength } = copied;
-    clipActions.addAudio(channelId, { url, durationSeconds, peaks }, at, fileName, blob, { ...clipLabel(copied), length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength });
+    const { url, durationSeconds, peaks, fileName, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength, warp } = copied;
+    clipActions.addAudio(channelId, { url, durationSeconds, peaks }, at, fileName, blob, { ...clipLabel(copied), length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength, warp });
   },
 
   /** Replaces a clip's content with the copied clip's, where it is; returns
@@ -360,8 +364,24 @@ export const clipActions = {
     projectStore.push();
     const id = newClipId();
     audioBlobs.set(id, blob);
-    const { url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength } = copied;
-    const clip: AudioClipInstance = { ...clipLabel(copied), id, kind: "audio", offset: target.offset, length, url, fileName, durationSeconds, peaks, sourceOffset, fadeIn, fadeOut, gainDb, loopLength };
+    const { url, fileName, durationSeconds, peaks, length, sourceOffset, fadeIn, fadeOut, gainDb, loopLength, warp } = copied;
+    const clip: AudioClipInstance = {
+      ...clipLabel(copied),
+      id,
+      kind: "audio",
+      offset: target.offset,
+      length,
+      url,
+      fileName,
+      durationSeconds,
+      peaks,
+      sourceOffset,
+      fadeIn,
+      fadeOut,
+      gainDb,
+      loopLength,
+      ...(warp ? { warp } : {}),
+    };
     setTrackClips(channelId, clipsOf(channelId).map((c) => (c.id === clipId ? clip : c)));
     audioEngine.removeAudioClip(channelId, clipId);
     audioEngine.loadAudioClip(channelId, id, url, audioClipTiming(clip), gainDb);

@@ -5,9 +5,13 @@
 // `newId` naming the clips it makes. Clips are cut where a range's edges
 // cross them, as the split action does: the parts keep the fades of the
 // ends they kept; a MIDI part has its loop played out, an audio part loops
-// on when it starts where a repeat does.
+// on when it starts where a repeat does. A warped audio clip's parts play
+// on from where it was in its file then, which takes the tempo map
+// (`tempo`; warp.ts).
 
 import { notesWithinClip } from "./project";
+import { makeTempoMap, type TempoMap } from "./tempoMap";
+import { partFrom } from "./warp";
 import type { AudioClipInstance, ClipInstance, MidiClipInstance } from "./types";
 
 export interface TimeRange {
@@ -20,12 +24,15 @@ export type NewId = () => string;
 /** Times closer than this are the same (float drift from snapping). */
 const EPS = 1e-6;
 
+/** For callers with no warped clips: any map does. */
+const FALLBACK_TEMPO = makeTempoMap(120);
+
 const endOf = (c: ClipInstance) => c.offset + c.length;
 const overlaps = (c: ClipInstance, from: number, to: number) => c.offset < to - EPS && endOf(c) > from + EPS;
 
 /** The part of a clip between `from` and `to` (timeline seconds), as a clip
  * of its own with a new id, or null when they don't overlap. */
-export function clipPart(clip: ClipInstance, from: number, to: number, newId: NewId): ClipInstance | null {
+export function clipPart(clip: ClipInstance, from: number, to: number, newId: NewId, tempo?: TempoMap): ClipInstance | null {
   const start = Math.max(from, clip.offset);
   const end = Math.min(to, endOf(clip));
   if (end - start <= EPS) return null;
@@ -47,62 +54,60 @@ export function clipPart(clip: ClipInstance, from: number, to: number, newId: Ne
   const keepsEnd = Math.abs(end - endOf(clip)) <= EPS;
   // A looping clip's part that starts where a repeat does loops on as
   // before; one starting inside a repeat plays from there, once.
-  const loop = clip.loopLength && clip.loopLength > 0 && clip.loopLength < clip.length ? clip.loopLength : 0;
-  const phase = loop ? into % loop : into;
-  const onRepeat = loop > 0 && (phase <= EPS || loop - phase <= EPS);
+  const { sourceOffset, loopLength } = keepsStart ? clip : partFrom(clip, start, tempo ?? FALLBACK_TEMPO);
   const part: AudioClipInstance = {
     ...clip,
     id: newId(),
     offset: start,
     length,
-    sourceOffset: clip.sourceOffset + (onRepeat ? 0 : phase),
+    sourceOffset,
     fadeIn: keepsStart ? Math.min(clip.fadeIn, length) : 0,
     fadeOut: keepsEnd ? Math.min(clip.fadeOut, length) : 0,
-    loopLength: onRepeat ? loop : null,
+    loopLength: loopLength && loopLength < length - EPS ? loopLength : null,
   };
   return part;
 }
 
 /** The clips with the range emptied: those across its edges are cut there,
  * and what was inside is gone. */
-export function clearRange(clips: ClipInstance[], range: TimeRange, newId: NewId): ClipInstance[] {
+export function clearRange(clips: ClipInstance[], range: TimeRange, newId: NewId, tempo?: TempoMap): ClipInstance[] {
   if (!clips.some((c) => overlaps(c, range.start, range.end))) return clips;
   return clips.flatMap((c) => {
     if (!overlaps(c, range.start, range.end)) return [c];
-    return [clipPart(c, c.offset, range.start, newId), clipPart(c, range.end, endOf(c), newId)].filter((p): p is ClipInstance => p !== null);
+    return [clipPart(c, c.offset, range.start, newId, tempo), clipPart(c, range.end, endOf(c), newId, tempo)].filter((p): p is ClipInstance => p !== null);
   });
 }
 
 /** Copies of what's in the range, placed from its start (offset 0 is the
  * range's start). */
-export function extractRange(clips: ClipInstance[], range: TimeRange, newId: NewId): ClipInstance[] {
+export function extractRange(clips: ClipInstance[], range: TimeRange, newId: NewId, tempo?: TempoMap): ClipInstance[] {
   return clips
-    .map((c) => clipPart(c, range.start, range.end, newId))
+    .map((c) => clipPart(c, range.start, range.end, newId, tempo))
     .filter((p): p is ClipInstance => p !== null)
     .map((p) => ({ ...p, offset: p.offset - range.start }));
 }
 
 /** `content` (from extractRange) laid down at `at`, over whatever was
  * there for `length` seconds. */
-export function placeRange(clips: ClipInstance[], content: ClipInstance[], at: number, length: number, newId: NewId): ClipInstance[] {
-  const cleared = clearRange(clips, { start: at, end: at + length }, newId);
+export function placeRange(clips: ClipInstance[], content: ClipInstance[], at: number, length: number, newId: NewId, tempo?: TempoMap): ClipInstance[] {
+  const cleared = clearRange(clips, { start: at, end: at + length }, newId, tempo);
   if (content.length === 0) return cleared;
   return [...cleared, ...content.map((c) => ({ ...c, id: newId(), offset: c.offset + at }))];
 }
 
 /** Moves everything from `at` on later by `length` (a clip across `at` is
  * cut there): an empty gap opens at `at`. */
-export function insertTime(clips: ClipInstance[], at: number, length: number, newId: NewId): ClipInstance[] {
+export function insertTime(clips: ClipInstance[], at: number, length: number, newId: NewId, tempo?: TempoMap): ClipInstance[] {
   if (!clips.some((c) => endOf(c) > at + EPS)) return clips;
   return clips
-    .flatMap((c) => (c.offset < at - EPS && endOf(c) > at + EPS ? [clipPart(c, c.offset, at, newId)!, clipPart(c, at, endOf(c), newId)!] : [c]))
+    .flatMap((c) => (c.offset < at - EPS && endOf(c) > at + EPS ? [clipPart(c, c.offset, at, newId, tempo)!, clipPart(c, at, endOf(c), newId, tempo)!] : [c]))
     .map((c) => (c.offset >= at - EPS ? { ...c, offset: c.offset + length } : c));
 }
 
 /** Takes the range out: what was in it is gone and everything after it
  * moves earlier to close the gap. */
-export function deleteTime(clips: ClipInstance[], range: TimeRange, newId: NewId): ClipInstance[] {
+export function deleteTime(clips: ClipInstance[], range: TimeRange, newId: NewId, tempo?: TempoMap): ClipInstance[] {
   if (!clips.some((c) => endOf(c) > range.start + EPS)) return clips;
   const length = range.end - range.start;
-  return clearRange(clips, range, newId).map((c) => (c.offset >= range.end - EPS ? { ...c, offset: Math.max(range.start, c.offset - length) } : c));
+  return clearRange(clips, range, newId, tempo).map((c) => (c.offset >= range.end - EPS ? { ...c, offset: Math.max(range.start, c.offset - length) } : c));
 }

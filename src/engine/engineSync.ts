@@ -73,6 +73,7 @@ export function audioClipTiming(clip: AudioClipInstance): AudioClipTiming {
     loopLength: clip.loopLength,
     fadeIn: clip.fadeIn,
     fadeOut: clip.fadeOut,
+    ...(clip.warp ? { warp: clip.warp } : {}),
   };
 }
 

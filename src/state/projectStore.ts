@@ -11,6 +11,7 @@
 import { useSyncExternalStore } from "react";
 import type { ProjectState } from "@/project/project";
 import type { AudioClipInstance } from "@/project/types";
+import { makeTempoMap, type TempoMap } from "@/project/tempoMap";
 import { audioBlobs } from "./audioBlobs";
 import { createChannel } from "./ids";
 
@@ -168,6 +169,16 @@ export function audioClipsOf(s: ProjectState): AudioClipInstance[] {
 }
 
 export const projectStore = new ProjectStore();
+
+let lastTempo: { bpm: number; changes: ProjectState["tempoChanges"]; map: TempoMap } | null = null;
+
+/** The song's tempo map now (tempoMap.ts), for the actions that place
+ * things by it (warped clips, warp.ts). The same map while it's the same. */
+export function currentTempo(): TempoMap {
+  const { bpm, tempoChanges } = projectStore.get();
+  if (!lastTempo || lastTempo.bpm !== bpm || lastTempo.changes !== tempoChanges) lastTempo = { bpm, changes: tempoChanges, map: makeTempoMap(bpm, tempoChanges) };
+  return lastTempo.map;
+}
 
 const getDoc = () => projectStore.get();
 

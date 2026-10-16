@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatPosition, snapBeats } from "@/project/arrangementLoop";
-import { beatAtSeconds, clampBpm, makeTempoMap, secondsAtBeat, type TempoChange, type TempoMap } from "@/project/tempoMap";
+import { beatAtSeconds, clampBpm, formatBpm, makeTempoMap, secondsAtBeat, type TempoChange, type TempoMap } from "@/project/tempoMap";
 
 export const TEMPO_LANE_HEIGHT = 16;
 
@@ -16,9 +16,6 @@ interface TempoLaneProps {
   /** A new map: the starting tempo and the changes after it. */
   onChange: (bpm: number, changes: TempoChange[]) => void;
 }
-
-/** A tempo as typed: whole, or up to two decimals. */
-export const formatBpm = (bpm: number) => String(Number(bpm.toFixed(2)));
 
 /** Which marker is being typed into: the start (index 0), a change
  * (index into the changes + 1), or a new change at a beat. */

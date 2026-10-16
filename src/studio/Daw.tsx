@@ -75,7 +75,7 @@ import { EffectBrowser } from "@/studio/rack/EffectBrowser";
 import { AutomationLane as AutomationLaneEditor } from "@/studio/tracks/AutomationLane";
 import { audioEngine } from "@/engine/audioEngine";
 import { defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, type ArrangementLoop } from "@/project/arrangementLoop";
-import { beatAtSeconds, bpmAtSeconds, makeGrid, makeTempoMap, remapSeconds, roundUpToBarFrom, secondsAtBeat, type TempoChange } from "@/project/tempoMap";
+import { beatAtSeconds, bpmAtSeconds, formatBpm, makeGrid, makeTempoMap, remapSeconds, roundUpToBarFrom, secondsAtBeat, type TempoChange } from "@/project/tempoMap";
 import { notesAtBeats, retimeProject, sameTempo, secondsForBeats } from "@/project/tempoEdits";
 import { downloadMidiFile, parseMidiFile } from "@/export/midiFile";
 import { midiToNoteName } from "@/instruments/piano/piano";
@@ -127,7 +127,7 @@ import {
   snapBeatsForResolution,
   type SnapResolution,
 } from "@/project/musicTime";
-import type { AudioClipInstance, AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TakeLane, TimeSignature } from "@/project/types";
+import type { AudioClipInstance, AudioWarp, AutomationTarget, ChannelConfig, ChannelType, ClipInstance, TakeLane, TimeSignature } from "@/project/types";
 import { newClipId } from "@/state/ids";
 import { noteIssue } from "@/services/issues";
 import { flushSync } from "react-dom";
@@ -1345,6 +1345,9 @@ export function Daw() {
   /** Naming, coloring and processing the selected clips (clipEditActions.ts),
    * for the clip menu and keys. The same object on every redraw. */
   const [renamingClip, setRenamingClip] = useState<{ channelId: string; clipId: string } | null>(null);
+  /** The project's passing notice (set once the project files hook is up,
+   * below). */
+  const noticeRef = useRef<(text: string) => void>(() => {});
   const clipEdits = useStableActions({
     rename: (channelId: string, clipId: string) => setRenamingClip({ channelId, clipId }),
     /** F2: the one selected clip. */
@@ -1372,6 +1375,15 @@ export function Daw() {
       }),
     normalize: () => void clipEditActions.normalize(selectedClipIds),
     fades: (preset: FadePreset) => void clipEditActions.setFades(selectedClipIds, preset, tempo, beatsPerBar),
+    warp: (on: boolean) => void clipEditActions.setWarp(selectedClipIds, on),
+    warpMode: (mode: AudioWarp["mode"]) => void clipEditActions.setWarpMode(selectedClipIds, mode),
+    /** Says so when there's no clear beat to find. */
+    detectTempo: () =>
+      void clipEditActions.detectTempo(selectedClipIds).then((found) => {
+        const tempos = [...found.values()];
+        if (tempos.length > 0 && tempos.every((t) => t === null)) noticeRef.current("No clear beat to find a tempo by");
+        else if (tempos.length === 1 && tempos[0] !== null) noticeRef.current(`Clip tempo: ${formatBpm(tempos[0])} BPM`);
+      }),
     /** Pasting over an audio clip makes a new clip: that's selected. */
     pasteOver: (channelId: string, clipId: string) =>
       void clipActions.pasteOver(channelId, clipId).then((id) => {
@@ -1557,6 +1569,9 @@ export function Daw() {
               reverseSelected: clipEdits.reverse,
               normalizeSelected: clipEdits.normalize,
               fadeSelected: clipEdits.fades,
+              warpSelected: clipEdits.warp,
+              warpModeSelected: clipEdits.warpMode,
+              detectTempoSelected: clipEdits.detectTempo,
               toggleTakes: takeActions.toggleShowTakes,
               deleteAllTakes: takeActions.deleteAllTakes,
               time: timeEdits,
@@ -1655,8 +1670,9 @@ export function Daw() {
       contentEndSeconds: channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0),
       delayCompensation: getAudioPrefs().delayCompensation,
       monitored: [...monitoredChannelIds],
+      tempo,
     }),
-    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds]
+    [channels, endOfContent, clipsByChannel, channelEffects, buses, busEffects, masterVolume, masterPan, masterLimiterThreshold, masterEffects, monitoredChannelIds, tempo]
   );
 
   // --- The project's files: autosave, Save, Open (useProjectFiles.ts) ---
@@ -1721,6 +1737,9 @@ export function Daw() {
       },
     }
   );
+  useEffect(() => {
+    noticeRef.current = flashProjectNotice;
+  }, [flashProjectNotice]);
 
   const handleInstallPack = useCallback(async (file: File): Promise<{ ok: boolean; message: string }> => {
     if (file.size > 400 * 1024 * 1024) return { ok: false, message: `"${file.name}" is too large to be a Dawn pack.` };
@@ -1896,6 +1915,7 @@ export function Daw() {
       setRenamingClip(null);
       if (name !== null) clipEditActions.rename(clipId, name);
     },
+    setClipTempo: (_id, clipId, bpm) => void clipEditActions.setClipTempo(new Set([clipId]), bpm),
   });
   // A group's lane draws its members' clips; the same list while they don't
   // change, so its memoized lane can skip redraws too.
@@ -1977,7 +1997,7 @@ export function Daw() {
                 ? importError
                 : samplesReady
                   ? "double-click a clip to edit it in the piano roll · space to play/pause · ctrl/cmd+C/V to copy/paste the clip at the playhead"
-                  : "loading piano sounds…"}
+                  : "loading sounds…"}
           </p>
           <HelpMenu onTour={() => setTourOpen(true)} onFeedback={hasDiscord ? () => openFeedback("help") : undefined} />
           {hasDiscord && (
@@ -2384,6 +2404,7 @@ export function Daw() {
                     pxPerSecond={pxPerSecond}
                     totalSeconds={totalSeconds}
                     grid={grid}
+                    tempo={tempo}
                     onComp={(laneId, range) => takeActions.comp(channel.id, laneId, range)}
                   />
                 ))}

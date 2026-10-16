@@ -6,6 +6,7 @@
 // clips and lanes and gives back the new ones.
 
 import { clearRange, clipPart, type NewId, type TimeRange } from "./timeRange";
+import type { TempoMap } from "./tempoMap";
 import type { ClipInstance, MidiClipInstance, NoteEvent, TakeLane } from "./types";
 
 const EPS = 1e-6;
@@ -108,7 +109,8 @@ export function recordTakes(
   lanes: TakeLane[],
   takes: ClipInstance[],
   newId: NewId,
-  newLaneId: () => string
+  newLaneId: () => string,
+  tempo?: TempoMap
 ): { main: ClipInstance[]; lanes: TakeLane[] } {
   const span = spanOf(takes);
   if (!span) return { main, lanes };
@@ -118,14 +120,14 @@ export function recordTakes(
   let nextLanes = lanes;
   if (lanes.length === 0 && covered.length > 0) {
     // What was there, over the time recorded.
-    const before = covered.map((c) => clipPart(c, span.start, span.end, newId)).filter((c): c is ClipInstance => c !== null);
+    const before = covered.map((c) => clipPart(c, span.start, span.end, newId, tempo)).filter((c): c is ClipInstance => c !== null);
     nextLanes = [{ id: newLaneId(), name: `Take ${number++}`, clips: before.map(asTake) }];
   }
   let nextMain = main;
   takes.forEach((take) => {
     const lane: TakeLane = { id: newLaneId(), name: `Take ${number++}`, clips: [asTake(take)] };
     nextLanes = [...nextLanes, lane];
-    nextMain = [...clearRange(nextMain, { start: take.offset, end: endOf(take) }, newId), { ...take, id: newId(), take: lane.id }];
+    nextMain = [...clearRange(nextMain, { start: take.offset, end: endOf(take) }, newId, tempo), { ...take, id: newId(), take: lane.id }];
   });
   return { main: nextMain, lanes: nextLanes };
 }
@@ -135,13 +137,13 @@ export function recordTakes(
 /** The track's lane with what a take has between `range`'s ends put in,
  * over what was there - silence where the take has none. Each piece
  * remembers the take it came from. */
-export function compFrom(main: ClipInstance[], lane: TakeLane, range: TimeRange, newId: NewId): ClipInstance[] {
+export function compFrom(main: ClipInstance[], lane: TakeLane, range: TimeRange, newId: NewId, tempo?: TempoMap): ClipInstance[] {
   if (range.end - range.start <= EPS) return main;
   const parts = lane.clips
-    .map((c) => clipPart(c, range.start, range.end, newId))
+    .map((c) => clipPart(c, range.start, range.end, newId, tempo))
     .filter((c): c is ClipInstance => c !== null)
     .map((c) => ({ ...c, take: lane.id }));
-  return [...clearRange(main, range, newId), ...parts];
+  return [...clearRange(main, range, newId, tempo), ...parts];
 }
 
 /** The parts of the timeline where the track plays a take: its clips that

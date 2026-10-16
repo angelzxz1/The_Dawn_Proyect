@@ -10,7 +10,7 @@ import type { TimeRange } from "@/project/timeRange";
 import type { ClipInstance, TakeLane } from "@/project/types";
 import { audioBlobs } from "./audioBlobs";
 import { newClipId, newTakeLaneId } from "./ids";
-import { projectStore } from "./projectStore";
+import { currentTempo, projectStore } from "./projectStore";
 import { audioByUrl, keepAudio } from "./trackClips";
 
 const lanesOf = (channelId: string): TakeLane[] => projectStore.get().takesByChannel[channelId] ?? [];
@@ -50,7 +50,7 @@ export const takeActions = {
   record(channelId: string, takes: ClipInstance[], file?: Blob): void {
     if (takes.length === 0) return;
     const { clipsByChannel } = projectStore.get();
-    const next = recordTakes(clipsByChannel[channelId] ?? [], lanesOf(channelId), takes, newClipId, newTakeLaneId);
+    const next = recordTakes(clipsByChannel[channelId] ?? [], lanesOf(channelId), takes, newClipId, newTakeLaneId, currentTempo());
     const audio = new Map<string, Blob>();
     takes.forEach((t) => {
       if (t.kind === "audio" && file) audio.set(t.url, file);
@@ -66,7 +66,7 @@ export const takeActions = {
     const lane = lanesOf(channelId).find((l) => l.id === laneId);
     if (!lane) return;
     const main = projectStore.get().clipsByChannel[channelId] ?? [];
-    changeTrack(channelId, compFrom(main, lane, range, newClipId), lanesOf(channelId));
+    changeTrack(channelId, compFrom(main, lane, range, newClipId, currentTempo()), lanesOf(channelId));
   },
 
   /** The whole of a take in the comp. */

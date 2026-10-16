@@ -84,6 +84,7 @@ export function serializeClips(clipsByChannel: Record<string, ClipInstance[]>): 
             fadeOut: c.fadeOut,
             gainDb: c.gainDb,
             loopLength: c.loopLength,
+            ...(c.warp ? { warp: c.warp } : {}),
           }
         : { ...clipLabel(c), ...takeOf(c), id: c.id, kind: "midi" as const, offset: c.offset, length: c.length, notes: c.notes, loopLength: c.loopLength }
     );

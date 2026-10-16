@@ -41,14 +41,6 @@ export function reverseNotes(clip: MidiClipInstance): NoteEvent[] {
     .sort((a, b) => a.time - b.time);
 }
 
-/** Where a clip's audio comes from in its file and how much of it plays
- * before it repeats (seconds): what normalizing measures, and what
- * reversing turns around. */
-export function playedRegion(clip: { sourceOffset: number; length: number; loopLength?: number | null }): { start: number; end: number } {
-  const span = clip.loopLength && clip.loopLength > 0 ? Math.min(clip.loopLength, clip.length) : clip.length;
-  return { start: clip.sourceOffset, end: clip.sourceOffset + span };
-}
-
 // --- Fades ---
 
 export type FadePreset = "none" | "declick" | "beat" | "bar";

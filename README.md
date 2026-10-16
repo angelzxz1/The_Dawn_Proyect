@@ -53,6 +53,9 @@ Live and Reaper.
 - **Tempo changes.** A tempo lane under the ruler where the tempo can change
   at any bar. The ruler, the grid, the loop and the metronome follow it, and
   MIDI clips, notes and automation stay on their beats when you edit it.
+- **Warping.** Audio clips can follow the tempo, stretched (keeping their
+  pitch) or repitched like tape. A clip's own tempo can be typed in or
+  detected, so a loop recorded at any tempo plays at the song's.
 - **Piano roll** to draw, select, move, quantize and adjust the velocity of
   notes.
 - **Three instruments:** a sampled grand piano, a 16-pad Drum Rack (modeled
@@ -821,17 +824,42 @@ place it changes.
 - The ruler, the snap grid, the loop and the metronome (with its count-in)
   all follow the tempo changes. A tempo change is a step: the new tempo
   starts right on its beat.
-- **What moves with the tempo:** MIDI clips and their notes, MIDI takes, and
-  the automation on MIDI and group tracks stay on the beats they were
-  written on, so changing the tempo speeds them up or slows them down.
-  Audio clips aren't stretched, so they keep their place in time, and so
-  does the automation on audio tracks.
+- **What moves with the tempo:** MIDI clips and their notes, warped audio
+  clips (see below), takes, and the automation on MIDI and group tracks stay
+  on the beats they were written on, so changing the tempo speeds them up or
+  slows them down. Audio clips that aren't warped keep their place in time,
+  and so does the automation on audio tracks.
 - The piano roll's grid is at the tempo where its clip starts.
 - MIDI files are read and written with their tempo changes: an imported file
   lands on its beats wherever the project's tempo changes, and an exported
   one carries the project's tempo map.
 - Every tempo edit is one undo step, and the tempo map is saved with the
   project.
+
+### Warping audio
+
+A warped audio clip follows the song's tempo: its file is played faster or
+slower so its beats stay on the song's beats. Right-click an audio clip:
+
+- **Warp clip: follow the tempo** warps it as it sounds now. Nothing changes
+  until the tempo does; after that, the clip stretches or shrinks with it.
+- **Detect the clip's tempo** finds the tempo of what the clip plays and
+  warps it by that, so a loop made at any tempo plays at the song's. (If
+  there's no clear beat, it says so.)
+- **Stretch** or **Repitch**: stretching keeps the pitch; repitching speeds
+  the audio up or slows it down like tape, so the pitch goes with it.
+- **Stop warping clip** plays the file at its own speed again.
+
+A warped clip shows its own tempo in its title bar. Click it to type a
+tempo: the file is taken to be at that tempo and is played at the song's.
+Whenever a clip's warp changes, it keeps playing the same part of its file,
+so its box grows or shrinks to fit.
+
+Splitting, trimming, the slip tool, time selections, comping, consolidating,
+reversing and normalizing all work on warped clips, and exports play them as
+you hear them. The stretched audio is worked out in the background when the
+tempo or the clip changes, so a long clip can take a moment to sound again
+after an edit.
 
 ### The piano roll
 
@@ -1080,6 +1108,13 @@ and Ctrl/Cmd+O work everywhere but in the tour.
   the ruler, the loop and the metronome; the transport runs at the starting
   tempo and plays everything at its time in seconds. Editing the map moves
   what follows the beat to its new time (`tempoEdits.ts`).
+- **Warping.** `src/project/warp.ts` maps each moment of a warped clip to a
+  point in its file, through the tempo map and the clip's own tempo. The
+  engine renders what the clip plays (`timeStretch.ts`: WSOLA for stretch,
+  resampling for repitch) a few milliseconds at a time, keeps the result
+  (`warpRender.ts`), and plays that. The export uses the same renderings.
+  Tempo detection (`tempoDetect.ts`) looks for the beat in how the
+  loudness rises.
 - **The custom effects and the synth run in AudioWorklets**, in the audio
   thread: the compressors, gate, limiter, parametric EQ, multiband effects,
   saturator, utility, Daybreak (`synthKernel.ts`) and the Drum Rack

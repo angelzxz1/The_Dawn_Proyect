@@ -1,5 +1,7 @@
 import * as Tone from "tone";
-import type { TempoMap } from "../project/tempoMap";
+import { makeTempoMap, type TempoMap } from "../project/tempoMap";
+import { warpPieces } from "../project/warp";
+import { warpedBuffer, warpKey } from "./warpRender";
 import { PREFERRED_SAMPLE_RATE, nativeAudioContext } from "./context";
 
 export { PREFERRED_SAMPLE_RATE };
@@ -37,7 +39,7 @@ import { Transport } from "./transport";
 import { createInstrument, updateInstrument } from "../instruments/nodes";
 import type { InstrumentSettings } from "../instruments/registry";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
-import { isSidechainNode, MAX_COMPENSATION, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./nodes";
+import { isSidechainNode, MAX_COMPENSATION, type AudioClipNodes, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./nodes";
 import { attempt, noteIssue } from "../services/issues";
 
 export type { AudioClipTiming };
@@ -83,6 +85,11 @@ class AudioEngine {
   /** Tone's transport and the metronome (transport.ts). */
   private transport = new Transport(() => this.ensureClickOut());
   private pendingLoads = 0;
+  /** The song's tempo map (setTempoMap): what warped clips follow. */
+  private tempoMap: TempoMap = makeTempoMap(120);
+  /** Warped clips to bring up to date (renderWarps), at the end of the
+   * current task: a tempo edit changes the map and then the clips. */
+  private readonly warpQueue = new Set<AudioClipNodes>();
   private readyListeners = new Set<() => void>();
   private audioRecording: {
     channelId: string;
@@ -535,10 +542,7 @@ class AudioEngine {
     if (!nodes) return;
     nodes.part?.dispose();
     nodes.instrument.dispose();
-    nodes.audioClips.forEach(({ player, gain }) => {
-      player.dispose();
-      gain.dispose();
-    });
+    nodes.audioClips.forEach((entry) => this.disposeClip(entry));
     nodes.sends.forEach((gain) => gain.dispose());
     nodes.effects.forEach((e) => e.node.dispose());
     nodes.pdc.dispose();
@@ -1249,15 +1253,9 @@ class AudioEngine {
     const nodes = this.channels.get(channelId);
     if (!nodes || nodes.channelType !== "audio") return;
     const existing = nodes.audioClips.get(clipId);
-    existing?.player.dispose();
-    existing?.gain.dispose();
+    if (existing) this.disposeClip(existing);
 
-    this.pendingLoads += 1;
-    this.setReady(false);
-    const onSettled = () => {
-      this.pendingLoads = Math.max(0, this.pendingLoads - 1);
-      if (this.pendingLoads === 0) this.setReady(true);
-    };
+    const onSettled = this.loading();
     const gain = new Tone.Volume(gainDb);
     const player = new Tone.Player({
       url,
@@ -1265,10 +1263,9 @@ class AudioEngine {
       fadeOut: timing.fadeOut ?? 0,
       onload: () => {
         onSettled();
-        this.safe(() => {
-          player.sync();
-          this.applyAudioClipTiming(player, timing);
-        });
+        if (entry.disposed) return;
+        entry.source = player.buffer.get();
+        this.retimeClip(entry);
       },
       onerror: (error) => {
         onSettled();
@@ -1277,19 +1274,111 @@ class AudioEngine {
       },
     });
     player.connect(gain);
-    nodes.audioClips.set(clipId, { player, gain });
+    const entry: AudioClipNodes = { player, gain, url, timing };
+    nodes.audioClips.set(clipId, entry);
     this.rewireChannel(channelId);
   }
 
+  /** Something loading or rendering: the engine isn't ready until it's
+   * done (call what's returned then). */
+  private loading(): () => void {
+    this.pendingLoads += 1;
+    this.setReady(false);
+    let settled = false;
+    return () => {
+      if (settled) return;
+      settled = true;
+      this.pendingLoads = Math.max(0, this.pendingLoads - 1);
+      if (this.pendingLoads === 0) this.setReady(true);
+    };
+  }
+
+  private disposeClip(entry: AudioClipNodes): void {
+    entry.disposed = true;
+    this.warpQueue.delete(entry);
+    entry.player.dispose();
+    entry.gain.dispose();
+  }
+
   /** Re-times an already-loaded audio clip after it's moved, resized, or
-   * has its loop/fades toggled, without re-decoding the file. */
+   * has its loop/fades/warp changed, without re-decoding the file. */
   moveAudioClip(channelId: string, clipId: string, timing: AudioClipTiming): void {
     const entry = this.channels.get(channelId)?.audioClips.get(clipId);
-    if (!entry || !entry.player.loaded) return;
+    if (!entry) return;
+    entry.timing = timing;
+    this.retimeClip(entry);
+  }
+
+  /** Plays a loaded clip as its timing says: an unwarped one from its file,
+   * a warped one from its rendering (renderWarps). */
+  private retimeClip(entry: AudioClipNodes): void {
+    const source = entry.source;
+    if (!source || entry.disposed) return;
+    if (entry.timing.warp) {
+      this.warpQueue.add(entry);
+      if (this.warpQueue.size === 1) queueMicrotask(() => this.renderWarps());
+      return;
+    }
+    entry.warpKey = undefined;
+    entry.rendered = undefined;
+    entry.applied = undefined;
     this.safe(() => {
+      if (entry.player.buffer.get() !== source) entry.player.buffer.set(source);
       entry.player.unsync();
       entry.player.sync();
-      this.applyAudioClipTiming(entry.player, timing);
+      this.applyAudioClipTiming(entry.player, entry.timing);
+    });
+  }
+
+  /** Brings the warped clips waiting up to date: each plays its rendering
+   * for the tempo map as it is - rendered now (silent until it's ready) if
+   * its pieces changed, or the one it has, just moved. */
+  private renderWarps(): void {
+    const entries = [...this.warpQueue];
+    this.warpQueue.clear();
+    entries.forEach((entry) => {
+      const { timing, source } = entry;
+      if (entry.disposed || !timing.warp || !source) return;
+      const length = timing.trimSeconds ?? source.duration;
+      const pieces = warpPieces(
+        { offset: timing.offsetSeconds, length, sourceOffset: timing.bufferOffsetSeconds ?? 0, loopLength: timing.loopLength, warp: timing.warp },
+        this.tempoMap
+      );
+      const key = warpKey(entry.url, timing.warp.mode, pieces, length);
+      if (key === entry.warpKey) {
+        if (entry.rendered) this.playRendered(entry, entry.rendered);
+        return;
+      }
+      entry.warpKey = key;
+      entry.rendered = undefined;
+      entry.applied = undefined;
+      this.safe(() => entry.player.unsync());
+      const done = this.loading();
+      warpedBuffer(key, source, pieces, length, timing.warp.mode)
+        .then((buffer) => {
+          if (entry.disposed || entry.warpKey !== key) return;
+          entry.rendered = buffer;
+          this.playRendered(entry, buffer);
+        })
+        .catch((error) => noteIssue("clip.warp", error))
+        .finally(done);
+    });
+  }
+
+  private playRendered(entry: AudioClipNodes, buffer: AudioBuffer): void {
+    const { timing } = entry;
+    // The rendering is the clip, loop and all.
+    const played: AudioClipTiming = { ...timing, bufferOffsetSeconds: 0, loopLength: null, trimSeconds: timing.trimSeconds ?? buffer.duration };
+    const applied = JSON.stringify(played);
+    // Already playing just that (the map sent again): left alone, so it
+    // doesn't restart.
+    if (entry.applied === applied && entry.player.buffer.get() === buffer) return;
+    entry.applied = applied;
+    this.safe(() => {
+      if (entry.player.buffer.get() !== buffer) entry.player.buffer.set(buffer);
+      entry.player.unsync();
+      entry.player.sync();
+      this.applyAudioClipTiming(entry.player, played);
     });
   }
 
@@ -1304,8 +1393,7 @@ class AudioEngine {
     const nodes = this.channels.get(channelId);
     if (!nodes) return;
     const entry = nodes.audioClips.get(clipId);
-    entry?.player.dispose();
-    entry?.gain.dispose();
+    if (entry) this.disposeClip(entry);
     nodes.audioClips.delete(clipId);
     this.rewireChannel(channelId);
   }
@@ -1314,10 +1402,7 @@ class AudioEngine {
   clearAllAudioClips(channelId: string): void {
     const nodes = this.channels.get(channelId);
     if (!nodes) return;
-    nodes.audioClips.forEach(({ player, gain }) => {
-      player.dispose();
-      gain.dispose();
-    });
+    nodes.audioClips.forEach((entry) => this.disposeClip(entry));
     nodes.audioClips.clear();
     this.rewireChannel(channelId);
   }
@@ -1606,7 +1691,10 @@ class AudioEngine {
 
   /** Where the beats are, for the metronome (tempoMap.ts). */
   setTempoMap(map: TempoMap): void {
+    this.tempoMap = map;
     this.transport.setTempoMap(map.segments);
+    // Warped clips follow it.
+    this.channels.forEach((nodes) => nodes.audioClips.forEach((entry) => entry.timing.warp && this.retimeClip(entry)));
   }
 
   setBpm(bpm: number): void {

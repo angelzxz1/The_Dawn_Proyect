@@ -358,6 +358,27 @@ describe("groups, routing and colors", () => {
     expect("name" in c || "color" in c).toBe(false);
   });
 
+  it("keeps an audio clip's warp (a tempo in range, markers in order), and drops a broken one", () => {
+    const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
+    const audio = { kind: "audio", length: 2, fileName: "loop.wav", durationSeconds: 2, peaks: [], sourceOffset: 0, fadeIn: 0, fadeOut: 0, gainDb: 0 };
+    const project = normalizeProject({
+      version: PROJECT_VERSION,
+      bpm: 120,
+      channels: [{ ...base, id: "v", name: "Loop", type: "audio" }],
+      clipsByChannel: {
+        v: [
+          { ...audio, id: "a", offset: 0, warp: { mode: "repitch", bpm: 98.5, markers: [{ source: 1, beat: 2 }, { source: 0.5, beat: 3 }, { source: 2, beat: 4 }] } },
+          { ...audio, id: "b", offset: 2, warp: { mode: "?", bpm: 900, markers: "no" } },
+          { ...audio, id: "c", offset: 4, warp: { mode: "stretch" } },
+        ],
+      },
+    })!;
+    const [a, b, c] = project.clipsByChannel.v;
+    expect("warp" in a && a.warp).toEqual({ mode: "repitch", bpm: 98.5, markers: [{ source: 0.5, beat: 3 }, { source: 2, beat: 4 }] });
+    expect("warp" in b && b.warp).toEqual({ mode: "stretch", bpm: 300, markers: [] });
+    expect("warp" in c).toBe(false);
+  });
+
   it("keeps an audio track's input from another track, and drops bad ones", () => {
     const base = { volume: 0, pan: 0, colorIndex: 0, muted: false, solo: false, armed: false, instrument: null };
     const project = normalizeProject({

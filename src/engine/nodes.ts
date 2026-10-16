@@ -2,7 +2,7 @@
 // made of, and where they can be tapped.
 
 import * as Tone from "tone";
-import type { NoteEvent, InstrumentType, ChannelType } from "../project/types";
+import type { AudioWarp, NoteEvent, InstrumentType, ChannelType } from "../project/types";
 import { type Instrument } from "../instruments/instrument";
 import { type EffectType } from "../effects/registry";
 import type { SidechainRouting } from "../effects/sidechain/sidechainModel";
@@ -70,7 +70,7 @@ export interface ChannelNodes extends EffectsHost {
    * clip gets its own Player (the decoded source plus its playback window)
    * and a Volume node for its per-clip gain, permanently wired in series
    * (player -> gain) and keyed by clip instance id. */
-  audioClips: Map<string, { player: Tone.Player; gain: Tone.Volume }>;
+  audioClips: Map<string, AudioClipNodes>;
   /** One send-level Gain per bus this channel currently sends to, tapped
    * from `channel`'s output (post-fader) and feeding straight into that
    * bus's input - independent of the dry signal, which always keeps going
@@ -118,6 +118,24 @@ export interface BusNodes extends EffectsHost {
   pdc: Tone.Delay;
 }
 
+/** One audio clip's player and gain, and what it plays. */
+export interface AudioClipNodes {
+  player: Tone.Player;
+  gain: Tone.Volume;
+  url: string;
+  /** Its file's decoded audio, once loaded (a warped clip's player plays a
+   * rendering of it instead, warpRender.ts). */
+  source?: AudioBuffer;
+  timing: AudioClipTiming;
+  /** The rendering a warped clip plays or is waiting for, and once it's
+   * ready, the rendering. */
+  warpKey?: string;
+  rendered?: AudioBuffer;
+  /** The timing its rendering was last started with (as JSON). */
+  applied?: string;
+  disposed?: boolean;
+}
+
 export interface AudioClipTiming {
   /** Where the clip starts on the arrangement timeline, in seconds. */
   offsetSeconds: number;
@@ -133,4 +151,6 @@ export interface AudioClipTiming {
   loopLength?: number | null;
   fadeIn?: number;
   fadeOut?: number;
+  /** Warped (warp.ts): it follows the tempo map, played from a rendering. */
+  warp?: AudioWarp;
 }

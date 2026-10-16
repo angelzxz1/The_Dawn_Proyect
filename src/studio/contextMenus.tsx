@@ -18,9 +18,11 @@ import {
   FolderInput,
   FolderOutput,
   FolderPlus,
+  Gauge,
   Layers,
   Pencil,
   Repeat,
+  ScanSearch,
   Scissors,
   TextCursorInput,
   Trash2,
@@ -32,7 +34,7 @@ import { getCopiedClip, getCopiedRange } from "@/state/clipboard";
 import { FADE_PRESETS, presetFades, type FadePreset } from "@/project/clipEdits";
 import { bpmAtSeconds, type TempoMap } from "@/project/tempoMap";
 import { TRACK_COLOR_PALETTE, trackColorOf } from "@/project/colors";
-import type { AudioClipInstance, ChannelConfig, ClipInstance } from "@/project/types";
+import type { AudioClipInstance, AudioWarp, ChannelConfig, ClipInstance } from "@/project/types";
 import type { ContextMenuEntry, ContextMenuItem } from "@/studio/shell/ContextMenu";
 
 export type ContextMenuState =
@@ -61,6 +63,12 @@ export interface MenuActions {
   reverseSelected: () => void;
   normalizeSelected: () => void;
   fadeSelected: (preset: FadePreset) => void;
+  /** Warps the selected audio clips (they follow the tempo), or unwarps
+   * them (warp.ts). */
+  warpSelected: (on: boolean) => void;
+  warpModeSelected: (mode: AudioWarp["mode"]) => void;
+  /** Finds the selected audio clips' tempos and warps them by it. */
+  detectTempoSelected: () => void;
   addEmptyClip: (channelId: string, atSeconds: number) => void;
   importAudio: (channelId: string, atSeconds: number) => void;
   /** Pastes the copied clip on the lane at the nearest bar. */
@@ -183,7 +191,32 @@ function audioProcess(clip: AudioClipInstance, ctx: MenuContext, actions: MenuAc
       row: "Fades",
       options: FADE_PRESETS.map((p) => ({ label: p.label, title: p.title, selected: p.id === current?.id, onSelect: () => actions.fadeSelected(p.id) })),
     },
+    "separator",
+    ...warpItems(clip, ctx, actions, many),
   ];
+}
+
+/** An audio clip's warping (warp.ts): following the tempo or not, how, and
+ * finding the clip's own tempo. */
+function warpItems(clip: AudioClipInstance, ctx: MenuContext, actions: MenuActions, many: boolean): MenuItems {
+  const clips = many ? `${ctx.selectedClips} clips` : "clip";
+  const items: MenuItems = [
+    clip.warp
+      ? { label: `Stop warping ${clips}`, icon: <Gauge size={13} />, onSelect: () => actions.warpSelected(false) }
+      : { label: `Warp ${clips}: follow the tempo`, icon: <Gauge size={13} />, onSelect: () => actions.warpSelected(true) },
+    { label: many ? "Detect the clips' tempos" : "Detect the clip's tempo", icon: <ScanSearch size={13} />, onSelect: actions.detectTempoSelected },
+  ];
+  if (clip.warp) {
+    const mode = clip.warp.mode;
+    items.push({
+      row: "Warp",
+      options: [
+        { label: "Stretch", title: "Keep the pitch when the tempo changes", selected: mode === "stretch", onSelect: () => actions.warpModeSelected("stretch") },
+        { label: "Repitch", title: "Speed up or slow down like tape, pitch and all", selected: mode === "repitch", onSelect: () => actions.warpModeSelected("repitch") },
+      ],
+    });
+  }
+  return items;
 }
 
 function laneMenu(channelId: string, atSeconds: number, type: ChannelConfig["type"], actions: MenuActions, canPaste: boolean): MenuItems {

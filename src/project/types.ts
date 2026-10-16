@@ -173,6 +173,30 @@ export interface AudioClipInstance extends ClipBase {
   fadeOut: number;
   /** This clip's own gain, in dB, independent of the channel fader. */
   gainDb: number;
+  /** Warped, the clip follows the song's tempo (warp.ts): its file is
+   * played faster or slower so its beats stay on the song's. Unset, it
+   * plays at its own speed whatever the tempo. */
+  warp?: AudioWarp;
+}
+
+/** A point in a warped clip's file pinned to a beat (warp.ts). */
+export interface WarpMarker {
+  /** Seconds into the file. */
+  source: number;
+  /** Beats (quarter notes) from the file's start, at its own tempo. */
+  beat: number;
+}
+
+/** How a warped audio clip follows the tempo (warp.ts). */
+export interface AudioWarp {
+  /** "stretch" keeps the pitch; "repitch" speeds the audio up or slows it
+   * down like tape, pitch and all. */
+  mode: "stretch" | "repitch";
+  /** The file's own tempo, where no markers say otherwise. */
+  bpm: number;
+  /** Points pinned to beats, in order (of both); between two, the file's
+   * time is spread evenly over their beats. */
+  markers: WarpMarker[];
 }
 
 /** One of a track's takes, in a lane under it: what was recorded in one go

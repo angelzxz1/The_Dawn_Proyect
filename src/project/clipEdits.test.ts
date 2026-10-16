@@ -3,7 +3,6 @@ import {
   cleanClipName,
   consolidateMidi,
   normalizeGain,
-  playedRegion,
   presetFades,
   reverseNotes,
   spansOfClips,
@@ -79,11 +78,6 @@ describe("fades and gain", () => {
     expect(normalizeGain(2)).toBeCloseTo(-6.02, 2);
     expect(normalizeGain(0.001)).toBe(24);
     expect(normalizeGain(0)).toBeNull();
-  });
-
-  it("what a clip plays of its file: its loop, when it loops", () => {
-    expect(playedRegion({ sourceOffset: 1, length: 4, loopLength: null })).toEqual({ start: 1, end: 5 });
-    expect(playedRegion({ sourceOffset: 1, length: 4, loopLength: 1.5 })).toEqual({ start: 1, end: 2.5 });
   });
 });
 

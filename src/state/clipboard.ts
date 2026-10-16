@@ -2,7 +2,7 @@
 // arrangement view. Plain in-memory state (not React state) is enough here -
 // it's client-only, single-user, and doesn't need to trigger re-renders.
 
-import type { ClipInstance, NoteEvent } from "../project/types";
+import type { AudioWarp, ClipInstance, NoteEvent } from "../project/types";
 
 let noteClipboard: NoteEvent[] | null = null;
 
@@ -31,6 +31,7 @@ export type ClipboardClip = (
       fadeOut: number;
       gainDb: number;
       loopLength?: number | null;
+      warp?: AudioWarp;
     }
 ) & {
   /** The clip's name and color, which the pasted one has too. */

@@ -112,6 +112,14 @@ describe("retimeProject", () => {
     expect(next.channels[1]).toBe(state.channels[1]);
   });
 
+  it("moves a warped audio clip with the beats, like MIDI", () => {
+    const warped = { ...audio, id: "w1", warp: { mode: "stretch" as const, bpm: 120, markers: [] } };
+    const next = retimeProject({ ...state, clipsByChannel: { ...state.clipsByChannel, vox: [audio, warped] } }, AT_120, SLOWER);
+    // Beat 10 to beat 14: 6 s on, and 4 s long.
+    expect(next.clipsByChannel.vox[1]).toMatchObject({ offset: expect.closeTo(6), length: expect.closeTo(4), sourceOffset: 0 });
+    expect(next.clipsByChannel.vox[0]).toBe(audio);
+  });
+
   it("changes nothing for the same map", () => {
     expect(retimeProject(state, SLOWER, makeTempoMap(120, [{ beat: 8, bpm: 60 }]))).toBe(state);
   });

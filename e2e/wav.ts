@@ -20,6 +20,32 @@ export function toneWav(seconds = 1, frequency = 440, sampleRate = 48000): Buffe
   return buffer;
 }
 
+/** A mono 16-bit WAV with a short 1 kHz blip on every beat, at `bpm`. */
+export function beatWav(bpm: number, beats: number, sampleRate = 48000): Buffer {
+  const frames = Math.round(((beats * 60) / bpm) * sampleRate);
+  const buffer = Buffer.alloc(44 + frames * 2);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + frames * 2, 4);
+  buffer.write("WAVEfmt ", 8);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(frames * 2, 40);
+  const beat = (60 / bpm) * sampleRate;
+  const blip = Math.round(0.03 * sampleRate);
+  for (let i = 0; i < frames; i++) {
+    const k = i % beat;
+    const v = k < blip ? Math.sin((2 * Math.PI * 1000 * k) / sampleRate) * Math.exp(-k / (0.008 * sampleRate)) * 0.6 : 0;
+    buffer.writeInt16LE(Math.round(v * 32767), 44 + i * 2);
+  }
+  return buffer;
+}
+
 export interface WavInfo {
   channels: number;
   sampleRate: number;

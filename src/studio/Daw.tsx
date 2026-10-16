@@ -112,6 +112,7 @@ import { grooveById, grooveHits, grooveKit, type Groove } from "@/library/groove
 import { getAudioPrefs } from "@/engine/audioPrefs";
 import { type EffectType } from "@/effects/registry";
 import type { ScaleSetting } from "@/project/scales";
+import { DEFAULT_KEY } from "@/project/chords";
 import {
   DEFAULT_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
@@ -311,11 +312,8 @@ export function Daw() {
   );
   const [activeNotes, setActiveNotes] = useState<Set<string>>(new Set());
   const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
-  const [scaleSetting, setScaleSetting] = useState<ScaleSetting>({
-    root: "C",
-    scale: "Major",
-    enabled: false,
-  });
+  // Off, in E Major: the key chords are named in until a scale is picked.
+  const [scaleSetting, setScaleSetting] = useState<ScaleSetting>({ ...DEFAULT_KEY, enabled: false });
   const masterName = useProjectValue("masterName");
   const masterVolume = useProjectValue("masterVolume");
   const masterPan = useProjectValue("masterPan");
@@ -2637,7 +2635,7 @@ export function Daw() {
               onModWheel={(amount) => armedChannelId && audioEngine.setModWheel(armedChannelId, amount)}
               onSustainChange={(down) => armedChannelId && audioEngine.setSustain(armedChannelId, down)}
             />
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <PianoKeyboard
                 activeNotes={activeNotes}
                 onNoteOn={handleNoteOn}

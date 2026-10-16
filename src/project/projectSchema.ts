@@ -13,6 +13,7 @@ import { EFFECT_TYPES, FILE_EFFECT_TYPES, hasSidechain, paramSpecs, type EffectI
 import { SIDECHAIN_TAPS, type SidechainTap } from "../effects/sidechain/sidechainModel";
 import { legacyFilterTypeToMode, migrateLegacyFilterParams } from "../effects/filter/filterModel";
 import { SCALE_NAMES, SCALE_ROOTS, type ScaleSetting } from "./scales";
+import { DEFAULT_KEY } from "./chords";
 import { SNAP_RESOLUTIONS, quarterNotesPerBar, type SnapResolution } from "./musicTime";
 import { normalizeArrangementLoop, type ArrangementLoop } from "./arrangementLoop";
 import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registry";
@@ -527,8 +528,8 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
     masterLimiterThreshold: num(r.masterLimiterThreshold, -1, -24, 0),
     masterEffects,
     scaleSetting: {
-      root: oneOf(scale.root, SCALE_ROOTS, "C"),
-      scale: oneOf(scale.scale, SCALE_NAMES, "Major"),
+      root: oneOf(scale.root, SCALE_ROOTS, DEFAULT_KEY.root),
+      scale: oneOf(scale.scale, SCALE_NAMES, DEFAULT_KEY.scale),
       enabled: bool(scale.enabled, false),
     },
     snapResolution: oneOf(r.snapResolution, SNAP_RESOLUTIONS, "bar"),

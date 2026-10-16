@@ -610,6 +610,12 @@ haven't saved to a folder yet.
 - **Scale.** The scale selector (Major, Minor, the modes, pentatonics and so
   on, with any root) highlights the notes in the key on the piano and in the
   piano roll.
+- **Chords.** Above the on-screen piano, the notes you hold are named as a
+  chord in the scale's key: `G#m7`, `C/E` or `E5`, spelled the way the key
+  spells them (`Bb` in F Major, `A#` in E Major), with its degree in the key
+  as a Roman numeral (`V7`, `iii`, `bVII`) and whether all of it is in the
+  key. Until you pick a scale, chords are named in E Major. A MIDI keyboard
+  counts too.
 - Keys play the **armed** track (the red button in its header). Only one
   track is armed at a time.
 

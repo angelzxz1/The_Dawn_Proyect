@@ -1,0 +1,11 @@
+[package]
+name = "dawn-engine"
+version = "0.1.0"
+description = "Dawn's native audio engine: the DSP kernels, ported from the web app's AudioWorklets."
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+# No dependencies: the kernels are plain Rust, so they build anywhere
+# (including WebAssembly, for the browser later).

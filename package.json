@@ -12,6 +12,9 @@
     "test:unit": "vitest run --project unit",
     "test:components": "vitest run --project components",
     "test:e2e": "playwright test",
+    "test:engine": "cargo test -p dawn-engine",
+    "desktop": "npx --yes @tauri-apps/cli@2 dev",
+    "desktop:build": "npx --yes @tauri-apps/cli@2 build",
     "prebuild": "node scripts/build-sw.mjs"
   },
   "dependencies": {

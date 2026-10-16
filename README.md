@@ -1216,6 +1216,9 @@ npm run typecheck # TypeScript
 npm run lint      # ESLint
 npm run build     # static site in out/ (see docs/deploy.md)
 npm start         # serve out/ locally
+npm run desktop   # the desktop app (Tauri), see docs/desktop.md
+npm run desktop:build # its installers
+npm run test:engine   # the native engine's tests (Rust)
 ```
 
 The unit tests run in Node. The component tests draw one component at a
@@ -1225,7 +1228,9 @@ browser tests need Chromium once: `npx playwright install chromium`.
 
 Every push is checked on GitHub (`.github/workflows/ci.yml`, the Actions
 tab): one job runs the typecheck, lint, unit and component tests, another
-builds the site and runs the browser tests. When the browser tests fail, the run's
+builds the site and runs the browser tests, a third tests the native
+engine; `.github/workflows/desktop.yml` builds the desktop app on Windows,
+macOS and Linux when its Rust side changes. When the browser tests fail, the run's
 page has their report to download, with a screenshot and a step-by-step
 trace of each failure (open a trace with `npx playwright show-trace`).
 
@@ -1288,14 +1293,16 @@ trace of each failure (open a trace with `npx playwright show-trace`).
   and fonts, and `useStableActions` (handlers that keep memoized rows like
   the track headers and lanes from redrawing).
 - `src/services/`: what reaches outside the app: usage statistics and error
-  reports (`telemetry.ts`), the issue log (`issues.ts`), and the support
-  and feedback links set per deployment (`support.ts`).
+  reports (`telemetry.ts`), the issue log (`issues.ts`), the support
+  and feedback links set per deployment (`support.ts`), and whether it's
+  running in the desktop app (`desktop.ts`).
 - `src/fonts/`: the fonts, from Google Fonts, kept here so building needs
   no network. `scripts/fonts.mjs` downloads them and writes the code that
   loads them (see `src/fonts/README.md`).
 - `src/test/`: what the component tests share: their setup (the app's
   styles, and failing a test that logs an error), a stand-in for Next's
-  fonts, and mouse drags.
+  fonts, and mouse drags; and `kernelParity.ts`, for the tests that hold
+  the native engine's kernels to the JavaScript ones.
 - `e2e/`: the browser tests. They serve the built site and use it in
   Chromium the way a person would: every page of the website, the
   templates and the start screen, the transport, each track and clip
@@ -1305,6 +1312,9 @@ trace of each failure (open a trace with `npx playwright show-trace`).
   the metronome, timed from the audio it plays. `studio.ts` finds things in the studio, `speakers.ts`
   listens to what reaches the speakers, and `fixtures.ts` fails a test on
   any error on the page and keeps it off the network.
+- `src-tauri/`: the desktop app (Tauri), and `crates/dawn-engine/`: the
+  native audio engine in Rust, its kernels ported from the JavaScript ones
+  and tested against them. See [docs/desktop.md](docs/desktop.md).
 
 ### Stack
 
@@ -1317,6 +1327,8 @@ trace of each failure (open a trace with `npx playwright show-trace`).
 - [Neural Amp Modeler](https://www.neuralampmodeler.com) (WebAssembly) for
   the NAM Amp. Its licenses are in `public/nam`.
 - [lucide-react](https://lucide.dev) for icons.
+- [Tauri](https://v2.tauri.app) 2 and Rust for the desktop app and its
+  native engine.
 
 ## License and credits
 

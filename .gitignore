@@ -23,6 +23,9 @@
 # production
 /build
 
+# rust (crates/, src-tauri/)
+/target/
+
 # misc
 .DS_Store
 *.pem

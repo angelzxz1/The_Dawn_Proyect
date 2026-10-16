@@ -2,17 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
+import { isDesktopApp } from "@/services/desktop";
 
 /** Registers the service worker (production builds only) that makes Dawn
  * installable and work offline, and offers "New version available: reload"
  * when a deploy lands. Never reloads on its own: unsaved work is the
- * person's call. */
+ * person's call. Not in the desktop app: its files are on disk already,
+ * and it updates with its installer (a cached copy would outlive one). */
 export function AppUpdater() {
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
   const reloading = useRef(false);
 
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
+    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator) || isDesktopApp()) return;
     let reg: ServiceWorkerRegistration | null = null;
     const watch = (r: ServiceWorkerRegistration) => {
       if (r.waiting && navigator.serviceWorker.controller) setWaiting(r.waiting);

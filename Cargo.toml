@@ -1,0 +1,18 @@
+# The Rust side of Dawn: the native audio engine (crates/dawn-engine) and
+# the desktop app that hosts the studio (src-tauri). See docs/desktop.md.
+
+[workspace]
+resolver = "3"
+members = ["crates/dawn-engine", "src-tauri"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+authors = ["Angel Fernando Zuñiga Navarro"]
+publish = false
+
+# DSP loops are many times slower unoptimized, so the engine is optimized
+# even in debug builds (`tauri dev`, `cargo test`); the rest of a debug
+# build stays fast to compile.
+[profile.dev.package.dawn-engine]
+opt-level = 3

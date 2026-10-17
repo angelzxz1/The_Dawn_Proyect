@@ -75,6 +75,9 @@ import { SIDECHAIN_TAP_LABELS } from "@/effects/sidechain/sidechainModel";
 import { AudioStatus } from "@/studio/transport/AudioStatus";
 import { LatencyHint } from "@/studio/transport/LatencyHint";
 import { EffectBrowser } from "@/studio/rack/EffectBrowser";
+import { PluginBrowser } from "@/studio/rack/PluginBrowser";
+import { plugins as pluginList } from "@/engine/native/plugins";
+import { isDesktopApp } from "@/services/desktop";
 import { AutomationLane as AutomationLaneEditor } from "@/studio/tracks/AutomationLane";
 import { audioEngine } from "@/engine/audioEngine";
 import { defaultLoop, formatPosition, loopAround, loopsFrom, nudgeLoop, type ArrangementLoop } from "@/project/arrangementLoop";
@@ -336,6 +339,13 @@ export function Daw() {
 
 
   const [exportOpen, setExportOpen] = useState(false);
+  // In the desktop app, the plugins on this computer: looked for as the
+  // studio opens, so the browser's Plugins tab has them by the time it's
+  // opened.
+  const [desktop] = useState(isDesktopApp);
+  useEffect(() => {
+    if (desktop) void pluginList.refresh();
+  }, [desktop]);
   const samplesReady = useSyncExternalStore(
     useCallback((listener) => audioEngine.onReadyChange(listener), []),
     () => audioEngine.samplesReady,
@@ -2082,6 +2092,7 @@ export function Daw() {
             onStopPreview={() => audioEngine.stopPreview()}
           />
         }
+        plugins={desktop ? <PluginBrowser /> : undefined}
       />
       <div className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
       <header className="flex shrink-0 items-center justify-between">

@@ -25,7 +25,9 @@ asio = ["cpal/asio"]
 # Audio devices: Core Audio, WASAPI (and ASIO, above), ALSA.
 cpal = "0.18"
 dawn-engine = { path = "../crates/dawn-engine" }
+dawn-plugins = { path = "../crates/dawn-plugins" }
 # Lock-free queues between the app and the audio thread.
 rtrb = "0.4"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tauri = { version = "2.12", features = [] }

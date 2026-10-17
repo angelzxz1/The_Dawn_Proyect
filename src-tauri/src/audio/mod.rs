@@ -121,8 +121,10 @@ pub fn engine_load_audio(state: State<'_, AudioState>, request: Request<'_>) -> 
         .and_then(|v| v.parse().ok())
         .ok_or("No sample rate.")?;
     let samples: Vec<f32> = bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
         .collect();
     let frames = samples.len() / channels;
     let data = AudioData {

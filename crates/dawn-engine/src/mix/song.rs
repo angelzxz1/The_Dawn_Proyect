@@ -171,10 +171,10 @@ pub struct Prepared {
 }
 
 impl Song {
-    /// The song ready for the audio thread. Its levels start where
-    /// `previous` (the song playing now) left the tracks with the same ids,
-    /// so the change glides.
-    pub fn prepare(mut self, previous: Option<&Prepared>) -> Prepared {
+    /// The song ready for the audio thread. Its levels start at those of
+    /// the tracks with the same ids in `previous` (the song playing now), so
+    /// a change glides.
+    pub fn prepare(mut self, previous: Option<&Song>) -> Prepared {
         let n = self.tracks.len();
         // A destination that isn't a track, or would make a loop, is the
         // master. (The studio never sends one; this keeps a bad one safe.)
@@ -220,47 +220,30 @@ impl Song {
         let mut order: Vec<usize> = (0..n).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(depth(i)));
 
-        let applied_of = |id: &str, target: Applied, previous: Option<(&Song, &[Applied])>| {
-            previous
-                .and_then(|(song, applied)| {
-                    song.tracks
-                        .iter()
-                        .position(|t| t.id == id)
-                        .map(|i| applied[i])
-                })
-                .unwrap_or(target)
+        let strip_of = |t: &Track| Applied {
+            gain: t.volume * if t.audible { 1.0 } else { 0.0 },
+            pan: t.pan,
         };
-        let prev_tracks = previous.map(|p| (&p.song, p.track_applied.as_slice()));
         let track_applied = self
             .tracks
             .iter()
             .map(|t| {
-                applied_of(
-                    &t.id,
-                    Applied {
-                        gain: t.volume * if t.audible { 1.0 } else { 0.0 },
-                        pan: t.pan,
-                    },
-                    prev_tracks,
-                )
+                previous
+                    .and_then(|p| p.tracks.iter().find(|x| x.id == t.id))
+                    .map_or_else(|| strip_of(t), strip_of)
             })
             .collect();
+        let bus_of = |b: &Bus| Applied {
+            gain: b.volume,
+            pan: b.pan,
+        };
         let bus_applied = self
             .buses
             .iter()
             .map(|b| {
                 previous
-                    .and_then(|p| {
-                        p.song
-                            .buses
-                            .iter()
-                            .position(|x| x.id == b.id)
-                            .map(|i| p.bus_applied[i])
-                    })
-                    .unwrap_or(Applied {
-                        gain: b.volume,
-                        pan: b.pan,
-                    })
+                    .and_then(|p| p.buses.iter().find(|x| x.id == b.id))
+                    .map_or_else(|| bus_of(b), bus_of)
             })
             .collect();
         let master_applied = previous.map_or(
@@ -268,7 +251,10 @@ impl Song {
                 gain: self.master.volume,
                 pan: self.master.pan,
             },
-            |p| p.master_applied,
+            |p| Applied {
+                gain: p.master.volume,
+                pan: p.master.pan,
+            },
         );
 
         Prepared {

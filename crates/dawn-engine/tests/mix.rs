@@ -191,7 +191,7 @@ fn a_fader_move_glides_over_a_block() {
     engine.render(&mut l, &mut r);
     let mut quiet = s;
     quiet.tracks[0].volume = 0.0;
-    let prepared = Box::new(quiet.prepare(Some(engine.song())));
+    let prepared = Box::new(quiet.prepare(Some(&engine.song().song)));
     engine.set_song(prepared);
     let (mut l, mut r) = (vec![0.0; 2048], vec![0.0; 2048]);
     engine.render(&mut l, &mut r);

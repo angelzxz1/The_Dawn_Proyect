@@ -10,12 +10,18 @@ macOS) and, later, hosting installed VST3 and CLAP plugins.
 It's early. Today:
 
 - **The window works**: `npm run desktop` opens the studio in its own
-  window, and `npm run desktop:build` makes installers. Audio still runs on
-  Web Audio inside the window, so it behaves (and its latency is) as in a
-  browser.
-- **The native engine has started**: `crates/dawn-engine` holds DSP
-  kernels ported to Rust, so far the Compressor. Each port is tested against
-  the JavaScript kernel's own output (below). Nothing plays through it yet.
+  window, and `npm run desktop:build` makes installers.
+- **The native engine plays audio (beta)**: turned on in the Audio panel
+  (the CPU meter in the transport bar), it plays the song through the audio
+  interface's own driver - Core Audio on macOS, WASAPI on Windows (ASIO
+  once its licence is signed, below). So far it plays the audio clips
+  through the mix (volume, pan, mute, solo, groups, sends), the master
+  limiter and the metronome. Instruments, effects, automation and recording
+  still need the browser's engine: the panel says what of the project it
+  doesn't play yet, and Record asks to turn it off.
+- **The DSP is moving over**: `crates/dawn-engine` holds the kernels ported
+  to Rust so far - the Compressor, the Limiter, the metronome and clip
+  playback - each tested against the JavaScript's own output (below).
 
 ## Getting the installers
 
@@ -53,7 +59,7 @@ You need, once:
   and WebView2, which Windows 10 and 11 already have.
 - **macOS**: Xcode's command line tools (`xcode-select --install`).
 - **Linux**: Tauri's libraries, e.g. on Ubuntu
-  `sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev build-essential`.
+  `sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev build-essential`.
 
 Then:
 
@@ -78,13 +84,18 @@ builds the same dependencies.
     `package.json`'s.
   - `src/lib.rs`: starts the app; lets the studio's own pages use the
     microphone and MIDI without the webview asking on every launch; and the
-    commands the studio can call (`engine_info` for now).
+    commands the studio can call.
+  - `src/audio/`: the native engine's side in the app - the audio devices
+    (`devices.rs`, through [cpal](https://github.com/RustAudio/cpal)), the
+    stream that plays the engine (`stream.rs`), and the commands the studio
+    drives it with (`mod.rs`).
   - `capabilities/default.json`: what the window may use of Tauri's own API.
   - `Info.plist`, `Entitlements.plist`: macOS's microphone prompt text and
     permission.
   - `icons/`: made from `public/icons/icon-512.png`. To remake them from a
     new image: `npx @tauri-apps/cli@2 icon path/to/icon.png`.
 - `crates/dawn-engine/`: the native engine.
+- `src/engine/native/`: the native engine from the studio's side (below).
 - `src/services/desktop.ts`: `isDesktopApp()`, for the studio to tell where
   it's running. The service worker stays off in the app (`AppUpdater.tsx`):
   its files are already on disk, and it updates with its installer.
@@ -112,21 +123,55 @@ and MIDI devices through the engine, files through native dialogs.
 
 ## The native engine
 
-`crates/dawn-engine` is plain Rust with no dependencies. Each kernel is a
-port of a JavaScript one from `src/effects/` and computes the same thing
-step for step: the same `f64` state and `f32` buffers as the JavaScript's
-numbers and Float32Arrays, the arithmetic in the same order. The rules for
-`process`, which will run on the audio thread: no allocation, locks, I/O or
-panics.
+`crates/dawn-engine` is plain Rust with no dependencies:
+
+- `mix/`: what plays the song - the transport (play with a count-in, stop,
+  seek, the loop), audio clips, the strips (fader, Web Audio's stereo
+  panner, mute), tracks feeding other tracks, post-fader sends, buses, the
+  master fader and limiter, and the metronome after the limiter. It renders
+  for whatever asks for samples: the app's audio stream, or (later) a file.
+- `effects/`: the DSP kernels, each a port of a JavaScript one from
+  `src/effects/` that computes the same thing step for step: the same
+  `f64` state and `f32` buffers as the JavaScript's numbers and
+  Float32Arrays, the arithmetic in the same order.
+
+The rules for what runs on the audio thread: no allocation, locks, I/O or
+panics. Everything it needs is made beforehand (`Song::prepare`), and what
+it replaces goes back to be freed elsewhere.
+
+### How the studio drives it
+
+The studio describes the song (`src/engine/native/describe.ts`): every
+track's level, pan and clips, whether it's heard (mute and solo, worked out
+by the same code as the browser's engine), where it goes, its sends; the
+buses, the master and the tempo map. `nativeEngine.ts` sends that whenever
+the project changes, and each audio file once, decoded at the device's
+rate (a warped clip sends its rendering). The browser's engine keeps
+running, silently: its transport tells the native engine everything it
+does (`src/engine/follower.ts`), and the playhead takes the native
+engine's position. So the rest of the studio doesn't change while parts
+move over.
+
+### ASIO
+
+cpal's ASIO backend builds with Steinberg's ASIO SDK, which is GPLv3 or
+Steinberg's own licence. Dawn isn't GPL, so it needs Steinberg's licence
+agreement, signed, before an installer with ASIO goes to anyone. Until then
+it's off: the app builds with `--features asio` (on Windows, with LLVM
+installed for the SDK's bindings; cpal fetches the SDK itself, or reads it
+from `CPAL_ASIO_DIR`), and the installers are made without it. WASAPI works
+in the meantime.
 
 ### Parity tests
 
 A kernel's parity test proves the port renders what the JavaScript renders:
 
-1. `src/effects/<effect>/<effect>Parity.ts` defines cases (parameters,
-   which inputs and sidechain are connected, a settings change midway) and
-   renders them with the JavaScript kernel the way its worklet runs it
-   (128-frame blocks, meters read every 512 frames).
+1. A `<name>Parity.ts` next to the JavaScript (`src/effects/<effect>/`,
+   or `src/engine/` for the metronome and clips) defines cases (parameters,
+   which inputs and sidechain are connected, a settings change midway, a
+   session of transport commands) and renders them with the JavaScript the
+   way the browser runs it (128-frame blocks, meters read every 512
+   frames).
 2. That's stored as a fixture in `crates/dawn-engine/tests/fixtures/`: a
    generated Rust file with the cases and the settings the JavaScript made
    of their parameters, and a binary file with the rendered samples and
@@ -135,8 +180,9 @@ A kernel's parity test proves the port renders what the JavaScript renders:
    renders, so a change to the kernel fails until the fixture is remade:
    `UPDATE_ENGINE_FIXTURES=1 npx vitest run --project unit <effect>Parity`.
 4. `cargo test -p dawn-engine` renders the same cases with the Rust kernel
-   and compares, sample by sample, to within -100 dB. (The Compressor
-   matches exactly; only its meters differ, by around 1e-14.)
+   and compares, sample by sample, to within -100 dB. (The Limiter, the
+   metronome and clips match to the last bit; the Compressor too, but for
+   its meters, by around 1e-14.)
 
 Both sides build the test signal themselves, from the same steps
 (`src/test/kernelParity.ts` and `crates/dawn-engine/tests/common/mod.rs`);
@@ -155,21 +201,18 @@ the fixture keeps its hash to catch the two drifting apart.
 
 ## Next steps
 
-1. **Port the rest of the DSP**: the remaining worklet kernels (gate, glue,
-   limiter, the multiband effects, EQ, utility, pitch shift, the Furnace
-   amp, the synth and drum rack, the metronome), then what's built from
-   Web Audio nodes today (chorus, delay, EQ Three, filter, reverb, the IR
-   loader, saturator, tuner, the piano sampler). NAM's engine is C++
-   (NeuralAmpModelerCore) and can be built into the native engine as is.
-2. **Play through the engine**: audio devices with
-   [cpal](https://github.com/RustAudio/cpal) (ASIO on Windows with its
-   `asio` feature and Steinberg's ASIO SDK license), a mixer and a
-   transport, and a native engine for the studio behind `EngineApi` in
-   `src/engine/engineSync.ts`, so the studio drives either engine.
-3. **Recording, export and files**: input streams written to disk, offline
-   rendering, native file dialogs.
-4. **Plugins**: scanning, hosting and showing installed VST3 and CLAP
-   plugins in their own windows.
+1. **Recording through the engine**: the interface's inputs, monitoring
+   with low latency, takes written to disk, latency compensation.
+2. **Instruments and effects in the engine**: the remaining kernels (gate,
+   glue, the multiband effects, EQ, utility, pitch shift, the Furnace amp,
+   the synth and drum rack), then what's built from Web Audio nodes today
+   (chorus, delay, EQ Three, filter, reverb, the IR loader, saturator,
+   tuner, the piano sampler). NAM's engine is C++ (NeuralAmpModelerCore) and
+   can be built into the engine as is. Then automation and delay
+   compensation.
+3. **Plugins**: scanning, hosting and showing installed VST3 and CLAP
+   plugins (and Audio Units on macOS) in their own windows.
+4. **Export through the engine**, native file dialogs, signed installers.
 
 ## Checks
 

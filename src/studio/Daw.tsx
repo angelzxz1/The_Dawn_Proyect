@@ -113,6 +113,7 @@ import { getAudioPrefs } from "@/engine/audioPrefs";
 import { type EffectType } from "@/effects/registry";
 import type { ScaleSetting } from "@/project/scales";
 import { DEFAULT_KEY } from "@/project/chords";
+import { nativeEngine } from "@/engine/native/nativeEngine";
 import {
   DEFAULT_PX_PER_SECOND,
   MAX_PX_PER_SECOND,
@@ -1083,6 +1084,12 @@ export function Daw() {
       return;
     }
     if (!armedChannelId) return;
+    if (nativeEngine.current.active) {
+      // Recording through the native engine comes next; until then the
+      // browser's engine records.
+      setMicError("Recording uses the browser engine for now: turn the native engine off in Audio settings to record.");
+      return;
+    }
     recordingChannelRef.current = armedChannelId;
     setRecordingChannelId(armedChannelId);
     // With the loop on, recording from before its end goes round it (like

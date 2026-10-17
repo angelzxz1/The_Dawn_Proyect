@@ -41,6 +41,7 @@ import type { InstrumentSettings } from "../instruments/registry";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
 import { isSidechainNode, MAX_COMPENSATION, type AudioClipNodes, type AudioClipTiming, type BusNodes, type ChannelNodes, type EffectNode, type EffectsHost, type SidechainNode, type SidechainTaps } from "./nodes";
 import { attempt, noteIssue } from "../services/issues";
+import type { EngineFollower } from "./follower";
 
 export type { AudioClipTiming };
 
@@ -87,6 +88,16 @@ class AudioEngine {
   private pendingLoads = 0;
   /** The song's tempo map (setTempoMap): what warped clips follow. */
   private tempoMap: TempoMap = makeTempoMap(120);
+  /** Another engine following the transport (follower.ts), and what it's
+   * told when it starts following. */
+  private follower: EngineFollower | null = null;
+  private followed = {
+    loop: null as { start: number; end: number } | null,
+    metronome: false,
+    metronomeDb: 0,
+    limiterDb: -1,
+    beatsPerBar: 4,
+  };
   /** Warped clips to bring up to date (renderWarps), at the end of the
    * current task: a tempo edit changes the map and then the clips. */
   private readonly warpQueue = new Set<AudioClipNodes>();
@@ -466,6 +477,8 @@ class AudioEngine {
   /** Ceiling the master limiter won't let the mix exceed, in dB (e.g. -1). */
   setMasterLimiterThreshold(db: number): void {
     this.ensureMaster().limiter.setCeiling(db);
+    this.followed.limiterDb = db;
+    this.follower?.limiter(db);
   }
 
   /** Current master output level, left and right, 0-1. */
@@ -1412,13 +1425,16 @@ class AudioEngine {
    * seeked/paused position otherwise). */
   async startPlayback(): Promise<void> {
     await this.ensureStarted();
+    const from = this.transport.seconds;
     this.transport.play();
+    this.follower?.play(from);
   }
 
   /** Pauses playback in place - unlike stopAll, the transport position is
    * preserved so playback can resume from the same spot. */
   pauseAll(): void {
     this.transport.pause();
+    this.follower?.stop();
     this.channels.forEach((nodes) => {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
@@ -1432,6 +1448,7 @@ class AudioEngine {
    * returns to the last clicked point rather than always the very start. */
   stopAll(): void {
     this.transport.stop();
+    this.follower?.stop();
     this.channels.forEach((nodes) => {
       this.safe(() => nodes.instrument.releaseAll());
       nodes.heldNotes.clear();
@@ -1452,6 +1469,21 @@ class AudioEngine {
    * the transport is currently playing, paused, or stopped. */
   seekTo(seconds: number): void {
     this.transport.seek(seconds);
+    this.follower?.seek(Math.max(0, seconds));
+  }
+
+  /** Another engine to follow the transport (null: none): it's told the
+   * loop, metronome, limiter and bar now, and from then on everything the
+   * transport does; the playhead takes its position. */
+  setFollower(follower: EngineFollower | null): void {
+    this.follower = follower;
+    if (!follower) return;
+    const f = this.followed;
+    follower.loop(f.loop);
+    follower.metronome(f.metronome, f.metronomeDb);
+    follower.limiter(f.limiterDb);
+    follower.beatsPerBar(f.beatsPerBar);
+    follower.seek(this.transport.seconds);
   }
 
   /** Arms a channel for recording and starts the transport (other channels'
@@ -1704,10 +1736,12 @@ class AudioEngine {
 
   setTimeSignature(beatsPerBar: number): void {
     this.transport.setBeatsPerBar(beatsPerBar);
+    this.followed.beatsPerBar = beatsPerBar;
+    this.follower?.beatsPerBar(beatsPerBar);
   }
 
   getTransportSeconds(): number {
-    return this.transport.seconds;
+    return this.follower?.position() ?? this.transport.seconds;
   }
 
   /** Sets (or clears) the transport's loop region. When enabled, playback
@@ -1715,6 +1749,8 @@ class AudioEngine {
    * instead of running off the end of the loop. */
   setLoop(enabled: boolean, startSeconds: number, endSeconds: number): void {
     this.transport.setLoop(enabled, startSeconds, endSeconds);
+    this.followed.loop = enabled ? { start: startSeconds, end: endSeconds } : null;
+    this.follower?.loop(this.followed.loop);
   }
 
   getTransportState(): "started" | "stopped" | "paused" {
@@ -1723,12 +1759,16 @@ class AudioEngine {
 
   setMetronome(enabled: boolean): void {
     this.transport.setMetronome(enabled);
+    this.followed.metronome = enabled;
+    this.follower?.metronome(enabled, this.followed.metronomeDb);
   }
 
   /** The metronome's and count-in's level, in dB from their standard
    * level (a setting of this computer, audioPrefs.ts). */
   setMetronomeLevel(db: number): void {
     this.transport.setMetronomeLevel(db);
+    this.followed.metronomeDb = db;
+    this.follower?.metronome(this.followed.metronome, db);
   }
 }
 

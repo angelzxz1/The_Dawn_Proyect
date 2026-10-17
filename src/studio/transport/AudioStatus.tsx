@@ -7,6 +7,8 @@ import { cpuReading, type CpuReading } from "@/engine/cpuMeter";
 import { useAudioPrefs } from "./useAudioPrefs";
 import { useShortcuts } from "@/ui/shortcuts";
 import { noteIssue } from "@/services/issues";
+import { isDesktopApp } from "@/services/desktop";
+import { NativeEngineSection, useNativeEngine } from "./NativeEngineSection";
 
 const ms = (seconds: number) => `${(seconds * 1000).toFixed(1)} ms`;
 
@@ -69,6 +71,8 @@ export function AudioStatus() {
   /** Opened to show the Recording section: scrolled to it once it's drawn. */
   const showRecording = useRef(false);
   const [deviceRates, setDeviceRates] = useState<{ output: number | null; input: number | null } | null>(null);
+  const [desktop] = useState(isDesktopApp);
+  useNativeEngine(prefs, desktop);
 
   // The engine follows the settings.
   useEffect(() => {
@@ -168,6 +172,7 @@ export function AudioStatus() {
           role="dialog"
           aria-label="Audio settings"
         >
+          {desktop && <NativeEngineSection prefs={prefs} update={update} />}
           <section className="flex flex-col gap-1.5">
             <h3 className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted">
               <Cpu size={12} /> CPU

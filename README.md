@@ -461,6 +461,10 @@ without a connection, and keeps the sounds you've used (the piano samples,
 amp engine, packs) for offline sessions. When a new version is deployed, a
 **New version available: Reload** prompt appears; nothing reloads on its own.
 
+There's also an early desktop app for Windows and macOS, on its way to
+audio interface drivers (ASIO, Core Audio) and third-party plugins:
+[docs/desktop.md](docs/desktop.md) says where to get its installers.
+
 ### Browser support
 
 The app works best in **Chrome** or **Edge** on a desktop computer.

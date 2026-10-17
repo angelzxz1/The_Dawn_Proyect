@@ -8,7 +8,7 @@ import { loadWorklet } from "../../engine/workletLoader";
 // instead is what made an earlier version audibly "rip" the sound.
 //
 // This runs as an AudioWorklet. Input gain is applied first, then (optionally)
-// a soft clipper. The audio is then delayed by LOOKAHEAD seconds; for each
+// a soft clipper. The audio is then delayed by the lookahead; for each
 // sample the gain needed to keep it under the ceiling is held (sliding
 // minimum) across the lookahead window, released over the Release time, then
 // box-averaged over that same window - so the gain has already ramped
@@ -20,14 +20,21 @@ import { loadWorklet } from "../../engine/workletLoader";
 // trades a little saturation for transients the limiter no longer has to
 // duck as hard; the limiter still guarantees the ceiling afterwards.
 //
-// Every METER_INTERVAL samples the processor posts the peak input (after
+// Every meter interval the processor posts the peak input (after
 // gain), peak output, and deepest gain reduction for the plugin's meters.
+//
+// The desktop app's native engine has a port of the processor
+// (crates/dawn-engine/src/effects/limiter.rs), held to it by
+// limiterParity.test.ts: change both.
 
 const PROCESSOR_NAME = "dawn-lookahead-limiter-v2";
-const LOOKAHEAD = 0.005;
-const METER_INTERVAL = 2048;
+/** Seconds. */
+export const LIMITER_LOOKAHEAD = 0.005;
+/** How often (frames) it posts its meters. */
+export const LIMITER_METER_INTERVAL = 2048;
 
-const PROCESSOR_CODE = `
+/** The processor's source (run as is by limiterParity.ts). */
+export const LIMITER_PROCESSOR_SOURCE = `
 const SQRT2 = Math.SQRT2;
 
 function softClip(x, ceiling) {
@@ -51,7 +58,7 @@ class DawnLookaheadLimiter extends AudioWorkletProcessor {
 
   constructor() {
     super();
-    const size = Math.max(2, Math.round(sampleRate * ${LOOKAHEAD}) + 1);
+    const size = Math.max(2, Math.round(sampleRate * ${LIMITER_LOOKAHEAD}) + 1);
     this.size = size;
     this.delayL = new Float32Array(size);
     this.delayR = new Float32Array(size);
@@ -148,7 +155,7 @@ class DawnLookaheadLimiter extends AudioWorkletProcessor {
     }
 
     this.meterCount += outL.length;
-    if (this.meterCount >= ${METER_INTERVAL}) {
+    if (this.meterCount >= ${LIMITER_METER_INTERVAL}) {
       // Soft clip's own reduction at the loudest input sample, on top of the
       // limiter's deepest gain reduction in this interval.
       const clipped = clip && this.meterIn > 0 ? softClip(this.meterIn, ceiling) / this.meterIn : 1;
@@ -165,7 +172,7 @@ registerProcessor("${PROCESSOR_NAME}", DawnLookaheadLimiter);
 `;
 
 function loadLimiterWorklet(context: Tone.BaseContext): Promise<void> {
-  return loadWorklet(context, PROCESSOR_NAME, PROCESSOR_CODE);
+  return loadWorklet(context, PROCESSOR_NAME, LIMITER_PROCESSOR_SOURCE);
 }
 
 export interface LimiterSettings {
@@ -200,7 +207,7 @@ export class LookaheadLimiter extends Tone.ToneAudioNode {
 
   /** Seconds the lookahead delays the audio (for delay compensation). */
   get latency(): number {
-    return Math.round(this.context.sampleRate * LOOKAHEAD) / this.context.sampleRate;
+    return Math.round(this.context.sampleRate * LIMITER_LOOKAHEAD) / this.context.sampleRate;
   }
 
   constructor(settings: Partial<LimiterSettings> & { ceilingDb: number }) {

@@ -3,7 +3,9 @@
 // themselves. It runs on the audio thread, in an AudioWorklet
 // (metronome.ts), and places every click at its exact sample - so nothing
 // the page does can delay or drop one. Kept as source text like the
-// effects' kernels; the tests run the same text.
+// effects' kernels; the tests run the same text. The desktop app's native
+// engine has a port of it (crates/dawn-engine/src/mix/metronome.rs), held
+// to it by metronomeParity.test.ts: change both.
 
 export const METRONOME_KERNEL_SOURCE = `
 const METRONOME_EPS = 1e-6;

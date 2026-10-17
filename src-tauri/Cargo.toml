@@ -15,7 +15,17 @@ name = "dawn_desktop_lib"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Steinberg's ASIO drivers on Windows (cpal's ASIO backend, which needs the
+# ASIO SDK and LLVM to build). Off until the ASIO licence agreement is
+# signed: see docs/desktop.md.
+asio = ["cpal/asio"]
+
 [dependencies]
+# Audio devices: Core Audio, WASAPI (and ASIO, above), ALSA.
+cpal = "0.18"
 dawn-engine = { path = "../crates/dawn-engine" }
+# Lock-free queues between the app and the audio thread.
+rtrb = "0.4"
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2.12", features = [] }

@@ -21,4 +21,18 @@ describe("parseAudioPrefs", () => {
     expect(parseAudioPrefs({ metronomeDb: -100 }).metronomeDb).toBe(-30);
     expect(parseAudioPrefs({ measuredRoundTrip: 0.042, latencyHintDismissed: true })).toMatchObject({ measuredRoundTrip: 0.042, latencyHintDismissed: true });
   });
+
+  it("keeps the native engine's device settings sensible", () => {
+    expect(parseAudioPrefs({ nativeEngine: true, nativeDevice: "asio:Focusrite USB ASIO", nativeSampleRate: 48000, nativeBufferSize: 128 })).toMatchObject({
+      nativeEngine: true,
+      nativeDevice: "asio:Focusrite USB ASIO",
+      nativeSampleRate: 48000,
+      nativeBufferSize: 128,
+    });
+    expect(parseAudioPrefs({ nativeDevice: "", nativeSampleRate: 12.5, nativeBufferSize: 1e6 })).toMatchObject({
+      nativeDevice: null,
+      nativeSampleRate: null,
+      nativeBufferSize: null,
+    });
+  });
 });

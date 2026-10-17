@@ -1,6 +1,7 @@
 // Audio settings that belong to this computer rather than to a project
 // (like a DAW's preferences): delay compensation, the recording latency
-// correction for this browser's audio devices, and the click's level. Kept
+// correction for this browser's audio devices, the click's level, and in
+// the desktop app the native engine and its device. Kept
 // in localStorage; any failure to read or write just falls back to
 // defaults. One copy is shared by everything that shows or changes them
 // (getAudioPrefs, updateAudioPrefs, subscribeAudioPrefs).
@@ -21,6 +22,13 @@ export interface AudioPrefs {
   /** "Don't show again" on the note that offers to measure the latency
    * after a take. */
   latencyHintDismissed: boolean;
+  /** The desktop app plays through its native engine (native/). */
+  nativeEngine: boolean;
+  /** The native engine's device (bridge.ts's ids; null: the system's
+   * default), sample rate and buffer size (null: the device's own). */
+  nativeDevice: string | null;
+  nativeSampleRate: number | null;
+  nativeBufferSize: number | null;
 }
 
 /** The click level's range, in dB: at the top, the count-in peaks at
@@ -36,6 +44,10 @@ export const DEFAULT_AUDIO_PREFS: AudioPrefs = {
   measuredRoundTrip: null,
   metronomeDb: 0,
   latencyHintDismissed: false,
+  nativeEngine: false,
+  nativeDevice: null,
+  nativeSampleRate: null,
+  nativeBufferSize: null,
 };
 
 /** Settings as stored, checked: anything missing or out of range is the
@@ -47,6 +59,10 @@ export function parseAudioPrefs(raw: unknown): AudioPrefs {
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
   const roundTrip = num(r.measuredRoundTrip);
+  const whole = (v: unknown, lo: number, hi: number) => {
+    const n = num(v);
+    return n !== null && Number.isInteger(n) && n >= lo && n <= hi ? n : null;
+  };
   return {
     delayCompensation: bool(r.delayCompensation, true),
     reducedLatencyMonitoring: bool(r.reducedLatencyMonitoring, true),
@@ -54,6 +70,10 @@ export function parseAudioPrefs(raw: unknown): AudioPrefs {
     measuredRoundTrip: roundTrip !== null && roundTrip > 0 && roundTrip < 2 ? roundTrip : null,
     metronomeDb: clamp(num(r.metronomeDb) ?? 0, METRONOME_DB_RANGE.min, METRONOME_DB_RANGE.max),
     latencyHintDismissed: bool(r.latencyHintDismissed, false),
+    nativeEngine: bool(r.nativeEngine, false),
+    nativeDevice: typeof r.nativeDevice === "string" && r.nativeDevice ? r.nativeDevice : null,
+    nativeSampleRate: whole(r.nativeSampleRate, 8000, 384000),
+    nativeBufferSize: whole(r.nativeBufferSize, 16, 8192),
   };
 }
 

@@ -2,7 +2,9 @@
 // clips play, mixed into samples the way the engine plays them (each
 // clip's loop played out, its gain, its linear fades in and out), and a
 // file's samples turned back to front. The math is pure; decoding a clip's
-// file is the one part that needs the browser.
+// file is the one part that needs the browser. The desktop app's native
+// engine plays clips the same way (crates/dawn-engine/src/mix/clip.rs),
+// held to mixClip by clipParity.test.ts: change both.
 
 import type { TimeRange } from "../project/timeRange";
 import type { AudioClipInstance } from "../project/types";

@@ -3,6 +3,8 @@
 //! native engine (crates/dawn-engine) as it takes over from Web Audio. See
 //! docs/desktop.md.
 
+mod audio;
+
 use tauri::Webview;
 use tauri::webview::{PermissionKind, PermissionResponse};
 
@@ -53,7 +55,22 @@ pub fn run() {
             }
             _ => PermissionResponse::Default,
         })
-        .invoke_handler(tauri::generate_handler![engine_info])
+        .manage(audio::AudioState::default())
+        .invoke_handler(tauri::generate_handler![
+            engine_info,
+            audio::audio_devices,
+            audio::audio_open,
+            audio::audio_close,
+            audio::engine_load_audio,
+            audio::engine_forget_audio,
+            audio::engine_set_song,
+            audio::engine_play,
+            audio::engine_stop,
+            audio::engine_seek,
+            audio::engine_loop,
+            audio::engine_metronome,
+            audio::engine_status,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the Dawn desktop app");
 }

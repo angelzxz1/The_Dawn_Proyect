@@ -2,7 +2,8 @@
 //! effect folders (`src/effects/<name>/`).
 
 pub mod compressor;
+pub mod limiter;
 pub mod sidechain;
 
 /// The effect types (their saved keys) whose kernels have been ported.
-pub const PORTED: &[&str] = &["compressor"];
+pub const PORTED: &[&str] = &["compressor", "limiter"];

@@ -1,0 +1,14 @@
+//! The engine that plays the song: the transport, the clips, the mix and
+//! the master, and the metronome. The studio describes the song
+//! (`song::Song`), and the engine renders it to whatever asks for samples:
+//! an audio interface (the desktop app, `src-tauri`) or a file.
+
+pub mod clip;
+pub mod engine;
+pub mod metronome;
+pub mod song;
+pub mod tempo;
+
+pub use clip::{AudioData, Clip, ClipTiming};
+pub use engine::Engine;
+pub use song::{Bus, Destination, MAX_BLOCK, Master, Prepared, Send, Song, Track, db_to_gain};

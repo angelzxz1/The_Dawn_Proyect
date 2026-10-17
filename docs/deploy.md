@@ -24,6 +24,16 @@ unlimited bandwidth for static files, 25 MiB per file).
    it: AudioWorklets, the microphone and saving project folders only work
    on HTTPS (or `localhost`).
 
+## Railway
+
+Railway builds the repository with Railpack, which picks a language from
+the files at the root. The Rust workspace for the desktop app
+(`Cargo.toml`, see [desktop.md](desktop.md)) would make it build a Rust
+app, so `railpack.json` tells it to use Node: it runs `npm install`,
+`npm run build`, and `npm start` (which serves `out/` on Railway's `PORT`).
+Set the service's branch to `main` and add the same `NEXT_PUBLIC_`
+variables as below under the service's **Variables**.
+
 ## Your own domain
 
 1. **Buy it** in the Cloudflare dashboard: **Domain Registration → Register

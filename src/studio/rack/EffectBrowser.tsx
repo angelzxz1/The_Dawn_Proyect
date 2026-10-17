@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronRight, Drum, Link2, Search, Sliders, X } from "lucide-react";
+import { ChevronRight, Drum, Link2, Plug, Search, Sliders, X } from "lucide-react";
 import { EFFECT_CHAINS, type EffectChain } from "@/effects/chains";
 import { EFFECT_GROUPS, EFFECT_LABELS, type EffectType } from "@/effects/registry";
 import { presetsFor, type EffectPreset } from "@/effects/presets";
@@ -20,6 +20,8 @@ interface EffectBrowserProps {
   onAddEffect: (type: EffectType, presetId?: string) => void;
   /** The Grooves tab's contents. */
   grooves?: ReactNode;
+  /** The Plugins tab's contents (the desktop app's), if it has one. */
+  plugins?: ReactNode;
   /** Adds a ready-made chain of effects to the selected track. */
   onAddChain?: (chain: EffectChain) => void;
 }
@@ -34,8 +36,8 @@ const matches = (text: string, query: string) => text.toLowerCase().includes(que
  * and clickable (adds it straight to the currently selected track/bus).
  * The search box filters devices and presets by name.
  */
-export function EffectBrowser({ onAddEffect, grooves, onAddChain }: EffectBrowserProps) {
-  const [tab, setTab] = useState<"effects" | "grooves">("effects");
+export function EffectBrowser({ onAddEffect, grooves, plugins, onAddChain }: EffectBrowserProps) {
+  const [tab, setTab] = useState<"effects" | "grooves" | "plugins">("effects");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [openDevices, setOpenDevices] = useState<Set<EffectType>>(new Set());
   const [query, setQuery] = useState("");
@@ -85,6 +87,7 @@ export function EffectBrowser({ onAddEffect, grooves, onAddChain }: EffectBrowse
           [
             ["effects", "Effects", <Sliders key="i" size={12} />],
             ["grooves", "Grooves", <Drum key="i" size={12} />],
+            ...(plugins ? ([["plugins", "Plugins", <Plug key="i" size={12} />]] as const) : []),
           ] as const
         ).map(([id, label, icon]) => (
           <button
@@ -93,17 +96,20 @@ export function EffectBrowser({ onAddEffect, grooves, onAddChain }: EffectBrowse
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={`-mb-px flex flex-1 items-center justify-center gap-1.5 border-b-2 px-2 py-2.5 text-xs font-semibold uppercase tracking-wide ${
-              tab === id ? "border-accent text-foreground" : "border-transparent text-muted hover:text-foreground"
-            }`}
+            className={`-mb-px flex flex-1 items-center justify-center border-b-2 py-2.5 font-semibold uppercase ${
+              plugins ? "gap-1 px-0.5 text-[10px] tracking-normal" : "gap-1.5 px-2 text-xs tracking-wide"
+            } ${tab === id ? "border-accent text-foreground" : "border-transparent text-muted hover:text-foreground"}`}
           >
-            {icon}
+            {/* Three tabs fit the browser's width as words alone. */}
+            {!plugins && icon}
             {label}
           </button>
         ))}
       </div>
       {tab === "grooves" ? (
         grooves
+      ) : tab === "plugins" && plugins ? (
+        plugins
       ) : (
         <>
           <div className="border-b border-border p-2">

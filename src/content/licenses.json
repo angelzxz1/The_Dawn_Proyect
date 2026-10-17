@@ -120,6 +120,50 @@
       "usedFor": "Icons"
     },
     {
+      "id": "vst3-sdk",
+      "name": "VST 3 SDK",
+      "kind": "software",
+      "author": "Steinberg Media Technologies GmbH",
+      "license": "MIT",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://www.steinberg.net/developers/",
+      "usedFor": "Finding and loading VST3 plugins in the desktop app (its interfaces). VST is a registered trademark of Steinberg Media Technologies GmbH.",
+      "added": "2026-10-17"
+    },
+    {
+      "id": "vst3-rs",
+      "name": "vst3 (Rust bindings)",
+      "kind": "software",
+      "author": "Micah Johnston",
+      "license": "MIT or Apache-2.0",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://crates.io/crates/vst3",
+      "usedFor": "The VST 3 SDK's interfaces in the desktop app's Rust code",
+      "added": "2026-10-17"
+    },
+    {
+      "id": "clap",
+      "name": "CLAP",
+      "kind": "software",
+      "author": "Alexandre Bique and the CLAP contributors",
+      "license": "MIT",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://cleveraudio.org",
+      "usedFor": "Finding and loading CLAP plugins in the desktop app",
+      "added": "2026-10-17"
+    },
+    {
+      "id": "clack",
+      "name": "Clack",
+      "kind": "software",
+      "author": "Adrien Prokopowicz and contributors",
+      "license": "MIT or Apache-2.0",
+      "licenseUrl": "https://opensource.org/license/mit",
+      "url": "https://crates.io/crates/clack-host",
+      "usedFor": "Hosting CLAP plugins in the desktop app",
+      "added": "2026-10-17"
+    },
+    {
       "id": "geist",
       "name": "Geist and Geist Mono",
       "kind": "font",

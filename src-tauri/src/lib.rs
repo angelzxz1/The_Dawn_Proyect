@@ -1,9 +1,14 @@
 //! The Dawn Project's desktop app: the studio (the web app's static export
-//! in `out/`, opened at `/app`) in a native window, and the bridge to the
-//! native engine (crates/dawn-engine) as it takes over from Web Audio. See
+//! in `out/`, opened at `/app`) in a native window, the bridge to the
+//! native engine (crates/dawn-engine) as it takes over from Web Audio, and
+//! the VST3 and CLAP plugins on the computer (crates/dawn-plugins). See
 //! docs/desktop.md.
 
 mod audio;
+mod plugins;
+
+use std::ffi::OsString;
+use std::process::ExitCode;
 
 use tauri::Webview;
 use tauri::webview::{PermissionKind, PermissionResponse};
@@ -42,6 +47,13 @@ fn is_app_page(webview: &Webview) -> bool {
     bundled || dev_server
 }
 
+/// If the app was run to read a plugin file for the plugin scan
+/// (`--scan-plugin <format> <path>`, from plugins.rs), reads it and says
+/// how to exit; otherwise None, and the app starts as usual.
+pub fn scan_plugin(args: impl IntoIterator<Item = OsString>) -> Option<ExitCode> {
+    dawn_plugins::scan::child_main(args)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -56,6 +68,7 @@ pub fn run() {
             _ => PermissionResponse::Default,
         })
         .manage(audio::AudioState::default())
+        .manage(plugins::PluginsState::default())
         .invoke_handler(tauri::generate_handler![
             engine_info,
             audio::audio_devices,
@@ -70,6 +83,10 @@ pub fn run() {
             audio::engine_loop,
             audio::engine_metronome,
             audio::engine_status,
+            plugins::plugins_list,
+            plugins::plugins_scan,
+            plugins::plugins_add_folder,
+            plugins::plugins_remove_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Dawn desktop app");

@@ -1,6 +1,6 @@
-// The desktop app's native engine, as the studio calls it: the commands in
-// src-tauri/src/audio/mod.rs. Only callable in the desktop app
-// (isDesktopApp).
+// The desktop app's native engine and plugins, as the studio calls them:
+// the commands in src-tauri/src/audio/mod.rs and src-tauri/src/plugins.rs.
+// Only callable in the desktop app (isDesktopApp).
 
 import { invoke } from "@tauri-apps/api/core";
 import type { NativeSong } from "./describe";
@@ -74,4 +74,63 @@ export const nativeBridge = {
   loop: (range: { start: number; end: number } | null) => invoke<void>("engine_loop", { start: range?.start ?? null, end: range?.end ?? null }),
   metronome: (enabled: boolean, levelDb: number) => invoke<void>("engine_metronome", { enabled, levelDb }),
   status: () => invoke<NativeStatus>("engine_status"),
+};
+
+// --- The VST3 and CLAP plugins on this computer (src-tauri/src/plugins.rs) ---
+
+export type PluginFormat = "vst3" | "clap";
+
+export interface PluginInfo {
+  format: PluginFormat;
+  /** What the format knows it by: a VST3 class id or a CLAP plugin id. */
+  id: string;
+  name: string;
+  vendor: string;
+  version: string;
+  kind: "effect" | "instrument" | "noteEffect";
+  /** VST3 sub-categories ("Fx", "Delay") or CLAP features ("audio-effect"). */
+  categories: string[];
+  /** The file or bundle it's in. */
+  path: string;
+}
+
+export interface PluginFailure {
+  format: PluginFormat;
+  path: string;
+  /** Why it couldn't be read ("It crashed as it loaded."). */
+  error: string;
+}
+
+export interface PluginFolder {
+  path: string;
+  /** One of this system's standard folders; otherwise, one the user added. */
+  standard: boolean;
+  exists: boolean;
+}
+
+export interface PluginScanProgress {
+  done: number;
+  total: number;
+  /** The files being read right now. */
+  reading: string[];
+}
+
+export interface PluginList {
+  plugins: PluginInfo[];
+  failed: PluginFailure[];
+  folders: PluginFolder[];
+  /** How the scan running now is going, if one is. */
+  scan: PluginScanProgress | null;
+  /** Whether a scan has finished since the app started. */
+  scanned: boolean;
+}
+
+export const pluginBridge = {
+  /** The plugins found so far; the first call starts a scan. */
+  list: () => invoke<PluginList>("plugins_list"),
+  /** Scans again, for what's new or changed (and, with `retryFailed`,
+   * the files that couldn't be read). */
+  scan: (retryFailed: boolean) => invoke<void>("plugins_scan", { retryFailed }),
+  addFolder: (path: string) => invoke<void>("plugins_add_folder", { path }),
+  removeFolder: (path: string) => invoke<void>("plugins_remove_folder", { path }),
 };

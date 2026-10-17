@@ -1,0 +1,17 @@
+[package]
+name = "dawn-test-plugin"
+version = "0.1.0"
+description = "A small VST3 and CLAP plugin (a gain effect and a tone instrument) for testing Dawn's plugin hosting against."
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+# Both formats from one library: the tests copy it into a .vst3 bundle and
+# a .clap file (see dawn-plugins' tests).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+clack-plugin = "0.2"
+vst3 = "0.3"

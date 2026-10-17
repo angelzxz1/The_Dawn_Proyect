@@ -3,7 +3,7 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/dawn-engine", "src-tauri"]
+members = ["crates/dawn-engine", "crates/dawn-plugins", "crates/dawn-test-plugin", "src-tauri"]
 
 [workspace.package]
 edition = "2024"

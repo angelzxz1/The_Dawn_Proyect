@@ -76,7 +76,8 @@ builds the same dependencies.
 
 ## How it's put together
 
-- `Cargo.toml`: the Rust workspace (the engine and the app).
+- `Cargo.toml`: the Rust workspace (the engine, plugin hosting and the
+  app).
 - `src-tauri/`: the app.
   - `tauri.conf.json`: the window (opening the studio at `/app`), the site
     it serves (`out/`, built by `npm run build` before each app build), and
@@ -89,12 +90,20 @@ builds the same dependencies.
     (`devices.rs`, through [cpal](https://github.com/RustAudio/cpal)), the
     stream that plays the engine (`stream.rs`), and the commands the studio
     drives it with (`mod.rs`).
+  - `src/plugins.rs`: the plugin scan in the background, its cache and the
+    folders searched, and the commands the studio's Plugins tab calls.
+    `src/main.rs` runs the scan's side when the app is started with
+    `--scan-plugin` (below).
   - `capabilities/default.json`: what the window may use of Tauri's own API.
   - `Info.plist`, `Entitlements.plist`: macOS's microphone prompt text and
-    permission.
+    permission, and the hardened runtime's leave to load plugins signed by
+    others (library validation off, and the JIT some plugins use).
   - `icons/`: made from `public/icons/icon-512.png`. To remake them from a
     new image: `npx @tauri-apps/cli@2 icon path/to/icon.png`.
 - `crates/dawn-engine/`: the native engine.
+- `crates/dawn-plugins/`: VST3 and CLAP plugin hosting (so far, finding
+  them), and `crates/dawn-test-plugin/`, a small plugin in both formats
+  that its tests load.
 - `src/engine/native/`: the native engine from the studio's side (below).
 - `src/services/desktop.ts`: `isDesktopApp()`, for the studio to tell where
   it's running. The service worker stays off in the app (`AppUpdater.tsx`):
@@ -199,6 +208,64 @@ the fixture keeps its hash to catch the two drifting apart.
 3. Add `crates/dawn-engine/tests/<name>_parity.rs` like
    `compressor_parity.rs`, and make it pass.
 
+## Plugins
+
+The app finds the VST3 and CLAP plugins on the computer and lists them in
+the browser's **Plugins** tab (instruments, effects and note effects, each
+with its format). Putting them on tracks comes next; the steps are below.
+
+### Where it looks
+
+The folders each format names for the system, plus any the user adds in
+the Plugins tab (kept in `plugin-folders.json` in the app's data folder),
+and their sub-folders:
+
+| System  | VST3                                                                                   | CLAP                                                                        |
+| ------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Windows | `%LOCALAPPDATA%\Programs\Common\VST3`, `C:\Program Files\Common Files\VST3`            | the same with `CLAP`                                                        |
+| macOS   | `~/Library/Audio/Plug-Ins/VST3`, `/Library/Audio/Plug-Ins/VST3`                         | the same with `CLAP`                                                        |
+| Linux   | `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3`                                      | `~/.clap`, `/usr/lib/clap`                                                  |
+
+`CLAP_PATH`'s folders come first, as CLAP asks.
+
+### How a plugin is read
+
+A plugin's own code runs as it's loaded, and some crash or hang, so the
+app never loads one into itself to read it: it runs itself again as
+`<app> --scan-plugin <vst3|clap> <path>` for each file (a few at a time),
+and that process loads the plugin, writes what it found on its output and
+exits. A plugin that crashes takes only that process with it, and one that
+takes more than a minute is stopped; the Plugins tab lists those files and
+why, and can try them again. On Windows that process shows no crash
+dialogs, and on macOS it stays out of the Dock.
+
+- **VST3** (`crates/dawn-plugins/src/vst3.rs`): a bundle's
+  `Contents/Resources/moduleinfo.json`, which plugins since VST 3.7.5 ship
+  for hosts to read instead of loading them, when it has one. Otherwise its
+  binary for this system (`Contents/x86_64-win/`, `Contents/MacOS/` through
+  CFBundle, `Contents/x86_64-linux/`, or an older single-file `.vst3`) is
+  loaded the way the SDK's own hosting code does it (`InitDll`,
+  `bundleEntry`, `ModuleEntry` and their exits), and its factory lists the
+  plugins (IPluginFactory2 for each one's categories, maker and version).
+  Class ids are written as the SDK writes them, so a plugin has the same id
+  on every system and either way it was read.
+- **CLAP** (`crates/dawn-plugins/src/clap.rs`, through
+  [clack](https://crates.io/crates/clack-host)): the entry's plugin factory
+  lists each plugin and its features.
+
+What a scan finds is cached in `plugins.json` in the app's data folder, by
+file, with each binary's size and time: the next scan (each time the studio
+opens, or the Rescan button) only reads what's new or changed.
+
+### Testing it
+
+`cargo test -p dawn-plugins` builds `crates/dawn-test-plugin` (a gain effect
+and a silent instrument, as both a CLAP plugin and a VST3 module, in one
+library), lays it out as this system keeps plugins, and scans it for real,
+along with a bundle that's only a `moduleinfo.json` and two CLAP files that
+crash and hang on purpose. CI runs it on Windows, macOS and Linux
+(`desktop.yml`).
+
 ## Next steps
 
 1. **Recording through the engine**: the interface's inputs, monitoring
@@ -210,15 +277,18 @@ the fixture keeps its hash to catch the two drifting apart.
    tuner, the piano sampler). NAM's engine is C++ (NeuralAmpModelerCore) and
    can be built into the engine as is. Then automation and delay
    compensation.
-3. **Plugins**: scanning, hosting and showing installed VST3 and CLAP
-   plugins (and Audio Units on macOS) in their own windows.
+3. **Plugins**: finding them is done (above). Next, CLAP effects running in
+   the engine on tracks, with their own windows and their state saved in
+   the project; then VST3 effects the same way; then plugin instruments on
+   MIDI tracks, played from clips and live; then Audio Units on macOS.
 4. **Export through the engine**, native file dialogs, signed installers.
 
 ## Checks
 
-Every push tests the engine (the `engine` job in
+Every push tests the engine and plugin hosting (the `engine` job in
 `.github/workflows/ci.yml`). `.github/workflows/desktop.yml` builds the app
-on Windows, macOS and Linux whenever `src-tauri/`, `crates/` or the
-workspace's `Cargo.toml` changes, or when run by hand from the Actions tab.
+and tests the plugin scan on Windows, macOS and Linux whenever
+`src-tauri/`, `crates/` or the workspace's `Cargo.toml` changes, or when
+run by hand from the Actions tab.
 `.github/workflows/installers.yml` makes the installers on every push to
 `main` (above).

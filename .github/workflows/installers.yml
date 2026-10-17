@@ -1,0 +1,73 @@
+# Makes the desktop app's installers (docs/desktop.md) on every push to
+# main, and when run by hand from the Actions tab: a .dmg for macOS (one
+# app for Apple Silicon and Intel Macs) and an .msi and a setup .exe for
+# Windows. They're kept for 30 days as the run's artifacts, to download
+# and try. They aren't signed with a developer certificate yet, so each
+# system asks once before opening them (docs/desktop.md says how).
+
+name: Desktop installers
+
+on:
+  push:
+    branches: [main]
+  # A change to this workflow is tried on its pull request.
+  pull_request:
+    paths:
+      - ".github/workflows/installers.yml"
+  workflow_dispatch:
+
+# A newer push cancels the run still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  installers:
+    name: Installers (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: ""
+            bundles: |
+              target/release/bundle/msi/*.msi
+              target/release/bundle/nsis/*.exe
+          - name: macOS
+            os: macos-latest
+            args: --target universal-apple-darwin
+            bundles: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # The support links the site shows, from the repository's variables
+      # (Settings → Secrets and variables → Actions → Variables), if set.
+      NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+      NEXT_PUBLIC_DISCORD_URL: ${{ vars.NEXT_PUBLIC_DISCORD_URL }}
+      NEXT_PUBLIC_PATREON_URL: ${{ vars.NEXT_PUBLIC_PATREON_URL }}
+      NEXT_PUBLIC_KOFI_URL: ${{ vars.NEXT_PUBLIC_KOFI_URL }}
+      NEXT_PUBLIC_CONTACT_EMAIL: ${{ vars.NEXT_PUBLIC_CONTACT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Rust for both kinds of Mac
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      # Builds the site (out/) first, then the app around it and its
+      # installers.
+      - run: npm run desktop:build -- ${{ matrix.args }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Dawn-${{ matrix.name }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+          retention-days: 30

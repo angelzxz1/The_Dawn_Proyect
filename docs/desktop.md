@@ -17,6 +17,33 @@ It's early. Today:
   kernels ported to Rust, so far the Compressor. Each port is tested against
   the JavaScript kernel's own output (below). Nothing plays through it yet.
 
+## Getting the installers
+
+GitHub makes them on every push to `main`
+(`.github/workflows/installers.yml`): a `.dmg` for macOS, one app for both
+Apple Silicon and Intel Macs, and an `.msi` and a setup `.exe` for Windows.
+
+1. On the repository's page on GitHub (signed in), open **Actions →
+   Desktop installers**, and the newest run with a green check.
+2. Under **Artifacts** at the bottom, download **Dawn-macOS** or
+   **Dawn-Windows** (a `.zip` with the installer in it). Runs keep them for
+   30 days; **Run workflow** on that page makes a fresh set.
+
+They aren't signed with a developer certificate yet (that takes an Apple
+Developer account and a Windows code-signing certificate), so each system
+asks once:
+
+- **macOS**: open the `.dmg` and drag Dawn to Applications. The first time
+  you open it, macOS says it can't verify the developer: click **Done**,
+  then **System Settings → Privacy & Security**, scroll down to the note
+  about The Dawn Project and click **Open Anyway**. (On macOS 14 and older,
+  right-click the app → **Open** does it.) The Mac app is signed ad hoc
+  (`signingIdentity: "-"` in `tauri.conf.json`), which is what lets it open
+  this way instead of being called damaged; a Developer ID replaces it
+  later.
+- **Windows**: run the `.msi` or the setup `.exe`. If SmartScreen says it
+  protected your PC, click **More info → Run anyway**.
+
 ## Running it
 
 You need, once:
@@ -38,8 +65,8 @@ npm run test:engine      # the native engine's tests (cargo test -p dawn-engine)
 
 Both `desktop` scripts run the Tauri CLI through `npx`. The first build
 compiles a few hundred Rust crates and takes several minutes; later ones
-only rebuild what changed. Commit the `Cargo.lock` the first build writes,
-so every machine builds the same dependencies.
+only rebuild what changed. `Cargo.lock` is committed, so every machine
+builds the same dependencies.
 
 ## How it's put together
 
@@ -150,3 +177,5 @@ Every push tests the engine (the `engine` job in
 `.github/workflows/ci.yml`). `.github/workflows/desktop.yml` builds the app
 on Windows, macOS and Linux whenever `src-tauri/`, `crates/` or the
 workspace's `Cargo.toml` changes, or when run by hand from the Actions tab.
+`.github/workflows/installers.yml` makes the installers on every push to
+`main` (above).

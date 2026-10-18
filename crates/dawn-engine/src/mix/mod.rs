@@ -6,9 +6,11 @@
 pub mod clip;
 pub mod engine;
 pub mod metronome;
+pub mod player;
 pub mod song;
 pub mod tempo;
 
 pub use clip::{AudioData, Clip, ClipTiming};
 pub use engine::Engine;
+pub use player::{InstrumentKind, InstrumentSpec, Note, track_key};
 pub use song::{Bus, Destination, MAX_BLOCK, Master, Prepared, Send, Song, Track, db_to_gain};

@@ -17,4 +17,10 @@ export interface EngineFollower {
   beatsPerBar(beats: number): void;
   /** Where it is (s), for the playhead; null to use the browser's. */
   position(): number | null;
+  /** A key pressed live on a track (MIDI note number, velocity 0-1). */
+  noteOn(track: string, key: number, velocity: number): void;
+  /** A key let go live (the follower keeps its own sustain). */
+  noteOff(track: string, key: number): void;
+  /** A track's sustain pedal (CC64). */
+  sustain(track: string, down: boolean): void;
 }

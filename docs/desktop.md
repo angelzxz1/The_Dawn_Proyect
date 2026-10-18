@@ -143,6 +143,14 @@ and MIDI devices through the engine, files through native dialogs.
   `src/effects/` that computes the same thing step for step: the same
   `f64` state and `f32` buffers as the JavaScript's numbers and
   Float32Arrays, the arithmetic in the same order.
+- `instruments/`: the instruments, the same way: the Drum Rack's kernel
+  (a port of `drumKernel.ts`), and the piano, a sampler that plays as
+  Tone.js's Sampler does (the nearest sample, pitched by its playback rate,
+  the velocity as its gain, Tone's release curve). A MIDI track's
+  instrument plays its clips' notes on their sample and the keys played
+  live; it lives on from one version of the song to the next
+  (`mix/player.rs`), so an edit doesn't cut off what's ringing, and
+  stopping, jumping or looping back releases the clips' notes.
 
 The rules for what runs on the audio thread: no allocation, locks, I/O or
 panics. Everything it needs is made beforehand (`Song::prepare`), and what
@@ -152,14 +160,22 @@ it replaces goes back to be freed elsewhere.
 
 The studio describes the song (`src/engine/native/describe.ts`): every
 track's level, pan and clips, whether it's heard (mute and solo, worked out
-by the same code as the browser's engine), where it goes, its sends; the
+by the same code as the browser's engine), where it goes, its sends, and a
+MIDI track's notes (as the browser plays them: clamped or tiled to their
+clips) and instrument (the Drum Rack's compiled kit, or the piano); the
 buses, the master and the tempo map. `nativeEngine.ts` sends that whenever
 the project changes, and each audio file once, decoded at the device's
-rate (a warped clip sends its rendering). The browser's engine keeps
-running, silently: its transport tells the native engine everything it
-does (`src/engine/follower.ts`), and the playhead takes the native
-engine's position. So the rest of the studio doesn't change while parts
-move over.
+rate: a clip's (a warped clip sends its rendering), a sample pad's, the
+piano's samples. The browser's engine keeps running, silently: its
+transport tells the native engine everything it does
+(`src/engine/follower.ts`), as do the keys played live (the on-screen keys,
+the computer keyboard, a MIDI controller) and the sustain pedal, and the
+playhead takes the native engine's position. So the rest of the studio
+doesn't change while parts move over.
+
+What it doesn't play yet - the synth, effects, automation - the Audio
+panel names for the project open, and those stay silent while the native
+engine is on.
 
 ### ASIO
 
@@ -270,9 +286,10 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
 
 1. **Recording through the engine**: the interface's inputs, monitoring
    with low latency, takes written to disk, latency compensation.
-2. **Instruments and effects in the engine**: the remaining kernels (gate,
-   glue, the multiband effects, EQ, utility, pitch shift, the Furnace amp,
-   the synth and drum rack), then what's built from Web Audio nodes today
+2. **Instruments and effects in the engine**: the synth (the Drum Rack and
+   the piano play already), then the remaining effect kernels (gate,
+   glue, the multiband effects, EQ, utility, pitch shift, the Furnace amp),
+   then what's built from Web Audio nodes today
    (chorus, delay, EQ Three, filter, reverb, the IR loader, saturator,
    tuner, the piano sampler). NAM's engine is C++ (NeuralAmpModelerCore) and
    can be built into the engine as is. Then automation and delay

@@ -20,6 +20,8 @@ const bridge = vi.hoisted(() => ({
   status: vi.fn(async () => ({ open: true, sampleRate: 44100, position: 12.5, playing: false, tracks: [], buses: [], master: [0, 0], limiterGain: 1, load: 0, errors: 0 })),
   devices: vi.fn(async () => []),
   forgetAudio: vi.fn(async () => {}),
+  key: vi.fn<(track: string, key: number, velocity: number | null) => Promise<void>>(async () => {}),
+  sustain: vi.fn<(track: string, down: boolean) => Promise<void>>(async () => {}),
 }));
 vi.mock("./bridge", () => ({ nativeBridge: bridge }));
 
@@ -132,6 +134,35 @@ describe("the native engine from the studio", () => {
     audioEngine.stopAll();
     expect(bridge.stop).toHaveBeenCalled();
     await vi.waitFor(() => expect(audioEngine.getTransportSeconds()).toBe(12.5));
+  });
+
+  test("keys played live go to the engine, with the sustain pedal", async () => {
+    const p = project(wavUrl());
+    p.channels = [...p.channels, { id: "m1", name: "Keys", volume: 0, pan: 0, colorIndex: 0, type: "midi", instrument: "piano", muted: false, solo: false, armed: true }];
+    projectStore.replace(p);
+    await nativeEngine.turnOn({ device: null, sampleRate: null, bufferSize: null });
+    audioEngine.addChannel("m1", "midi", null);
+    audioEngine.noteOn("m1", "C4", 0.7);
+    expect(bridge.key).toHaveBeenLastCalledWith("m1", 60, 0.7);
+    audioEngine.setSustain("m1", true);
+    expect(bridge.sustain).toHaveBeenLastCalledWith("m1", true);
+    audioEngine.noteOff("m1", "C4");
+    expect(bridge.key).toHaveBeenLastCalledWith("m1", 60, null);
+    audioEngine.setSustain("m1", false);
+    expect(bridge.sustain).toHaveBeenLastCalledWith("m1", false);
+  });
+
+  test("a drum track's sample pads are sent with the song", async () => {
+    const p = project(wavUrl());
+    p.clipsByChannel = {};
+    p.channels = [{ id: "d1", name: "Drums", volume: 0, pan: 0, colorIndex: 0, type: "midi", instrument: "drums", muted: false, solo: false, armed: false }];
+    projectStore.replace(p);
+    bridge.setSong.mockResolvedValueOnce({ missing: ["48000:piano:A0"] });
+    await nativeEngine.turnOn({ device: null, sampleRate: 48000, bufferSize: null });
+    await vi.waitFor(() => expect(bridge.setSong).toHaveBeenCalled());
+    const song = bridge.setSong.mock.calls[0][0] as { tracks: { instrument: { type: string; samples: unknown[] } }[] };
+    expect(song.tracks[0].instrument.type).toBe("drums");
+    expect(song.tracks[0].instrument.samples).toHaveLength(16);
   });
 
   test("turned off, the browser plays again and the transport isn't followed", async () => {

@@ -23,6 +23,16 @@ export function midiToNoteName(midi: number): string {
   return `${name}${octave}`;
 }
 
+/** A note's name ("C4", "F#2", "Bb3") as a MIDI note number, or null. */
+export function noteNameToMidi(name: string): number | null {
+  const match = /^([A-G])([#b]?)(-?\d+)$/.exec(name.trim());
+  if (!match) return null;
+  const [, letter, accidental, octave] = match;
+  const base = NOTE_NAMES.indexOf(letter as (typeof NOTE_NAMES)[number]);
+  const shift = accidental === "#" ? 1 : accidental === "b" ? -1 : 0;
+  return base + shift + (parseInt(octave, 10) + 1) * 12;
+}
+
 export function isBlackKey(midi: number): boolean {
   return NOTE_NAMES[((midi % 12) + 12) % 12].includes("#");
 }

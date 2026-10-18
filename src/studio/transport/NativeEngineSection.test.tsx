@@ -52,7 +52,7 @@ describe("the native engine section", () => {
 
   test("says which tracks it plays without their instruments or effects", async () => {
     projectStore.set("channels", [
-      { id: "k", name: "Keys", volume: 0, pan: 0, colorIndex: 0, type: "midi", instrument: "piano", muted: false, solo: false, armed: false },
+      { id: "k", name: "Keys", volume: 0, pan: 0, colorIndex: 0, type: "midi", instrument: "synth", muted: false, solo: false, armed: false },
       { id: "v", name: "Vox", volume: 0, pan: 0, colorIndex: 0, type: "audio", instrument: null, muted: false, solo: false, armed: false },
     ]);
     projectStore.set("clipsByChannel", { k: [{ id: "m", kind: "midi", offset: 0, length: 1, notes: [{ note: "C4", time: 0, duration: 0.5, velocity: 0.8 }], loopLength: null }] });

@@ -176,8 +176,9 @@ export function NativeEngineSection({ prefs, update }: { prefs: AudioPrefs; upda
           )}
 
           <p className="text-[11px] leading-snug text-muted">
-            So far it plays audio clips through the mix (volume, pan, mute, solo, groups, sends), the master limiter and the
-            metronome. Recording, instruments, effects and automation come next: until then, turn it off for those.
+            So far it plays audio clips, the piano and the Drum Rack (from clips, and the keys you play) through the mix (volume,
+            pan, mute, solo, groups, sends), the master limiter and the metronome. The synth, effects, automation and recording
+            come next: until then, turn it off for those.
           </p>
           {(missing.instruments.length > 0 || missing.effects.length > 0 || missing.automation.length > 0) && (
             <ul className="rounded border border-[#E6AD5E]/40 bg-[#E6AD5E]/10 px-2 py-1.5 text-[11px] leading-snug text-[#E6AD5E]">

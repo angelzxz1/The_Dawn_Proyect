@@ -6,10 +6,15 @@
 //! The studio works out the routing (`src/engine/mixGraph.ts`: where each
 //! track goes, which are heard with mute and solo) and sends the result; the
 //! engine only renders it.
+//!
+//! A MIDI track has its notes and its instrument; the instrument that plays
+//! them lives on from one version of the song to the next (`Player`), so a
+//! change doesn't cut off what's ringing.
 
 use std::sync::Arc;
 
 use super::clip::Clip;
+use super::player::{InstrumentSpec, Note, Player, track_key};
 use super::tempo::{TempoSegment, constant};
 use crate::effects::limiter::LimiterSettings;
 
@@ -56,6 +61,10 @@ pub struct Track {
     pub sends: Vec<Send>,
     /// In the order they start.
     pub clips: Vec<Clip>,
+    /// What plays its notes (a MIDI track's instrument), if anything.
+    pub instrument: Option<InstrumentSpec>,
+    /// Its MIDI clips' notes, in the order they start.
+    pub notes: Vec<Note>,
 }
 
 impl Track {
@@ -68,6 +77,8 @@ impl Track {
             destination: Destination::Master,
             sends: vec![],
             clips: vec![],
+            instrument: None,
+            notes: vec![],
         }
     }
 }
@@ -168,13 +179,22 @@ pub struct Prepared {
     pub track_peaks: Vec<[f32; 2]>,
     pub bus_peaks: Vec<[f32; 2]>,
     pub master_peak: [f32; 2],
+    /// The tracks' instruments: new ones made for this version, until the
+    /// engine takes it (`Engine::set_song`), which puts the ones already
+    /// playing in their place and hands the new ones it didn't need back
+    /// with the version it replaced.
+    pub(crate) players: Vec<Option<Box<Player>>>,
+    /// The tracks' ids as the live commands name them (`track_key`).
+    pub(crate) track_keys: Vec<u64>,
 }
 
 impl Song {
-    /// The song ready for the audio thread. Its levels start at those of
-    /// the tracks with the same ids in `previous` (the song playing now), so
-    /// a change glides.
-    pub fn prepare(mut self, previous: Option<&Song>) -> Prepared {
+    /// The song ready for the audio thread, at `sample_rate`. Its levels
+    /// start at those of the tracks with the same ids in `previous` (the
+    /// song playing now), so a change glides; a track whose instrument
+    /// `previous` already had is played by the one playing it (none is
+    /// made for it here).
+    pub fn prepare(mut self, previous: Option<&Song>, sample_rate: f64) -> Prepared {
         let n = self.tracks.len();
         // A destination that isn't a track, or would make a loop, is the
         // master. (The studio never sends one; this keeps a bad one safe.)
@@ -201,6 +221,7 @@ impl Song {
         self.tracks.iter_mut().for_each(|t| {
             t.sends.retain(|s| s.bus < self.buses.len());
             t.clips.sort_by_key(|c| c.start);
+            t.notes.sort_by_key(|n| n.start);
         });
         if self.tempo.is_empty() {
             self.tempo = constant(120.0).to_vec();
@@ -257,7 +278,23 @@ impl Song {
             },
         );
 
+        let players = self
+            .tracks
+            .iter()
+            .map(|t| {
+                let spec = t.instrument.as_ref()?;
+                let playing = previous
+                    .and_then(|p| p.tracks.iter().find(|x| x.id == t.id))
+                    .and_then(|x| x.instrument.as_ref())
+                    .is_some_and(|x| x.kind() == spec.kind());
+                (!playing).then(|| Box::new(Player::new(spec, sample_rate)))
+            })
+            .collect();
+        let track_keys = self.tracks.iter().map(|t| track_key(&t.id)).collect();
+
         Prepared {
+            players,
+            track_keys,
             order,
             track_bufs: vec![Stereo::new(); n],
             bus_bufs: vec![Stereo::new(); self.buses.len()],

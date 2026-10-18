@@ -14,6 +14,7 @@
 //! arrive between blocks through `set`.
 
 pub mod effects;
+pub mod instruments;
 pub mod mix;
 pub mod params;
 

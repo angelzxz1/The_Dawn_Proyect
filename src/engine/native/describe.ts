@@ -3,7 +3,9 @@
 // it's heard (mute and solo, worked out as the browser's engine does,
 // mixGraph.ts), where it goes, its sends, its audio clips, a MIDI track's
 // notes and instrument, and its effects; the buses with theirs; the master
-// with its; the tempo map. The engine only renders what it's told. Pure.
+// with its; the tempo map; delay compensation's setting and the tracks
+// played live. The engine only renders what it's told (and lines the paths
+// up itself, from its effects' latencies). Pure.
 //
 // So far the native engine plays audio clips, every instrument's notes (the
 // piano, the Drum Rack, the synth) and some of the effects (NATIVE_EFFECTS)
@@ -75,6 +77,9 @@ export interface NativeEffect {
 
 export interface NativeTrack {
   id: string;
+  /** Played live (the armed MIDI track, or a track it plays through):
+   * delay compensation doesn't hold it back. */
+  live: boolean;
   volumeDb: number;
   pan: number;
   audible: boolean;
@@ -105,6 +110,18 @@ export interface NativeSong {
   masterEffects: NativeEffect[];
   tempo: { beat: number; seconds: number; bpm: number }[];
   beatsPerBar: number;
+  /** Delay compensation (the Audio panel's setting). */
+  compensation: boolean;
+}
+
+/** What the song needs from the browser engine's session: the limiter's
+ * ceiling, the bar, and delay compensation (on or off, and the tracks
+ * played live). */
+export interface NativeSession {
+  limiterDb: number;
+  beatsPerBar: number;
+  compensation: boolean;
+  live: string[];
 }
 
 /** What a clip plays: its file, or for a warped clip the rendering of its
@@ -178,13 +195,14 @@ function nativeNotes(doc: ProjectState, channel: ChannelConfig): NativeNote[] {
   );
 }
 
-export function describeSong(doc: ProjectState, session: { limiterDb: number; beatsPerBar: number }, ids: NativeAudioIds): NativeSong {
+export function describeSong(doc: ProjectState, session: NativeSession, ids: NativeAudioIds): NativeSong {
   const routes = routeMap(doc.channels);
   const heard = audibleTracks(doc.channels, routes);
   const busIds = new Set(doc.buses.map((b) => b.id));
   return {
     tracks: doc.channels.map((c) => ({
       id: c.id,
+      live: session.live.includes(c.id),
       volumeDb: c.volume,
       pan: c.pan,
       audible: heard.has(c.id),
@@ -202,6 +220,7 @@ export function describeSong(doc: ProjectState, session: { limiterDb: number; be
     masterEffects: nativeEffects(doc.masterEffects),
     tempo: makeTempoMap(doc.bpm, doc.tempoChanges).segments.map((s) => ({ beat: s.beat, seconds: s.seconds, bpm: s.bpm })),
     beatsPerBar: session.beatsPerBar,
+    compensation: session.compensation,
   };
 }
 

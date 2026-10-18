@@ -15,6 +15,9 @@ export interface EngineFollower {
   /** The master limiter's ceiling (dB). */
   limiter(db: number): void;
   beatsPerBar(beats: number): void;
+  /** Delay compensation on or off (latency.ts), and the tracks played live
+   * that skip it (the armed MIDI track, and what it plays through). */
+  compensation(enabled: boolean, live: string[]): void;
   /** Where it is (s), for the playhead; null to use the browser's. */
   position(): number | null;
   /** A key pressed live on a track (MIDI note number, velocity 0-1). */

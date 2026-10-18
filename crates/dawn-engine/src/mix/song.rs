@@ -15,10 +15,11 @@
 use std::sync::Arc;
 
 use super::clip::Clip;
-use super::fx::{Chain, Effect, EffectSpec};
+use super::fx::{self, Chain, Effect, EffectSpec};
+use super::latency::{self, Delay, MAX_COMPENSATION, Path, Plan, Ring};
 use super::player::{InstrumentSpec, Note, Player, track_key};
 use super::tempo::{TempoSegment, constant};
-use crate::effects::limiter::LimiterSettings;
+use crate::effects::limiter::{LimiterSettings, lookahead_frames};
 
 /// The longest block the engine renders in one go (frames); longer ones are
 /// split. Every buffer is this long, so rendering never allocates.
@@ -69,6 +70,9 @@ pub struct Track {
     pub notes: Vec<Note>,
     /// Its effects, in order (ahead of its fader).
     pub effects: Vec<EffectSpec>,
+    /// Played live (the armed MIDI track): delay compensation doesn't hold
+    /// it back, nor the tracks it plays through.
+    pub live: bool,
 }
 
 impl Track {
@@ -84,6 +88,7 @@ impl Track {
             instrument: None,
             notes: vec![],
             effects: vec![],
+            live: false,
         }
     }
 }
@@ -139,6 +144,9 @@ pub struct Song {
     /// The tempo map (not empty).
     pub tempo: Vec<TempoSegment>,
     pub beats_per_bar: f64,
+    /// Delay compensation (`latency`): every path waits for the most
+    /// latent, so they reach the master together.
+    pub compensation: bool,
 }
 
 impl Default for Song {
@@ -150,6 +158,7 @@ impl Default for Song {
             master_effects: vec![],
             tempo: constant(120.0).to_vec(),
             beats_per_bar: 4.0,
+            compensation: true,
         }
     }
 }
@@ -211,6 +220,26 @@ pub struct Prepared {
     /// Every chain's effects (the tracks', the buses', then the master's:
     /// see `Song::host_effects`), new ones as with `players`.
     pub(crate) fx: Vec<Chain>,
+    /// Delay compensation's plan, and its delays: per track on its own
+    /// sources, after its effects and on its sends; per bus after its
+    /// effects; on the tracks' direct path to the master; and the clicks,
+    /// waiting as long as the mix. Empty ones the engine swaps for those
+    /// already playing (`Engine::set_song`), so what's in them carries on.
+    pub(crate) plan: Plan,
+    pub(crate) own_delays: Vec<Delay>,
+    pub(crate) channel_delays: Vec<Delay>,
+    pub(crate) send_delays: Vec<Delay>,
+    pub(crate) bus_delays: Vec<Delay>,
+    pub(crate) direct_delay: Delay,
+    pub(crate) click_delay: Ring,
+}
+
+impl Prepared {
+    /// How late the mix comes out of the master (frames): what the delay
+    /// compensation lines up, the master's effects and its limiter.
+    pub fn latency(&self) -> usize {
+        self.plan.total
+    }
 }
 
 impl Song {
@@ -355,7 +384,37 @@ impl Song {
             })
             .collect();
 
+        // Delay compensation, from the chains' latencies.
+        let paths: Vec<Path> = self
+            .tracks
+            .iter()
+            .map(|t| Path {
+                latency: fx::latency(&t.effects, sample_rate),
+                live: t.live,
+                dest: match t.destination {
+                    Destination::Track(d) => Some(d),
+                    Destination::Master => None,
+                },
+            })
+            .collect();
+        let buses: Vec<usize> = self
+            .buses
+            .iter()
+            .map(|b| fx::latency(&b.effects, sample_rate))
+            .collect();
+        let master = fx::latency(&self.master_effects, sample_rate) + lookahead_frames(sample_rate);
+        let plan = latency::plan(self.compensation, &paths, &buses, master);
+        let most = (MAX_COMPENSATION * sample_rate) as usize;
+        let delays = |frames: &[usize]| frames.iter().map(|&f| Delay::new(f.min(most))).collect();
+
         Prepared {
+            own_delays: delays(&plan.own),
+            channel_delays: delays(&plan.channel),
+            send_delays: delays(&plan.send),
+            bus_delays: delays(&plan.bus),
+            direct_delay: Delay::new(plan.direct.min(most)),
+            click_delay: Ring::new(plan.total.min(most)),
+            plan,
             players,
             track_keys,
             fx,

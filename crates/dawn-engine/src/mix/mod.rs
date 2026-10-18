@@ -6,6 +6,7 @@
 pub mod clip;
 pub mod engine;
 pub mod fx;
+pub mod latency;
 pub mod metronome;
 pub mod player;
 pub mod song;

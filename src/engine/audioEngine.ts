@@ -392,6 +392,7 @@ class AudioEngine {
     setDelay(this.clickOut, plan.total);
     const changed = plan.total !== this.compensation.total || plan.compensated !== this.compensation.compensated;
     this.compensation = plan;
+    this.follower?.compensation(this.delayCompensation, [...plan.live]);
     this.applySidechains(mix);
     if (changed) this.latencyListeners.forEach((fn) => fn());
     this.mixVersion += 1;
@@ -1488,6 +1489,7 @@ class AudioEngine {
     follower.metronome(f.metronome, f.metronomeDb);
     follower.limiter(f.limiterDb);
     follower.beatsPerBar(f.beatsPerBar);
+    follower.compensation(this.delayCompensation, [...this.compensation.live]);
     follower.seek(this.transport.seconds);
   }
 

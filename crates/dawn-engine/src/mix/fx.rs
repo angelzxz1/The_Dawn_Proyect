@@ -10,8 +10,9 @@
 use super::song::MAX_BLOCK;
 use crate::effects::compressor::{CompressorKernel, CompressorSettings};
 use crate::effects::gate::{GateKernel, GateSettings};
+use crate::effects::glue::OS_LATENCY;
 use crate::effects::glue::{GlueKernel, GlueSettings};
-use crate::effects::limiter::{Limiter, LimiterSettings};
+use crate::effects::limiter::{Limiter, LimiterSettings, lookahead_frames};
 use crate::effects::mb_dynamics::{MbDynamicsKernel, MbDynamicsSettings};
 use crate::effects::multiband::{MultibandKernel, MultibandSettings};
 use crate::effects::param_eq::{ParamEqKernel, ParamEqSettings};
@@ -63,6 +64,16 @@ impl EffectSettings {
             "utility" => Self::Utility(UtilitySettings::from_params(params)),
             _ => return None,
         })
+    }
+
+    /// The frames it delays its audio by at `sample_rate` (as the browser's
+    /// node reports it, for delay compensation).
+    pub fn latency(&self, sample_rate: f64) -> usize {
+        match self {
+            Self::Glue(s) if s.oversample => OS_LATENCY,
+            Self::Limiter(_) => lookahead_frames(sample_rate),
+            _ => 0,
+        }
     }
 
     pub fn kind(&self) -> EffectKind {
@@ -194,6 +205,15 @@ impl Effect {
             Kernel::Utility(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
         }
     }
+}
+
+/// The frames a chain delays its audio by: its effects', bar the bypassed.
+pub(crate) fn latency(specs: &[EffectSpec], sample_rate: f64) -> usize {
+    specs
+        .iter()
+        .filter(|s| !s.bypass)
+        .map(|s| s.settings.latency(sample_rate))
+        .sum()
 }
 
 /// A chain's effects as the audio thread has them: in the order of its

@@ -170,6 +170,13 @@ fn a_pitch_shifter_counts_half_its_window() {
 }
 
 #[test]
+fn the_amps_oversampling_counts_too() {
+    let amp = EffectSpec::new("f", EffectSettings::from_params("tubeAmp", &[]).unwrap());
+    let s = song(vec![track("a", vec![], vec![amp])]);
+    assert_eq!(s.prepare(None, SR).latency(), 16 + LOOKAHEAD);
+}
+
+#[test]
 fn the_clicks_wait_as_long_as_the_mix() {
     let first_click = |s: &Song| {
         let mut e = engine(s);

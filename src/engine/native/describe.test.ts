@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeSong, unsupported } from "./describe";
+import { describeSong, unsupported, type NativeInstrument } from "./describe";
+import { compileDrumKit, defaultDrumKit } from "../../instruments/drum-rack/drumParams";
 import type { ProjectState } from "../../project/project";
 import type { AudioClipInstance, ChannelConfig, ChannelType, MidiClipInstance } from "../../project/types";
 
@@ -67,7 +68,11 @@ function project(): ProjectState {
 }
 
 const session = { limiterDb: -1, beatsPerBar: 3 };
-const idOf = (clip: AudioClipInstance) => (clip.warp ? `warp:${clip.id}` : clip.url);
+const idOf = {
+  clip: (clip: AudioClipInstance) => (clip.warp ? `warp:${clip.id}` : clip.url),
+  drumSample: (fileId: string) => `drum:${fileId}`,
+  pianoSample: (name: string) => `piano:${name}`,
+};
 
 describe("the song for the native engine", () => {
   it("has every track's level, pan, sends to buses that exist, and audio clips", () => {
@@ -78,9 +83,55 @@ describe("the song for the native engine", () => {
     expect(drums.clips).toEqual([
       { audio: "blob:a", offset: 1, length: 2, sourceOffset: 0.5, loopLength: 1, gainDb: -3, fadeIn: 0.1, fadeOut: 0.2 },
     ]);
-    // MIDI clips aren't played (yet).
+    // A MIDI track's clips are its notes.
     expect(song.tracks[3].clips).toEqual([]);
     expect(song.buses).toEqual([{ id: "verb" }]);
+  });
+
+  it("has a MIDI track's notes on the timeline, clamped or tiled to their clips, with its instrument", () => {
+    const p = project();
+    p.clipsByChannel.keys = [
+      midiClip,
+      {
+        ...midiClip,
+        id: "m2",
+        offset: 4,
+        length: 1,
+        loopLength: 0.5,
+        notes: [
+          { note: "E4", time: 0, duration: 0.01, velocity: 0.5 },
+          { note: "G4", time: 0.25, duration: 1, velocity: 1 },
+        ],
+      },
+    ];
+    const keys = describeSong(p, session, idOf).tracks[3];
+    expect(keys.notes).toEqual([
+      { key: 60, start: 0, end: 0.5, velocity: 0.8 },
+      // The shortest a note plays is 50 ms; a tiled clip repeats its notes,
+      // each cut at its loop.
+      { key: 64, start: 4, end: 4.05, velocity: 0.5 },
+      { key: 67, start: 4.25, end: 4.5, velocity: 1 },
+      { key: 64, start: 4.5, end: 4.55, velocity: 0.5 },
+      { key: 67, start: 4.75, end: 5, velocity: 1 },
+    ]);
+    expect(keys.instrument?.type).toBe("piano");
+    const piano = keys.instrument as Extract<NativeInstrument, { type: "piano" }>;
+    expect(piano.samples).toContainEqual({ note: 21, audio: "piano:A0" });
+    expect(piano.samples).toContainEqual({ note: 63, audio: "piano:D#4" });
+    // An audio track has neither.
+    expect(describeSong(p, session, idOf).tracks[0]).toMatchObject({ instrument: null, notes: [] });
+  });
+
+  it("has a drum track's kit and its sample pads' files", () => {
+    const p = project();
+    const kit = defaultDrumKit();
+    kit.pads[2] = { ...kit.pads[2], source: "sample", sample: { id: "snare-file", name: "Snare.wav" } };
+    p.channels = p.channels.map((c) => (c.id === "keys" ? { ...c, instrument: "drums", drumParams: kit } : c));
+    const drums = describeSong(p, session, idOf).tracks[3].instrument as Extract<NativeInstrument, { type: "drums" }>;
+    expect(drums.type).toBe("drums");
+    expect(drums.kit).toEqual(compileDrumKit(kit));
+    expect(drums.samples[2]).toBe("drum:snare-file");
+    expect(drums.samples.filter(Boolean)).toHaveLength(1);
   });
 
   it("sends a group's members into the group", () => {
@@ -119,14 +170,16 @@ describe("the song for the native engine", () => {
 });
 
 describe("what the native engine doesn't play yet", () => {
-  it("names the tracks with instruments, effects or automation, and a master with effects", () => {
+  it("names the tracks with instruments it hasn't got, effects or automation, and a master with effects", () => {
     const p = project();
+    p.channels = [...p.channels, track("pad", "midi", { instrument: "synth" }), track("empty", "midi", { instrument: null })];
     p.channelEffects = { drums: [{ id: "fx1", type: "compressor", params: {} }], gtr: [{ id: "fx2", type: "eq3", params: {}, bypass: true }] };
     p.masterEffects = [{ id: "fx3", type: "eq3", params: {} }];
     p.channels = p.channels.map((c) =>
       c.id === "gtr" ? { ...c, automationLanes: [{ id: "l", target: { kind: "volume" }, points: [{ id: "p", time: 0, value: 0 }] }] } : c
     );
-    expect(unsupported(p)).toEqual({ instruments: ["keys"], effects: ["drums", "Master"], automation: ["gtr"] });
+    // The piano plays; the synth doesn't yet.
+    expect(unsupported(p)).toEqual({ instruments: ["pad"], effects: ["drums", "Master"], automation: ["gtr"] });
   });
 
   it("is nothing for audio tracks played dry", () => {

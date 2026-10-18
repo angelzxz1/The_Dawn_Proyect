@@ -26,12 +26,27 @@ const SCRATCH: usize = 8192;
 /// A command for the audio thread.
 pub enum Command {
     Song(Box<Prepared>),
-    Play { from: f64, count_in_beats: f64 },
+    Play {
+        from: f64,
+        count_in_beats: f64,
+    },
     Stop,
     Seek(f64),
     Loop(Option<(f64, f64)>),
     Metronome(bool),
     MetronomeLevel(f64),
+    /// A key pressed (with its velocity) or let go live, on the track
+    /// `track_key` names.
+    Key {
+        track: u64,
+        key: i32,
+        velocity: Option<f64>,
+    },
+    /// A track's sustain pedal.
+    Sustain {
+        track: u64,
+        down: bool,
+    },
 }
 
 /// What the audio thread shares: written there, read by the app.
@@ -48,6 +63,9 @@ pub struct Status {
     errors: AtomicU32,
     /// The limiter's gain reduction, from its last meter reading (f32 bits).
     limiter_gain: AtomicU32,
+    /// The engine needed an instrument the song didn't bring: the song
+    /// should be sent again, prepared from scratch.
+    missing: AtomicBool,
 }
 
 impl Status {
@@ -61,7 +79,13 @@ impl Status {
             load: AtomicU32::new(0),
             errors: AtomicU32::new(0),
             limiter_gain: AtomicU32::new(1.0f32.to_bits()),
+            missing: AtomicBool::new(false),
         }
+    }
+
+    /// Whether the song needs sending again from scratch (`missing`), once.
+    pub fn take_missing(&self) -> bool {
+        self.missing.swap(false, Ordering::Relaxed)
     }
 
     fn keep_peak(&self, slot: usize, value: f32) {
@@ -182,7 +206,21 @@ impl Callback {
                 Command::Loop(l) => self.engine.set_loop(l),
                 Command::Metronome(on) => self.engine.set_metronome(on),
                 Command::MetronomeLevel(db) => self.engine.set_metronome_level(db),
+                Command::Key {
+                    track,
+                    key,
+                    velocity: Some(v),
+                } => self.engine.key_down(track, key, v),
+                Command::Key {
+                    track,
+                    key,
+                    velocity: None,
+                } => self.engine.key_up(track, key),
+                Command::Sustain { track, down } => self.engine.sustain(track, down),
             }
+        }
+        if self.engine.take_missing() {
+            self.status.missing.store(true, Ordering::Relaxed);
         }
     }
 

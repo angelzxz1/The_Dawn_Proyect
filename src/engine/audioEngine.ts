@@ -161,6 +161,7 @@ class AudioEngine {
   private sustainPending = new Map<string, Set<string>>();
 
   setSustain(channelId: string, down: boolean): void {
+    this.follower?.sustain(channelId, down);
     if (down) {
       this.sustainedChannels.add(channelId);
       return;
@@ -1178,6 +1179,7 @@ class AudioEngine {
     if (!nodes || nodes.heldNotes.has(note)) return;
     nodes.heldNotes.add(note);
     this.safe(() => nodes.instrument.triggerAttack(note, Tone.immediate(), velocity));
+    this.follower?.noteOn(channelId, Tone.Frequency(note).toMidi(), velocity);
 
     if (this.recording?.channelId === channelId) this.recording.noteOn(note, velocity, Tone.getContext().currentTime);
   }
@@ -1191,6 +1193,7 @@ class AudioEngine {
     const nodes = this.channels.get(channelId);
     if (!nodes || !nodes.heldNotes.has(note)) return;
     nodes.heldNotes.delete(note);
+    this.follower?.noteOff(channelId, Tone.Frequency(note).toMidi());
     if (this.sustainedChannels.has(channelId)) {
       let pending = this.sustainPending.get(channelId);
       if (!pending) {

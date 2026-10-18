@@ -73,6 +73,9 @@ export const nativeBridge = {
   seek: (seconds: number) => invoke<void>("engine_seek", { seconds }),
   loop: (range: { start: number; end: number } | null) => invoke<void>("engine_loop", { start: range?.start ?? null, end: range?.end ?? null }),
   metronome: (enabled: boolean, levelDb: number) => invoke<void>("engine_metronome", { enabled, levelDb }),
+  /** A key pressed (with its velocity) or let go (none) live on a track. */
+  key: (track: string, key: number, velocity: number | null) => invoke<void>("engine_key", { track, key, velocity }),
+  sustain: (track: string, down: boolean) => invoke<void>("engine_sustain", { track, down }),
   status: () => invoke<NativeStatus>("engine_status"),
 };
 

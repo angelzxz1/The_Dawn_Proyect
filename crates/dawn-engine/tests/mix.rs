@@ -39,7 +39,7 @@ fn track_with(id: &str, clips: Vec<Clip>) -> Track {
 /// Plays `song` from `from` for `seconds`, returning left and right.
 fn play(song: Song, from: f64, seconds: f64) -> (Vec<f32>, Vec<f32>) {
     let mut engine = Engine::new(SR);
-    engine.set_song(Box::new(song.prepare(None)));
+    engine.set_song(Box::new(song.prepare(None, SR)));
     engine.play(from, 0.0);
     let n = (seconds * SR) as usize;
     let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);
@@ -147,7 +147,7 @@ fn the_loop_jumps_back() {
     });
     let mut engine = Engine::new(SR);
     engine.set_song(Box::new(
-        song(vec![track_with("a", vec![clip(ramp, 0.0, 1.0)])]).prepare(None),
+        song(vec![track_with("a", vec![clip(ramp, 0.0, 1.0)])]).prepare(None, SR),
     ));
     engine.set_loop(Some((0.25, 0.5)));
     engine.play(0.25, 0.0);
@@ -165,7 +165,7 @@ fn the_loop_jumps_back() {
 fn a_count_in_waits_before_the_song() {
     let mut engine = Engine::new(SR);
     engine.set_song(Box::new(
-        song(vec![track_with("a", vec![clip(dc(0.5, 4.0), 0.0, 4.0)])]).prepare(None),
+        song(vec![track_with("a", vec![clip(dc(0.5, 4.0), 0.0, 4.0)])]).prepare(None, SR),
     ));
     // Two beats at 120 BPM: a second.
     engine.play(0.0, 2.0);
@@ -184,14 +184,14 @@ fn a_count_in_waits_before_the_song() {
 fn a_fader_move_glides_over_a_block() {
     let mut engine = Engine::new(SR);
     let s = song(vec![track_with("a", vec![clip(dc(0.5, 1.0), 0.0, 1.0)])]);
-    let first = Box::new(s.clone().prepare(None));
+    let first = Box::new(s.clone().prepare(None, SR));
     engine.set_song(first);
     engine.play(0.0, 0.0);
     let (mut l, mut r) = (vec![0.0; 2048], vec![0.0; 2048]);
     engine.render(&mut l, &mut r);
     let mut quiet = s;
     quiet.tracks[0].volume = 0.0;
-    let prepared = Box::new(quiet.prepare(Some(&engine.song().song)));
+    let prepared = Box::new(quiet.prepare(Some(&engine.song().song), SR));
     engine.set_song(prepared);
     let (mut l, mut r) = (vec![0.0; 2048], vec![0.0; 2048]);
     engine.render(&mut l, &mut r);
@@ -205,7 +205,7 @@ fn a_fader_move_glides_over_a_block() {
 fn stopped_it_stays_put_and_silent() {
     let mut engine = Engine::new(SR);
     engine.set_song(Box::new(
-        song(vec![track_with("a", vec![clip(dc(0.5, 1.0), 0.0, 1.0)])]).prepare(None),
+        song(vec![track_with("a", vec![clip(dc(0.5, 1.0), 0.0, 1.0)])]).prepare(None, SR),
     ));
     engine.seek(0.3);
     let (mut l, mut r) = (vec![0.0; 4800], vec![0.0; 4800]);
@@ -218,7 +218,7 @@ fn stopped_it_stays_put_and_silent() {
 fn meters_hold_their_peaks_until_read() {
     let mut engine = Engine::new(SR);
     engine.set_song(Box::new(
-        song(vec![track_with("a", vec![clip(dc(0.5, 1.0), 0.0, 1.0)])]).prepare(None),
+        song(vec![track_with("a", vec![clip(dc(0.5, 1.0), 0.0, 1.0)])]).prepare(None, SR),
     ));
     engine.play(0.0, 0.0);
     let (mut l, mut r) = (vec![0.0; 4800], vec![0.0; 4800]);

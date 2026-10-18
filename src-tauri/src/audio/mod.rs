@@ -13,7 +13,7 @@ pub mod stream;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use dawn_engine::mix::{AudioData, Song};
+use dawn_engine::mix::{AudioData, Song, track_key};
 use serde::Serialize;
 use tauri::State;
 use tauri::ipc::{InvokeBody, Request};
@@ -169,10 +169,38 @@ pub fn engine_set_song(state: State<'_, AudioState>, song: SongSpec) -> Result<S
         .ok_or("No audio device is open.")?
         .sample_rate;
     let (built, missing) = song::build(&song, &inner.audio, sample_rate);
-    let prepared = Box::new(built.clone().prepare(inner.song.as_ref()));
+    let prepared = Box::new(built.clone().prepare(inner.song.as_ref(), sample_rate));
     inner.send(Command::Song(prepared))?;
     inner.song = Some(built);
     Ok(SongSent { missing })
+}
+
+/// A key pressed live (`velocity` 0-1) or let go (none) on a track.
+#[tauri::command]
+pub fn engine_key(
+    state: State<'_, AudioState>,
+    track: String,
+    key: i32,
+    velocity: Option<f64>,
+) -> Result<(), String> {
+    state.lock().send(Command::Key {
+        track: track_key(&track),
+        key,
+        velocity,
+    })
+}
+
+/// A track's sustain pedal (CC64), down or up.
+#[tauri::command]
+pub fn engine_sustain(
+    state: State<'_, AudioState>,
+    track: String,
+    down: bool,
+) -> Result<(), String> {
+    state.lock().send(Command::Sustain {
+        track: track_key(&track),
+        down,
+    })
 }
 
 #[tauri::command]
@@ -238,7 +266,21 @@ pub struct EngineStatus {
 
 #[tauri::command]
 pub fn engine_status(state: State<'_, AudioState>) -> EngineStatus {
-    let inner = state.lock();
+    let mut inner = state.lock();
+    // The engine found a track without the instrument it was counting on
+    // (a version of the song it never got): it gets the song again, with
+    // every instrument made anew.
+    let resend = inner
+        .running
+        .as_ref()
+        .is_some_and(|r| r.status.take_missing());
+    if resend
+        && let Some(song) = inner.song.clone()
+        && let Some(rate) = inner.running.as_ref().map(|r| r.sample_rate)
+    {
+        let _ = inner.send(Command::Song(Box::new(song.prepare(None, rate))));
+    }
+    let inner = inner;
     let Some(r) = &inner.running else {
         return EngineStatus {
             open: false,

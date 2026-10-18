@@ -11,10 +11,13 @@
 //! panner), post-fader sends; buses at their level into the master; the
 //! master's fader and pan, then its limiter; the metronome after the
 //! limiter, delayed by its lookahead so the clicks stay on the beat heard.
+//! A MIDI track's instrument (`player`) plays its clips' notes and the keys
+//! played live into the track, ahead of its strip.
 
 use std::f64::consts::FRAC_PI_2;
 
 use super::metronome::{Loop, Metronome};
+use super::player::Player;
 use super::song::{Applied, Destination, MAX_BLOCK, Prepared, Song, Stereo};
 use super::tempo::segment_at_seconds;
 use crate::effects::limiter::{Limiter, LimiterMeters};
@@ -97,11 +100,13 @@ pub struct Engine {
     /// The clicks wait the limiter's lookahead (a ring of that many frames).
     click_delay: Vec<f32>,
     click_at: usize,
+    /// A track needed an instrument that wasn't there (`take_missing`).
+    missing: bool,
 }
 
 impl Engine {
     pub fn new(sample_rate: f64) -> Self {
-        let prepared = Box::new(Song::default().prepare(None));
+        let prepared = Box::new(Song::default().prepare(None, sample_rate));
         let limiter = Limiter::new(sample_rate, prepared.song.master.limiter);
         let delay = limiter.latency_frames().max(1);
         Self {
@@ -123,6 +128,7 @@ impl Engine {
             click: vec![0.0; MAX_BLOCK],
             click_delay: vec![0.0; delay],
             click_at: 0,
+            missing: false,
         }
     }
 
@@ -146,6 +152,27 @@ impl Engine {
     /// Plays `song` from the next block (prepared off the audio thread);
     /// the one it replaces comes back, to be freed off the audio thread.
     pub fn set_song(&mut self, mut song: Box<Prepared>) -> Box<Prepared> {
+        // Each track's instrument: the one already playing it carries on
+        // (its notes ringing), and the new one made for it goes back with
+        // the old version, to be freed off the audio thread.
+        let old = &mut self.prepared;
+        for i in 0..song.song.tracks.len() {
+            let Some(spec) = &song.song.tracks[i].instrument else {
+                continue;
+            };
+            let id = &song.song.tracks[i].id;
+            if let Some(j) = old.song.tracks.iter().position(|t| &t.id == id)
+                && old.players[j]
+                    .as_ref()
+                    .is_some_and(|p| p.kind() == spec.kind())
+            {
+                std::mem::swap(&mut song.players[i], &mut old.players[j]);
+            }
+            match &mut song.players[i] {
+                Some(player) => player.configure(spec),
+                None => self.missing = true,
+            }
+        }
         self.limiter.set(song.song.master.limiter);
         self.metronome.set_beats_per_bar(song.song.beats_per_bar);
         let tempo_changed = song.song.tempo != self.prepared.song.tempo;
@@ -177,6 +204,7 @@ impl Engine {
         let from = from.max(0.0);
         let bpm = segment_at_seconds(&self.prepared.song.tempo, from).bpm;
         let lead = self.frames(count_in_beats * 60.0 / bpm).max(0) as u64;
+        self.release_clip_notes();
         self.transport.playing = true;
         self.transport.position = self.frames(from);
         self.transport.starts_at = self.clock + lead;
@@ -188,6 +216,8 @@ impl Engine {
     pub fn stop(&mut self) {
         self.transport.playing = false;
         self.metronome.stop();
+        let at = self.clock;
+        self.players().for_each(|p| p.release_all(at));
     }
 
     pub fn playing(&self) -> bool {
@@ -197,6 +227,7 @@ impl Engine {
     /// Moves the playhead, playing or not.
     pub fn seek(&mut self, seconds: f64) {
         self.transport.position = self.frames(seconds.max(0.0));
+        self.release_clip_notes();
         self.resync();
     }
 
@@ -222,6 +253,55 @@ impl Engine {
     /// The click's level, in dB from its standard level.
     pub fn set_metronome_level(&mut self, db: f64) {
         self.click_level = 10f64.powf(db / 20.0) as f32;
+    }
+
+    fn players(&mut self) -> impl Iterator<Item = &mut Player> {
+        self.prepared.players.iter_mut().flatten().map(|p| &mut **p)
+    }
+
+    /// The clips' notes sounding stop (a jump: the transport goes on from
+    /// elsewhere).
+    fn release_clip_notes(&mut self) {
+        let at = self.clock;
+        self.players().for_each(|p| p.release_clip_notes(at));
+    }
+
+    /// The instrument of the track `track_key` names (`player::track_key`).
+    fn player(&mut self, track: u64) -> Option<&mut Player> {
+        let p = &mut *self.prepared;
+        let i = p.track_keys.iter().position(|k| *k == track)?;
+        p.players[i].as_deref_mut()
+    }
+
+    /// A key pressed live on a track (from the next block).
+    pub fn key_down(&mut self, track: u64, key: i32, velocity: f64) {
+        let at = self.clock;
+        if let Some(p) = self.player(track) {
+            p.key_down(key, velocity, at);
+        }
+    }
+
+    /// A key let go live.
+    pub fn key_up(&mut self, track: u64, key: i32) {
+        let at = self.clock;
+        if let Some(p) = self.player(track) {
+            p.key_up(key, at);
+        }
+    }
+
+    /// A track's sustain pedal (CC64).
+    pub fn sustain(&mut self, track: u64, down: bool) {
+        let at = self.clock;
+        if let Some(p) = self.player(track) {
+            p.set_sustain(down, at);
+        }
+    }
+
+    /// Whether a track needed an instrument the song didn't bring (it was
+    /// made assuming one already playing that wasn't): the song should be
+    /// prepared again from scratch (`prepare(None, ..)`). Once.
+    pub fn take_missing(&mut self) -> bool {
+        std::mem::take(&mut self.missing)
     }
 
     /// The master limiter's meters from its last full interval, once.
@@ -282,12 +362,22 @@ impl Engine {
                     && t.position >= le
                 {
                     t.position = ls;
+                    p.players
+                        .iter_mut()
+                        .flatten()
+                        .for_each(|pl| pl.release_clip_notes(now));
                 }
                 let mut len = n - j;
                 if let Some((_, le)) = t.loop_ {
                     len = len.min((le - t.position).max(1) as usize);
                 }
-                for (track, buf) in p.song.tracks.iter().zip(p.track_bufs.iter_mut()) {
+                for (i, (track, buf)) in p
+                    .song
+                    .tracks
+                    .iter()
+                    .zip(p.track_bufs.iter_mut())
+                    .enumerate()
+                {
                     for clip in &track.clips {
                         if clip.start >= t.position + len as i64 {
                             break;
@@ -295,6 +385,9 @@ impl Engine {
                         if clip.end() > t.position {
                             clip.render(t.position, len, [&mut buf.l, &mut buf.r], j);
                         }
+                    }
+                    if let Some(player) = p.players[i].as_deref_mut() {
+                        player.schedule(&track.notes, t.position, len, now);
                     }
                 }
                 t.position += len as i64;
@@ -304,7 +397,22 @@ impl Engine {
                     && t.position >= le
                 {
                     t.position = ls;
+                    let at = self.clock + j as u64;
+                    p.players
+                        .iter_mut()
+                        .flatten()
+                        .for_each(|pl| pl.release_clip_notes(at));
                 }
+            }
+        }
+
+        // The instruments, into their tracks (playing or not: keys played
+        // live, and tails).
+        for (player, buf) in p.players.iter_mut().zip(p.track_bufs.iter_mut()) {
+            if let Some(player) = player {
+                let (l, r) = player.render(n, self.clock);
+                add(&mut buf.l[..n], l, 1.0);
+                add(&mut buf.r[..n], r, 1.0);
             }
         }
 

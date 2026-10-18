@@ -4,16 +4,19 @@
 // runs on silently - the playhead takes the native engine's position.
 //
 // It sends the song again whenever the project changes, and each audio
-// file once, decoded at the device's rate (a warped clip: its rendering,
-// warpRender.ts). A clip whose file is still on its way is silent until it
-// arrives.
+// file once, decoded at the device's rate: a clip's (a warped clip: its
+// rendering, warpRender.ts), a sample pad's, the piano's samples. What's
+// still on its way is silent until it arrives. Keys played live go
+// straight to it.
 
 import * as Tone from "tone";
 import { audioEngine } from "../audioEngine";
 import type { EngineFollower } from "../follower";
 import { warpedBuffer, warpKey } from "../warpRender";
 import { nativeBridge, type NativeStatus } from "./bridge";
-import { describeSong } from "./describe";
+import { describeSong, type NativeAudioIds } from "./describe";
+import { loadDrumSample } from "../../instruments/drum-rack/drumRack";
+import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "../../instruments/piano/piano";
 import { currentTempo, projectStore } from "../../state/projectStore";
 import { warpPieces } from "../../project/warp";
 import type { AudioClipInstance } from "../../project/types";
@@ -129,10 +132,62 @@ class NativeEngine {
     return `${rate}:w${hash(key)}`;
   }
 
+  /** The ids of what's played, at the device's rate. */
+  private get ids(): NativeAudioIds {
+    const rate = this.state.sampleRate;
+    return {
+      clip: (clip) => this.audioId(clip),
+      drumSample: (fileId) => `${rate}:drum:${fileId}`,
+      pianoSample: (name) => `${rate}:piano:${name}`,
+    };
+  }
+
+  /** How to load what an id names (the song just described says which
+   * clip plays it), or null if nothing does. */
+  private loader(id: string, clips: AudioClipInstance[]): (() => Promise<Float32Array[]>) | null {
+    const rate = this.state.sampleRate;
+    const drum = id.startsWith(`${rate}:drum:`) ? id.slice(`${rate}:drum:`.length) : null;
+    if (drum) {
+      return async () => {
+        const channels = await loadDrumSample(drum, rate);
+        if (!channels) throw new Error(`The sample ${drum} couldn't be read.`);
+        return channels;
+      };
+    }
+    const piano = id.startsWith(`${rate}:piano:`) ? id.slice(`${rate}:piano:`.length) : null;
+    if (piano && PIANO_SAMPLE_URLS[piano]) {
+      return () => this.decode(PIANO_SAMPLE_BASE_URL + PIANO_SAMPLE_URLS[piano]);
+    }
+    const clip = clips.find((c) => this.audioId(c) === id);
+    if (!clip) return null;
+    return async () => {
+      const source = await this.decodeBuffer(clip.url);
+      let buffer = source;
+      if (clip.warp) {
+        const pieces = warpPieces(clip as AudioClipInstance & { warp: NonNullable<AudioClipInstance["warp"]> }, currentTempo());
+        // Kept apart from the browser engine's renderings, which may be at
+        // another rate.
+        buffer = await warpedBuffer(`${rate}|${warpKey(clip.url, clip.warp.mode, pieces, clip.length)}`, source, pieces, clip.length, clip.warp.mode);
+      }
+      return Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+    };
+  }
+
+  /** A file, decoded at the device's rate. */
+  private async decodeBuffer(url: string): Promise<AudioBuffer> {
+    const file = await (await fetch(url)).arrayBuffer();
+    return new OfflineAudioContext(1, 1, this.state.sampleRate).decodeAudioData(file);
+  }
+
+  private async decode(url: string): Promise<Float32Array[]> {
+    const buffer = await this.decodeBuffer(url);
+    return Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  }
+
   private async sendSong(): Promise<void> {
     if (!this.state.active) return;
     const doc = projectStore.get();
-    const song = describeSong(doc, this.session, (clip) => this.audioId(clip));
+    const song = describeSong(doc, this.session, this.ids);
     try {
       const { missing } = await nativeBridge.setSong(song);
       if (missing.length === 0) return;
@@ -141,8 +196,8 @@ class NativeEngine {
         .flat()
         .filter((c): c is AudioClipInstance => c.kind === "audio");
       const uploads = missing.map((id) => {
-        const clip = clips.find((c) => this.audioId(c) === id);
-        return clip ? this.upload(id, clip) : Promise.resolve();
+        const load = this.loader(id, clips);
+        return load ? this.upload(id, load) : Promise.resolve();
       });
       await Promise.all(uploads);
       this.queueSong();
@@ -151,22 +206,13 @@ class NativeEngine {
     }
   }
 
-  /** Sends what a clip plays, once. */
-  private upload(id: string, clip: AudioClipInstance): Promise<void> {
+  /** Sends what an id names, once. */
+  private upload(id: string, load: () => Promise<Float32Array[]>): Promise<void> {
     const known = this.sent.get(id);
     if (known) return known;
     const rate = this.state.sampleRate;
     const job = (async () => {
-      const file = await (await fetch(clip.url)).arrayBuffer();
-      const source = await new OfflineAudioContext(1, 1, rate).decodeAudioData(file);
-      let buffer = source;
-      if (clip.warp) {
-        const pieces = warpPieces(clip as AudioClipInstance & { warp: NonNullable<AudioClipInstance["warp"]> }, currentTempo());
-        // Kept apart from the browser engine's renderings, which may be at
-        // another rate.
-        buffer = await warpedBuffer(`${rate}|${warpKey(clip.url, clip.warp.mode, pieces, clip.length)}`, source, pieces, clip.length, clip.warp.mode);
-      }
-      const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+      const channels = await load();
       await nativeBridge.loadAudio(id, channels, rate);
     })();
     // A failure is forgotten, so it's tried again with the next song.
@@ -225,6 +271,9 @@ class NativeEngine {
       if (!s) return null;
       return s.playing ? s.position + (performance.now() - this.statusAt) / 1000 : s.position;
     },
+    noteOn: (track, key, velocity) => this.run("key", nativeBridge.key(track, key, velocity)),
+    noteOff: (track, key) => this.run("key", nativeBridge.key(track, key, null)),
+    sustain: (track, down) => this.run("sustain", nativeBridge.sustain(track, down)),
   };
 }
 

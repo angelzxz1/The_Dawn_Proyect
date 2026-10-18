@@ -16,6 +16,7 @@ use crate::effects::limiter::{Limiter, LimiterSettings, lookahead_frames};
 use crate::effects::mb_dynamics::{MbDynamicsKernel, MbDynamicsSettings};
 use crate::effects::multiband::{MultibandKernel, MultibandSettings};
 use crate::effects::param_eq::{ParamEqKernel, ParamEqSettings};
+use crate::effects::pitch_shift::{PitchShiftSettings, PitchShifter};
 use crate::effects::utility::{UtilityKernel, UtilitySettings};
 use crate::params::ParamSource;
 
@@ -29,6 +30,7 @@ pub enum EffectSettings {
     MbDynamics(Box<MbDynamicsSettings>),
     Multiband(Box<MultibandSettings>),
     ParamEq(Box<ParamEqSettings>),
+    PitchShift(PitchShiftSettings),
     Utility(UtilitySettings),
 }
 
@@ -41,6 +43,7 @@ pub enum EffectKind {
     MbDynamics,
     Multiband,
     ParamEq,
+    PitchShift,
     Utility,
 }
 
@@ -61,6 +64,7 @@ impl EffectSettings {
             }
             "multiband" => Self::Multiband(Box::new(MultibandSettings::from_params(params, false))),
             "paramEq" => Self::ParamEq(Box::new(ParamEqSettings::from_params(params))),
+            "pitchShift" => Self::PitchShift(PitchShiftSettings::from_params(params)),
             "utility" => Self::Utility(UtilitySettings::from_params(params)),
             _ => return None,
         })
@@ -72,6 +76,7 @@ impl EffectSettings {
         match self {
             Self::Glue(s) if s.oversample => OS_LATENCY,
             Self::Limiter(_) => lookahead_frames(sample_rate),
+            Self::PitchShift(s) => s.latency(sample_rate),
             _ => 0,
         }
     }
@@ -85,6 +90,7 @@ impl EffectSettings {
             Self::MbDynamics(_) => EffectKind::MbDynamics,
             Self::Multiband(_) => EffectKind::Multiband,
             Self::ParamEq(_) => EffectKind::ParamEq,
+            Self::PitchShift(_) => EffectKind::PitchShift,
             Self::Utility(_) => EffectKind::Utility,
         }
     }
@@ -119,6 +125,7 @@ enum Kernel {
     MbDynamics(Box<MbDynamicsKernel>),
     Multiband(Box<MultibandKernel>),
     ParamEq(Box<ParamEqKernel>),
+    PitchShift(Box<PitchShifter>),
     Utility(Box<UtilityKernel>),
 }
 
@@ -149,6 +156,9 @@ impl Effect {
             EffectSettings::ParamEq(s) => {
                 Kernel::ParamEq(Box::new(ParamEqKernel::new(sample_rate, s)))
             }
+            EffectSettings::PitchShift(s) => {
+                Kernel::PitchShift(Box::new(PitchShifter::new(sample_rate, s)))
+            }
             EffectSettings::Utility(s) => {
                 Kernel::Utility(Box::new(UtilityKernel::new(sample_rate, s)))
             }
@@ -165,6 +175,7 @@ impl Effect {
             Kernel::MbDynamics(_) => EffectKind::MbDynamics,
             Kernel::Multiband(_) => EffectKind::Multiband,
             Kernel::ParamEq(_) => EffectKind::ParamEq,
+            Kernel::PitchShift(_) => EffectKind::PitchShift,
             Kernel::Utility(_) => EffectKind::Utility,
         }
     }
@@ -180,6 +191,7 @@ impl Effect {
             (Kernel::MbDynamics(k), EffectSettings::MbDynamics(s)) => k.set(s),
             (Kernel::Multiband(k), EffectSettings::Multiband(s)) => k.set(s),
             (Kernel::ParamEq(k), EffectSettings::ParamEq(s)) => k.set(s),
+            (Kernel::PitchShift(k), EffectSettings::PitchShift(s)) => k.set(s),
             (Kernel::Utility(k), EffectSettings::Utility(s)) => k.set(s),
             _ => {}
         }
@@ -202,6 +214,7 @@ impl Effect {
             Kernel::MbDynamics(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Multiband(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::ParamEq(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
+            Kernel::PitchShift(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Utility(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
         }
     }

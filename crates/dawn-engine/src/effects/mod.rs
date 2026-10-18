@@ -8,6 +8,7 @@ pub mod limiter;
 pub mod mb_dynamics;
 pub mod multiband;
 pub mod param_eq;
+pub mod pitch_shift;
 pub mod sidechain;
 pub mod utility;
 
@@ -20,5 +21,6 @@ pub const PORTED: &[&str] = &[
     "mbDynamics",
     "multiband",
     "paramEq",
+    "pitchShift",
     "utility",
 ];

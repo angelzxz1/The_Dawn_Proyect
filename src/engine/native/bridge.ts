@@ -76,6 +76,10 @@ export const nativeBridge = {
   /** A key pressed (with its velocity) or let go (none) live on a track. */
   key: (track: string, key: number, velocity: number | null) => invoke<void>("engine_key", { track, key, velocity }),
   sustain: (track: string, down: boolean) => invoke<void>("engine_sustain", { track, down }),
+  /** A track's pitch bend, -1..1 of its instrument's bend range. */
+  bend: (track: string, value: number) => invoke<void>("engine_bend", { track, value }),
+  /** A track's mod wheel, 0..1. */
+  modWheel: (track: string, value: number) => invoke<void>("engine_mod_wheel", { track, value }),
   status: () => invoke<NativeStatus>("engine_status"),
 };
 

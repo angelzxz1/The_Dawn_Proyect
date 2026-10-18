@@ -1,8 +1,9 @@
 // The studio's side of the native engine, against a stand-in for the
 // desktop app's commands (bridge.ts): turning it on opens the device and
 // mutes the browser's output, the song goes over (with the audio it's
-// missing, decoded at the device's rate), the transport is followed, and
-// turning it off hands back to the browser. In Chromium, for decoding.
+// missing, decoded at the device's rate), the transport and what's played
+// live are followed, and turning it off hands back to the browser. In
+// Chromium, for decoding.
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as Tone from "tone";
@@ -22,6 +23,8 @@ const bridge = vi.hoisted(() => ({
   forgetAudio: vi.fn(async () => {}),
   key: vi.fn<(track: string, key: number, velocity: number | null) => Promise<void>>(async () => {}),
   sustain: vi.fn<(track: string, down: boolean) => Promise<void>>(async () => {}),
+  bend: vi.fn<(track: string, value: number) => Promise<void>>(async () => {}),
+  modWheel: vi.fn<(track: string, value: number) => Promise<void>>(async () => {}),
 }));
 vi.mock("./bridge", () => ({ nativeBridge: bridge }));
 
@@ -163,6 +166,36 @@ describe("the native engine from the studio", () => {
     const song = bridge.setSong.mock.calls[0][0] as { tracks: { instrument: { type: string; samples: unknown[] } }[] };
     expect(song.tracks[0].instrument.type).toBe("drums");
     expect(song.tracks[0].instrument.samples).toHaveLength(16);
+  });
+
+  test("a synth track's wavetables are sent with the song, as one run of samples each", async () => {
+    const p = project(wavUrl());
+    p.clipsByChannel = {};
+    p.channels = [{ id: "s1", name: "Synth", volume: 0, pan: 0, colorIndex: 0, type: "midi", instrument: "synth", muted: false, solo: false, armed: false }];
+    projectStore.replace(p);
+    bridge.setSong.mockResolvedValueOnce({ missing: ["48000:wavetable:basic", "48000:wavetable:sub"] });
+    await nativeEngine.turnOn({ device: null, sampleRate: 48000, bufferSize: null });
+    await vi.waitFor(() => expect(bridge.setSong).toHaveBeenCalledTimes(2));
+    const song = bridge.setSong.mock.calls[0][0] as { tracks: { instrument: { type: string; tables: string[] } }[] };
+    expect(song.tracks[0].instrument.type).toBe("synth");
+    expect(song.tracks[0].instrument.tables).toEqual(["48000:wavetable:basic", "48000:wavetable:basic", "48000:wavetable:sub"]);
+    const sent = Object.fromEntries(bridge.loadAudio.mock.calls.map(([id, channels]) => [id, channels]));
+    // Basic Shapes has 33 frames, the sub's shapes 4: 4480 samples a frame
+    // over the mip levels.
+    expect(sent["48000:wavetable:basic"].map((c) => c.length)).toEqual([33 * 4480]);
+    expect(sent["48000:wavetable:sub"].map((c) => c.length)).toEqual([4 * 4480]);
+  });
+
+  test("the pitch bend and mod wheel go to the engine", async () => {
+    projectStore.replace(project(wavUrl()));
+    await nativeEngine.turnOn({ device: null, sampleRate: null, bufferSize: null });
+    // Semitones, as the synth takes them: ±2 is a full bend.
+    audioEngine.setPitchBend("m1", 1);
+    expect(bridge.bend).toHaveBeenLastCalledWith("m1", 0.5);
+    audioEngine.setPitchBend("m1", -4);
+    expect(bridge.bend).toHaveBeenLastCalledWith("m1", -1);
+    audioEngine.setModWheel("m1", 0.3);
+    expect(bridge.modWheel).toHaveBeenLastCalledWith("m1", 0.3);
   });
 
   test("turned off, the browser plays again and the transport isn't followed", async () => {

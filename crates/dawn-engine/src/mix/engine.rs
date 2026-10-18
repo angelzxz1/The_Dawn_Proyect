@@ -156,6 +156,7 @@ impl Engine {
         // (its notes ringing), and the new one made for it goes back with
         // the old version, to be freed off the audio thread.
         let old = &mut self.prepared;
+        let bpm = song.song.tempo.first().map_or(120.0, |t| t.bpm);
         for i in 0..song.song.tracks.len() {
             let Some(spec) = &song.song.tracks[i].instrument else {
                 continue;
@@ -169,7 +170,10 @@ impl Engine {
                 std::mem::swap(&mut song.players[i], &mut old.players[j]);
             }
             match &mut song.players[i] {
-                Some(player) => player.configure(spec),
+                Some(player) => {
+                    player.configure(spec);
+                    player.set_tempo(bpm);
+                }
                 None => self.missing = true,
             }
         }
@@ -294,6 +298,20 @@ impl Engine {
         let at = self.clock;
         if let Some(p) = self.player(track) {
             p.set_sustain(down, at);
+        }
+    }
+
+    /// A track's pitch bend, -1..1 of its instrument's bend range.
+    pub fn pitch_bend(&mut self, track: u64, bend: f64) {
+        if let Some(p) = self.player(track) {
+            p.set_bend(bend);
+        }
+    }
+
+    /// A track's mod wheel, 0..1.
+    pub fn mod_wheel(&mut self, track: u64, amount: f64) {
+        if let Some(p) = self.player(track) {
+            p.set_mod_wheel(amount);
         }
     }
 

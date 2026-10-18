@@ -95,16 +95,27 @@ export function loadUserWavetable(fileId: string): Promise<WavetableData | null>
   return promise;
 }
 
-function tableKey(osc: SynthOscParams): string {
+/** What an oscillator's wavetable is known by: its imported file, or its
+ * factory table. */
+export function tableKey(osc: SynthOscParams): string {
   return osc.userTable ? `user:${osc.userTable.id}` : osc.table;
 }
 
-async function tableFor(osc: SynthOscParams): Promise<WavetableData> {
+/** An oscillator's wavetable: its imported one, or (when that can't be
+ * read) its factory table. */
+export async function tableFor(osc: SynthOscParams): Promise<WavetableData> {
   if (osc.userTable) {
     const user = await loadUserWavetable(osc.userTable.id);
     if (user) return user;
   }
   return factoryWavetable(osc.table);
+}
+
+/** The synth's pitch bend (-1..1 of its bend range) for the engine's live
+ * detune (cents): the engine's bend is ±2 semitones at full; the synth
+ * scales it by its own range. */
+export function synthBend(cents: number): number {
+  return Math.max(-1, Math.min(1, cents / 200));
 }
 
 function toMidi(note: string): number {
@@ -196,8 +207,7 @@ export class SynthInstrument implements Instrument {
   }
 
   setDetune(cents: number): void {
-    // The engine's bend is ±2 semitones at full; the synth scales it by its own range.
-    this.bend = Math.max(-1, Math.min(1, cents / 200));
+    this.bend = synthBend(cents);
     this.node?.port.postMessage({ t: "bend", v: this.bend });
   }
 

@@ -5,9 +5,10 @@
 // track's notes and instrument; the buses; the master; the tempo map. The
 // engine only renders what it's told. Pure.
 //
-// So far the native engine plays audio clips and the piano's and the Drum
-// Rack's notes through the mix: the synth, effects and automation aren't in
-// it yet (unsupported() names what a project uses of them).
+// So far the native engine plays audio clips and every instrument's notes
+// (the piano, the Drum Rack, the synth) through the mix: effects and
+// automation aren't in it yet (unsupported() names what a project uses of
+// them).
 
 import { audibleTracks } from "../mixGraph";
 import { routeMap } from "../routing";
@@ -16,10 +17,16 @@ import { makeTempoMap } from "../../project/tempoMap";
 import type { AudioClipInstance, ChannelConfig } from "../../project/types";
 import { compileDrumKit, defaultDrumKit } from "../../instruments/drum-rack/drumParams";
 import { PIANO_SAMPLE_URLS, noteNameToMidi } from "../../instruments/piano/piano";
+import { tableKey } from "../../instruments/synth/synth";
+import { compileSynth, initSynthParams } from "../../instruments/synth/synthParams";
 import type { InstrumentType } from "../../instruments/registry";
 
 /** The instruments the native engine plays. */
-export const NATIVE_INSTRUMENTS: readonly InstrumentType[] = ["piano", "drums"];
+export const NATIVE_INSTRUMENTS: readonly InstrumentType[] = ["piano", "drums", "synth"];
+
+/** What the synth's sub oscillator plays (its shapes' wavetable), next to
+ * the oscillators' tables (synth.ts tableKey). */
+export const SUB_TABLE = "sub";
 
 /** The shortest a note plays (as the browser's engine, audioEngine.ts). */
 const MIN_NOTE_DURATION = 0.05;
@@ -46,7 +53,9 @@ export interface NativeNote {
 
 export type NativeInstrument =
   | { type: "drums"; kit: ReturnType<typeof compileDrumKit>; samples: (string | null)[] }
-  | { type: "piano"; samples: { note: number; audio: string }[] };
+  | { type: "piano"; samples: { note: number; audio: string }[] }
+  /** Its tables: oscillator 1's, oscillator 2's, the sub's. */
+  | { type: "synth"; settings: ReturnType<typeof compileSynth>; tables: string[] };
 
 export interface NativeTrack {
   id: string;
@@ -63,11 +72,13 @@ export interface NativeTrack {
 }
 
 /** The ids the engine knows what's played by: a clip's file (or its
- * rendering), a sample pad's file, one of the piano's samples. */
+ * rendering), a sample pad's file, one of the piano's samples, a synth's
+ * wavetable (by its tableKey, or SUB_TABLE). */
 export interface NativeAudioIds {
   clip(clip: AudioClipInstance): string;
   drumSample(fileId: string): string;
   pianoSample(name: string): string;
+  wavetable(key: string): string;
 }
 
 export interface NativeSong {
@@ -109,6 +120,14 @@ function nativeInstrument(channel: ChannelConfig, ids: NativeAudioIds): NativeIn
     return {
       type: "piano",
       samples: Object.keys(PIANO_SAMPLE_URLS).map((name) => ({ note: noteNameToMidi(name) ?? 60, audio: ids.pianoSample(name) })),
+    };
+  }
+  if (channel.instrument === "synth") {
+    const params = channel.synthParams ?? initSynthParams();
+    return {
+      type: "synth",
+      settings: compileSynth(params),
+      tables: [tableKey(params.osc1), tableKey(params.osc2), SUB_TABLE].map(ids.wavetable),
     };
   }
   return null;

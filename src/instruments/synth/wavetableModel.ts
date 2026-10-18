@@ -430,6 +430,18 @@ export function wavetableFromAudio(samples: Float32Array): WavetableData {
   return buildWavetable(spectra);
 }
 
+/** The table as one run of samples: its levels one after another (how the
+ * desktop app's native engine takes it, crates/dawn-engine's synth.rs). */
+export function flatWavetable(data: WavetableData): Float32Array {
+  const out = new Float32Array(data.levels.reduce((n, level) => n + level.length, 0));
+  let at = 0;
+  for (const level of data.levels) {
+    out.set(level, at);
+    at += level.length;
+  }
+  return out;
+}
+
 /** Frames for drawing (from the level with 128 harmonics, `points` samples each). */
 export function previewFrames(data: WavetableData, points = 128): Float32Array[] {
   const level = 2;

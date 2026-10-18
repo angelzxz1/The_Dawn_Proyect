@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeSong, unsupported, type NativeInstrument } from "./describe";
 import { compileDrumKit, defaultDrumKit } from "../../instruments/drum-rack/drumParams";
+import { compileSynth, initSynthParams } from "../../instruments/synth/synthParams";
 import type { ProjectState } from "../../project/project";
 import type { AudioClipInstance, ChannelConfig, ChannelType, MidiClipInstance } from "../../project/types";
 
@@ -72,6 +73,7 @@ const idOf = {
   clip: (clip: AudioClipInstance) => (clip.warp ? `warp:${clip.id}` : clip.url),
   drumSample: (fileId: string) => `drum:${fileId}`,
   pianoSample: (name: string) => `piano:${name}`,
+  wavetable: (key: string) => `wavetable:${key}`,
 };
 
 describe("the song for the native engine", () => {
@@ -134,6 +136,23 @@ describe("the song for the native engine", () => {
     expect(drums.samples.filter(Boolean)).toHaveLength(1);
   });
 
+  it("has a synth track's compiled patch and its wavetables", () => {
+    const p = project();
+    const params = initSynthParams();
+    params.osc1.table = "vowels";
+    params.osc2.userTable = { id: "my-table", name: "Mine.wav" };
+    p.channels = p.channels.map((c) => (c.id === "keys" ? { ...c, instrument: "synth", synthParams: params } : c));
+    const synth = describeSong(p, session, idOf).tracks[3].instrument as Extract<NativeInstrument, { type: "synth" }>;
+    expect(synth.type).toBe("synth");
+    expect(synth.settings).toEqual(compileSynth(params));
+    // An imported table is known by its file; the sub's shapes come last.
+    expect(synth.tables).toEqual(["wavetable:vowels", "wavetable:user:my-table", "wavetable:sub"]);
+    // A track that hasn't saved a patch plays Init.
+    p.channels = p.channels.map((c) => (c.id === "keys" ? { ...c, synthParams: undefined } : c));
+    const init = describeSong(p, session, idOf).tracks[3].instrument as Extract<NativeInstrument, { type: "synth" }>;
+    expect(init.settings).toEqual(compileSynth(initSynthParams()));
+  });
+
   it("sends a group's members into the group", () => {
     const song = describeSong(project(), session, idOf);
     expect(song.tracks[2].output).toBe("group");
@@ -172,14 +191,19 @@ describe("the song for the native engine", () => {
 describe("what the native engine doesn't play yet", () => {
   it("names the tracks with instruments it hasn't got, effects or automation, and a master with effects", () => {
     const p = project();
-    p.channels = [...p.channels, track("pad", "midi", { instrument: "synth" }), track("empty", "midi", { instrument: null })];
+    p.channels = [
+      ...p.channels,
+      track("pad", "midi", { instrument: "synth" }),
+      track("beat", "midi", { instrument: "drums" }),
+      track("empty", "midi", { instrument: null }),
+    ];
     p.channelEffects = { drums: [{ id: "fx1", type: "compressor", params: {} }], gtr: [{ id: "fx2", type: "eq3", params: {}, bypass: true }] };
     p.masterEffects = [{ id: "fx3", type: "eq3", params: {} }];
     p.channels = p.channels.map((c) =>
       c.id === "gtr" ? { ...c, automationLanes: [{ id: "l", target: { kind: "volume" }, points: [{ id: "p", time: 0, value: 0 }] }] } : c
     );
-    // The piano plays; the synth doesn't yet.
-    expect(unsupported(p)).toEqual({ instruments: ["pad"], effects: ["drums", "Master"], automation: ["gtr"] });
+    // Every instrument plays.
+    expect(unsupported(p)).toEqual({ instruments: [], effects: ["drums", "Master"], automation: ["gtr"] });
   });
 
   it("is nothing for audio tracks played dry", () => {

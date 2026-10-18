@@ -168,7 +168,7 @@ pub fn engine_set_song(state: State<'_, AudioState>, song: SongSpec) -> Result<S
         .as_ref()
         .ok_or("No audio device is open.")?
         .sample_rate;
-    let (built, missing) = song::build(&song, &inner.audio, sample_rate);
+    let (built, missing) = song::build(&song, inner.song.as_ref(), &inner.audio, sample_rate);
     let prepared = Box::new(built.clone().prepare(inner.song.as_ref(), sample_rate));
     inner.send(Command::Song(prepared))?;
     inner.song = Some(built);
@@ -200,6 +200,28 @@ pub fn engine_sustain(
     state.lock().send(Command::Sustain {
         track: track_key(&track),
         down,
+    })
+}
+
+/// A track's pitch bend: -1..1 of its instrument's bend range.
+#[tauri::command]
+pub fn engine_bend(state: State<'_, AudioState>, track: String, value: f64) -> Result<(), String> {
+    state.lock().send(Command::Bend {
+        track: track_key(&track),
+        value,
+    })
+}
+
+/// A track's mod wheel, 0..1.
+#[tauri::command]
+pub fn engine_mod_wheel(
+    state: State<'_, AudioState>,
+    track: String,
+    value: f64,
+) -> Result<(), String> {
+    state.lock().send(Command::ModWheel {
+        track: track_key(&track),
+        value,
     })
 }
 

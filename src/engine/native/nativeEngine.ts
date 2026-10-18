@@ -5,18 +5,22 @@
 //
 // It sends the song again whenever the project changes, and each audio
 // file once, decoded at the device's rate: a clip's (a warped clip: its
-// rendering, warpRender.ts), a sample pad's, the piano's samples. What's
-// still on its way is silent until it arrives. Keys played live go
-// straight to it.
+// rendering, warpRender.ts), a sample pad's, the piano's samples (and a
+// synth's wavetables, as one run of samples). What's still on its way is
+// silent until it arrives. Keys played live, the sustain pedal, pitch bend
+// and mod wheel go straight to it.
 
 import * as Tone from "tone";
 import { audioEngine } from "../audioEngine";
 import type { EngineFollower } from "../follower";
 import { warpedBuffer, warpKey } from "../warpRender";
 import { nativeBridge, type NativeStatus } from "./bridge";
-import { describeSong, type NativeAudioIds } from "./describe";
+import { describeSong, SUB_TABLE, type NativeAudioIds } from "./describe";
 import { loadDrumSample } from "../../instruments/drum-rack/drumRack";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "../../instruments/piano/piano";
+import { synthBend, tableFor, tableKey } from "../../instruments/synth/synth";
+import { initSynthParams, type SynthOscParams } from "../../instruments/synth/synthParams";
+import { flatWavetable, subWavetable } from "../../instruments/synth/wavetableModel";
 import { currentTempo, projectStore } from "../../state/projectStore";
 import { warpPieces } from "../../project/warp";
 import type { AudioClipInstance } from "../../project/types";
@@ -139,13 +143,20 @@ class NativeEngine {
       clip: (clip) => this.audioId(clip),
       drumSample: (fileId) => `${rate}:drum:${fileId}`,
       pianoSample: (name) => `${rate}:piano:${name}`,
+      wavetable: (key) => `${rate}:wavetable:${key}`,
     };
   }
 
   /** How to load what an id names (the song just described says which
-   * clip plays it), or null if nothing does. */
-  private loader(id: string, clips: AudioClipInstance[]): (() => Promise<Float32Array[]>) | null {
+   * clip or synth oscillator plays it), or null if nothing does. */
+  private loader(id: string, clips: AudioClipInstance[], oscs: SynthOscParams[]): (() => Promise<Float32Array[]>) | null {
     const rate = this.state.sampleRate;
+    const table = id.startsWith(`${rate}:wavetable:`) ? id.slice(`${rate}:wavetable:`.length) : null;
+    if (table === SUB_TABLE) return async () => [flatWavetable(subWavetable())];
+    if (table !== null) {
+      const osc = oscs.find((o) => tableKey(o) === table);
+      return osc ? async () => [flatWavetable(await tableFor(osc))] : null;
+    }
     const drum = id.startsWith(`${rate}:drum:`) ? id.slice(`${rate}:drum:`.length) : null;
     if (drum) {
       return async () => {
@@ -195,8 +206,14 @@ class NativeEngine {
       const clips = Object.values(doc.clipsByChannel)
         .flat()
         .filter((c): c is AudioClipInstance => c.kind === "audio");
+      const oscs = doc.channels
+        .filter((c) => c.type === "midi" && c.instrument === "synth")
+        .flatMap((c) => {
+          const params = c.synthParams ?? initSynthParams();
+          return [params.osc1, params.osc2];
+        });
       const uploads = missing.map((id) => {
-        const load = this.loader(id, clips);
+        const load = this.loader(id, clips, oscs);
         return load ? this.upload(id, load) : Promise.resolve();
       });
       await Promise.all(uploads);
@@ -274,6 +291,8 @@ class NativeEngine {
     noteOn: (track, key, velocity) => this.run("key", nativeBridge.key(track, key, velocity)),
     noteOff: (track, key) => this.run("key", nativeBridge.key(track, key, null)),
     sustain: (track, down) => this.run("sustain", nativeBridge.sustain(track, down)),
+    pitchBend: (track, semitones) => this.run("bend", nativeBridge.bend(track, synthBend(semitones * 100))),
+    modWheel: (track, amount) => this.run("wheel", nativeBridge.modWheel(track, amount)),
   };
 }
 

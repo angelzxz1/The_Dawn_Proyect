@@ -47,6 +47,16 @@ pub enum Command {
         track: u64,
         down: bool,
     },
+    /// A track's pitch bend (-1..1 of its range).
+    Bend {
+        track: u64,
+        value: f64,
+    },
+    /// A track's mod wheel (0..1).
+    ModWheel {
+        track: u64,
+        value: f64,
+    },
 }
 
 /// What the audio thread shares: written there, read by the app.
@@ -217,6 +227,8 @@ impl Callback {
                     velocity: None,
                 } => self.engine.key_up(track, key),
                 Command::Sustain { track, down } => self.engine.sustain(track, down),
+                Command::Bend { track, value } => self.engine.pitch_bend(track, value),
+                Command::ModWheel { track, value } => self.engine.mod_wheel(track, value),
             }
         }
         if self.engine.take_missing() {

@@ -829,12 +829,12 @@ mod tests {
             fx.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
             ["c", "u"]
         );
-        let EffectSettings::Compressor(c) = fx[0].settings else {
+        let EffectSettings::Compressor(c) = &fx[0].settings else {
             panic!("not the compressor");
         };
         assert_eq!((c.threshold, c.ratio), (-30.0, 6.0));
         // A value JSON couldn't hold takes its default.
-        let EffectSettings::Utility(u) = fx[1].settings else {
+        let EffectSettings::Utility(u) = &fx[1].settings else {
             panic!("not the utility");
         };
         assert_eq!((u.gain_db, u.width), (0.0, 0.0));

@@ -14,14 +14,16 @@ It's early. Today:
 - **The native engine plays audio (beta)**: turned on in the Audio panel
   (the CPU meter in the transport bar), it plays the song through the audio
   interface's own driver - Core Audio on macOS, WASAPI on Windows (ASIO
-  once its licence is signed, below). So far it plays the audio clips
-  through the mix (volume, pan, mute, solo, groups, sends), the master
-  limiter and the metronome. Instruments, effects, automation and recording
-  still need the browser's engine: the panel says what of the project it
-  doesn't play yet, and Record asks to turn it off.
+  once its licence is signed, below). So far it plays the audio clips and
+  every instrument through the mix (volume, pan, mute, solo, groups,
+  sends), the dynamics and EQ effects, the master limiter and the
+  metronome. The other effects, sidechains, automation and recording still
+  need the browser's engine: the panel says what of the project it doesn't
+  play yet, and Record asks to turn it off.
 - **The DSP is moving over**: `crates/dawn-engine` holds the kernels ported
-  to Rust so far - the Compressor, the Limiter, the metronome and clip
-  playback - each tested against the JavaScript's own output (below).
+  to Rust so far - the instruments, the dynamics and EQ effects, the
+  metronome and clip playback - each tested against the JavaScript's own
+  output (below).
 
 ## Getting the installers
 
@@ -143,12 +145,13 @@ and MIDI devices through the engine, files through native dialogs.
   `src/effects/` that computes the same thing step for step: the same
   `f64` state and `f32` buffers as the JavaScript's numbers and
   Float32Arrays, the arithmetic in the same order. So far the Compressor,
-  the Limiter and the Utility. They run in the tracks', buses' and
-  master's chains where the browser's do (`mix/fx.rs`): a track's on what
-  it plays and what's routed into it, ahead of its fader; a bus's on its
-  sends; the master's after its fader, ahead of the limiter. Each effect
-  lives on from one version of the song to the next by its id, and a
-  bypassed one is skipped, keeping its state.
+  the Glue Compressor, the Noise Gate, the Limiter, the Multiband
+  Compressor, Multiband Dynamics, the Parametric EQ and the Utility. They
+  run in the tracks', buses' and master's chains where the browser's do
+  (`mix/fx.rs`): a track's on what it plays and what's routed into it,
+  ahead of its fader; a bus's on its sends; the master's after its fader,
+  ahead of the limiter. Each effect lives on from one version of the song
+  to the next by its id, and a bypassed one is skipped, keeping its state.
 - `instruments/`: the instruments, the same way: the Drum Rack's kernel
   (a port of `drumKernel.ts`), the synth's (a port of `synthKernel.ts`,
   playing the wavetables the studio builds), and the piano, a sampler that
@@ -304,12 +307,11 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
 1. **Recording through the engine**: the interface's inputs, monitoring
    with low latency, takes written to disk, latency compensation.
 2. **Effects in the engine** (every instrument plays already, and the
-   Compressor, Limiter and Utility): the remaining effect kernels (gate,
-   glue, the multiband effects, EQ, pitch shift, the Furnace amp), then
-   what's built from Web Audio nodes today (chorus, delay, EQ Three,
-   filter, reverb, the IR loader, saturator, tuner). NAM's engine is C++
-   (NeuralAmpModelerCore) and can be built into the engine as is. Then
-   sidechains, automation and delay compensation.
+   dynamics and EQ effects): the remaining effect kernels (pitch shift,
+   the Furnace amp), then what's built from Web Audio nodes today (chorus,
+   delay, EQ Three, filter, reverb, the IR loader, saturator, tuner).
+   NAM's engine is C++ (NeuralAmpModelerCore) and can be built into the
+   engine as is. Then sidechains, automation and delay compensation.
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in
    the project; then VST3 effects the same way; then plugin instruments on

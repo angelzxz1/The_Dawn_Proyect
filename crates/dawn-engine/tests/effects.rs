@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use dawn_engine::effects::PORTED;
 use dawn_engine::mix::{
     AudioData, Bus, Clip, ClipTiming, EffectSettings, EffectSpec, Engine, Send, Song, Track,
 };
@@ -175,4 +176,17 @@ fn a_compressor_turns_a_loud_track_down() {
 #[test]
 fn a_type_the_engine_hasnt_got_has_no_settings() {
     assert!(EffectSettings::from_params("reverb", &[("decay", 2.0)]).is_none());
+}
+
+#[test]
+fn every_ported_type_plays_in_a_chain() {
+    for kind in PORTED {
+        let out = render(
+            &mut engine(&song(vec![track("a", 0.25, vec![effect("e", kind, &[])])])),
+            0.3,
+        );
+        assert!(out.iter().all(|x| x.is_finite()), "{kind}");
+        let settled = *out.last().unwrap();
+        assert!(settled > 0.05, "{kind}: {settled}");
+    }
 }

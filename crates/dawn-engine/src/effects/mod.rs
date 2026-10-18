@@ -1,6 +1,7 @@
 //! The effects' DSP kernels, one module each, named like the web app's
 //! effect folders (`src/effects/<name>/`).
 
+pub mod amp;
 pub mod compressor;
 pub mod gate;
 pub mod glue;
@@ -22,5 +23,6 @@ pub const PORTED: &[&str] = &[
     "multiband",
     "paramEq",
     "pitchShift",
+    "tubeAmp",
     "utility",
 ];

@@ -180,13 +180,34 @@ fn a_type_the_engine_hasnt_got_has_no_settings() {
 
 #[test]
 fn every_ported_type_plays_in_a_chain() {
+    // A 220 Hz tone (the amp, like a real one, lets no DC through).
+    let tone = Arc::new(AudioData {
+        channels: vec![
+            (0..(SR as usize))
+                .map(|i| 0.25 * (2.0 * std::f64::consts::PI * 220.0 * i as f64 / SR).sin() as f32)
+                .collect(),
+        ],
+    });
     for kind in PORTED {
-        let out = render(
-            &mut engine(&song(vec![track("a", 0.25, vec![effect("e", kind, &[])])])),
-            0.3,
+        let clip = Clip::new(
+            tone.clone(),
+            SR,
+            ClipTiming {
+                offset: 0.0,
+                length: 1.0,
+                ..Default::default()
+            },
         );
+        let t = Track {
+            clips: vec![clip],
+            effects: vec![effect("e", kind, &[])],
+            ..Track::new("a")
+        };
+        let out = render(&mut engine(&song(vec![t])), 0.4);
         assert!(out.iter().all(|x| x.is_finite()), "{kind}");
-        let settled = *out.last().unwrap();
-        assert!(settled > 0.05, "{kind}: {settled}");
+        let peak = out[out.len() - 4800..]
+            .iter()
+            .fold(0.0f32, |m, x| m.max(x.abs()));
+        assert!(peak > 0.05, "{kind}: {peak}");
     }
 }

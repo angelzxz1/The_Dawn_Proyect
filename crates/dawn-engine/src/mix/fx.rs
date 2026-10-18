@@ -8,6 +8,7 @@
 //! of its fader; the master's after its fader, ahead of the limiter.
 
 use super::song::MAX_BLOCK;
+use crate::effects::amp::{self, AmpEffect, AmpSettings};
 use crate::effects::compressor::{CompressorKernel, CompressorSettings};
 use crate::effects::gate::{GateKernel, GateSettings};
 use crate::effects::glue::OS_LATENCY;
@@ -23,6 +24,7 @@ use crate::params::ParamSource;
 /// An effect's settings, made from its parameters.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EffectSettings {
+    Amp(Box<AmpSettings>),
     Compressor(CompressorSettings),
     Gate(GateSettings),
     Glue(GlueSettings),
@@ -36,6 +38,7 @@ pub enum EffectSettings {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectKind {
+    Amp,
     Compressor,
     Gate,
     Glue,
@@ -56,6 +59,7 @@ impl EffectSettings {
     pub fn from_params<P: ParamSource + ?Sized>(kind: &str, params: &P) -> Option<Self> {
         Some(match kind {
             "compressor" => Self::Compressor(CompressorSettings::from_params(params, false)),
+            "tubeAmp" => Self::Amp(Box::new(AmpSettings::from_params(params))),
             "gate" => Self::Gate(GateSettings::from_params(params, false)),
             "glue" => Self::Glue(GlueSettings::from_params(params, false)),
             "limiter" => Self::Limiter(LimiterSettings::from_params(params)),
@@ -74,6 +78,7 @@ impl EffectSettings {
     /// node reports it, for delay compensation).
     pub fn latency(&self, sample_rate: f64) -> usize {
         match self {
+            Self::Amp(_) => amp::LATENCY,
             Self::Glue(s) if s.oversample => OS_LATENCY,
             Self::Limiter(_) => lookahead_frames(sample_rate),
             Self::PitchShift(s) => s.latency(sample_rate),
@@ -83,6 +88,7 @@ impl EffectSettings {
 
     pub fn kind(&self) -> EffectKind {
         match self {
+            Self::Amp(_) => EffectKind::Amp,
             Self::Compressor(_) => EffectKind::Compressor,
             Self::Gate(_) => EffectKind::Gate,
             Self::Glue(_) => EffectKind::Glue,
@@ -117,6 +123,7 @@ impl EffectSpec {
 }
 
 enum Kernel {
+    Amp(Box<AmpEffect>),
     Compressor(Box<CompressorKernel>),
     Gate(Box<GateKernel>),
     Glue(Box<GlueKernel>),
@@ -137,6 +144,7 @@ pub struct Effect {
 impl Effect {
     pub fn new(settings: &EffectSettings, sample_rate: f64) -> Self {
         let kernel = match settings {
+            EffectSettings::Amp(s) => Kernel::Amp(Box::new(AmpEffect::new(sample_rate, s))),
             EffectSettings::Compressor(s) => {
                 Kernel::Compressor(Box::new(CompressorKernel::new(sample_rate, s)))
             }
@@ -168,6 +176,7 @@ impl Effect {
 
     pub fn kind(&self) -> EffectKind {
         match self.kernel {
+            Kernel::Amp(_) => EffectKind::Amp,
             Kernel::Compressor(_) => EffectKind::Compressor,
             Kernel::Gate(_) => EffectKind::Gate,
             Kernel::Glue(_) => EffectKind::Glue,
@@ -184,6 +193,7 @@ impl Effect {
     /// thread: it only copies).
     pub fn configure(&mut self, settings: &EffectSettings) {
         match (&mut self.kernel, settings) {
+            (Kernel::Amp(k), EffectSettings::Amp(s)) => k.set(s),
             (Kernel::Compressor(k), EffectSettings::Compressor(s)) => k.set(s),
             (Kernel::Gate(k), EffectSettings::Gate(s)) => k.set(s),
             (Kernel::Glue(k), EffectSettings::Glue(s)) => k.set(s),
@@ -201,6 +211,7 @@ impl Effect {
     pub fn process(&mut self, l: &mut [f32], r: &mut [f32]) {
         let n = l.len().min(r.len());
         match &mut self.kernel {
+            Kernel::Amp(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Compressor(k) => k.process_in_place(&mut l[..n], Some(&mut r[..n]), None, None),
             Kernel::Gate(k) => {
                 k.process_in_place(&mut l[..n], &mut r[..n]);

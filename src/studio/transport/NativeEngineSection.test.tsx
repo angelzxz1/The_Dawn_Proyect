@@ -50,20 +50,25 @@ describe("the native engine section", () => {
     expect(update).toHaveBeenCalledWith({ nativeDevice: "wasapi:scarlett", nativeSampleRate: null, nativeBufferSize: null });
   });
 
-  test("says which tracks it plays without their effects or automation", async () => {
+  test("says which effects, sidechains and automation it plays without", async () => {
     projectStore.set("channels", [
       { id: "k", name: "Keys", volume: 0, pan: 0, colorIndex: 0, type: "midi", instrument: "synth", muted: false, solo: false, armed: false },
       { id: "v", name: "Vox", volume: 0, pan: 0, colorIndex: 0, type: "audio", instrument: null, muted: false, solo: false, armed: false },
     ]);
     projectStore.set("clipsByChannel", { k: [{ id: "m", kind: "midi", offset: 0, length: 1, notes: [{ note: "C4", time: 0, duration: 0.5, velocity: 0.8 }], loopLength: null }] });
-    projectStore.set("channelEffects", { v: [{ id: "fx", type: "compressor", params: {} }] });
+    projectStore.set("channelEffects", {
+      v: [
+        { id: "fx", type: "compressor", params: {}, sidechain: { on: true, source: "k", tap: "postFx" } },
+        { id: "fx2", type: "reverb", params: {} },
+      ],
+    });
     projectStore.set("channels", [
       ...projectStore.get().channels.map((c) =>
         c.id === "k" ? { ...c, automationLanes: [{ id: "l", target: { kind: "volume" as const }, points: [{ id: "p", time: 0, value: 0 }] }] } : c
       ),
     ]);
     const { screen } = renderSection({ nativeEngine: true });
-    await expect.element(screen.getByText("Played without their effects: Vox.")).toBeVisible();
+    await expect.element(screen.getByText("Played without: Compressor on Vox (sidechained), Reverb on Vox.")).toBeVisible();
     await expect.element(screen.getByText("Without their automation: Keys.")).toBeVisible();
     // The synth plays.
     expect(screen.container.textContent).not.toContain("Silent here");

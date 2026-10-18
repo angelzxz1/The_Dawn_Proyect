@@ -87,7 +87,7 @@ describe("the song for the native engine", () => {
     ]);
     // A MIDI track's clips are its notes.
     expect(song.tracks[3].clips).toEqual([]);
-    expect(song.buses).toEqual([{ id: "verb" }]);
+    expect(song.buses).toEqual([{ id: "verb", effects: [] }]);
   });
 
   it("has a MIDI track's notes on the timeline, clamped or tiled to their clips, with its instrument", () => {
@@ -177,6 +177,25 @@ describe("the song for the native engine", () => {
     ]);
   });
 
+  it("has every chain's effects the engine plays, in order, bypassed ones flagged", () => {
+    const p = project();
+    const comp = { id: "c", type: "compressor" as const, params: { threshold: -20 } };
+    p.channelEffects = {
+      drums: [comp, { id: "r", type: "reverb", params: {} }, { id: "u", type: "utility", params: { gain: -3 }, bypass: true }],
+    };
+    p.busEffects = { verb: [{ id: "l", type: "limiter", params: {} }] };
+    p.masterEffects = [{ id: "m", type: "eq3", params: {} }, { id: "u2", type: "utility", params: {} }];
+    const song = describeSong(p, session, idOf);
+    // The reverb isn't in the engine yet: the chain plays without it.
+    expect(song.tracks[0].effects).toEqual([
+      { id: "c", type: "compressor", params: { threshold: -20 }, bypass: false },
+      { id: "u", type: "utility", params: { gain: -3 }, bypass: true },
+    ]);
+    expect(song.tracks[1].effects).toEqual([]);
+    expect(song.buses).toEqual([{ id: "verb", effects: [{ id: "l", type: "limiter", params: {}, bypass: false }] }]);
+    expect(song.masterEffects.map((e) => e.id)).toEqual(["u2"]);
+  });
+
   it("has the master, the tempo map and the bar", () => {
     const song = describeSong(project(), session, idOf);
     expect(song.master).toEqual({ volumeDb: -2, pan: 0, limiterDb: -1 });
@@ -189,7 +208,7 @@ describe("the song for the native engine", () => {
 });
 
 describe("what the native engine doesn't play yet", () => {
-  it("names the tracks with instruments it hasn't got, effects or automation, and a master with effects", () => {
+  it("names the effects it plays chains without, sidechained ones among them, and the tracks with automation", () => {
     const p = project();
     p.channels = [
       ...p.channels,
@@ -197,13 +216,26 @@ describe("what the native engine doesn't play yet", () => {
       track("beat", "midi", { instrument: "drums" }),
       track("empty", "midi", { instrument: null }),
     ];
-    p.channelEffects = { drums: [{ id: "fx1", type: "compressor", params: {} }], gtr: [{ id: "fx2", type: "eq3", params: {}, bypass: true }] };
+    p.channelEffects = {
+      drums: [
+        { id: "fx1", type: "compressor", params: {} },
+        { id: "fx4", type: "reverb", params: {} },
+      ],
+      gtr: [{ id: "fx2", type: "eq3", params: {}, bypass: true }],
+      // Ducked by the drums: the engine has no sidechains yet, so it's left
+      // out (keyed by its own input, it would squash the keys).
+      keys: [{ id: "fx5", type: "compressor", params: {}, sidechain: { on: true, source: "drums", tap: "postFx" } }],
+      // A sidechain that's off, or has no source, is no sidechain.
+      pad: [{ id: "fx6", type: "compressor", params: {}, sidechain: { on: false, source: "drums", tap: "postFx" } }],
+    };
     p.masterEffects = [{ id: "fx3", type: "eq3", params: {} }];
     p.channels = p.channels.map((c) =>
       c.id === "gtr" ? { ...c, automationLanes: [{ id: "l", target: { kind: "volume" }, points: [{ id: "p", time: 0, value: 0 }] }] } : c
     );
-    // Every instrument plays.
-    expect(unsupported(p)).toEqual({ instruments: [], effects: ["drums", "Master"], automation: ["gtr"] });
+    // Every instrument plays, and the compressors without sidechains do.
+    expect(unsupported(p)).toEqual({ instruments: [], effects: ["Reverb on drums", "Compressor on keys (sidechained)", "EQ Three on Master"], automation: ["gtr"] });
+    expect(describeSong(p, session, idOf).tracks.find((t) => t.id === "keys")?.effects).toEqual([]);
+    expect(describeSong(p, session, idOf).tracks.find((t) => t.id === "pad")?.effects.map((e) => e.id)).toEqual(["fx6"]);
   });
 
   it("is nothing for audio tracks played dry", () => {

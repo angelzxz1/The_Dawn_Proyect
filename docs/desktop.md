@@ -142,7 +142,13 @@ and MIDI devices through the engine, files through native dialogs.
 - `effects/`: the DSP kernels, each a port of a JavaScript one from
   `src/effects/` that computes the same thing step for step: the same
   `f64` state and `f32` buffers as the JavaScript's numbers and
-  Float32Arrays, the arithmetic in the same order.
+  Float32Arrays, the arithmetic in the same order. So far the Compressor,
+  the Limiter and the Utility. They run in the tracks', buses' and
+  master's chains where the browser's do (`mix/fx.rs`): a track's on what
+  it plays and what's routed into it, ahead of its fader; a bus's on its
+  sends; the master's after its fader, ahead of the limiter. Each effect
+  lives on from one version of the song to the next by its id, and a
+  bypassed one is skipped, keeping its state.
 - `instruments/`: the instruments, the same way: the Drum Rack's kernel
   (a port of `drumKernel.ts`), the synth's (a port of `synthKernel.ts`,
   playing the wavetables the studio builds), and the piano, a sampler that
@@ -178,8 +184,12 @@ the computer keyboard, a MIDI controller), the sustain pedal, pitch bend
 and the mod wheel, and the playhead takes the native engine's position. So
 the rest of the studio doesn't change while parts move over.
 
-What it doesn't play yet - effects and automation - the Audio panel names
-for the project open, and those stay silent while the native engine is on.
+The studio sends each chain's effects the engine has (with their
+parameters as the project keeps them, `NATIVE_EFFECTS` in `describe.ts`);
+a chain plays without the others, and without an effect keyed by another
+track (sidechains aren't in the engine yet; keyed by its own input, a
+ducking compressor would squash what it ducks). What it doesn't play yet -
+those effects, automation - the Audio panel names for the project open.
 
 ### ASIO
 
@@ -227,6 +237,9 @@ the fixture keeps its hash to catch the two drifting apart.
    `UPDATE_ENGINE_FIXTURES=1`.
 3. Add `crates/dawn-engine/tests/<name>_parity.rs` like
    `compressor_parity.rs`, and make it pass.
+4. To play it in the chains: give `mix::fx` its settings (from the
+   effect's parameters, as its `audio.ts` turns them into the kernel's) and
+   its kernel, and add its key to `NATIVE_EFFECTS` in `describe.ts`.
 
 ## Plugins
 
@@ -290,13 +303,13 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
 
 1. **Recording through the engine**: the interface's inputs, monitoring
    with low latency, takes written to disk, latency compensation.
-2. **Effects in the engine** (every instrument plays already): the
-   remaining effect kernels (gate, glue, the multiband effects, EQ,
-   utility, pitch shift, the Furnace amp), then what's built from Web
-   Audio nodes today (chorus, delay, EQ Three, filter, reverb, the IR
-   loader, saturator, tuner). NAM's engine is C++ (NeuralAmpModelerCore)
-   and can be built into the engine as is. Then automation and delay
-   compensation.
+2. **Effects in the engine** (every instrument plays already, and the
+   Compressor, Limiter and Utility): the remaining effect kernels (gate,
+   glue, the multiband effects, EQ, pitch shift, the Furnace amp), then
+   what's built from Web Audio nodes today (chorus, delay, EQ Three,
+   filter, reverb, the IR loader, saturator, tuner). NAM's engine is C++
+   (NeuralAmpModelerCore) and can be built into the engine as is. Then
+   sidechains, automation and delay compensation.
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in
    the project; then VST3 effects the same way; then plugin instruments on

@@ -16,8 +16,8 @@ use dawn_engine::instruments::synth::{
 };
 use dawn_engine::mix::tempo::TempoSegment;
 use dawn_engine::mix::{
-    AudioData, Bus, Clip, ClipTiming, Destination, InstrumentSpec, Master, Note, Send, Song, Track,
-    db_to_gain,
+    AudioData, Bus, Clip, ClipTiming, Destination, EffectSettings, EffectSpec, InstrumentSpec,
+    Master, Note, Send, Song, Track, db_to_gain,
 };
 use serde::Deserialize;
 
@@ -283,6 +283,39 @@ pub enum InstrumentSpecIn {
     },
 }
 
+/// An effect in a chain, as the studio keeps it (`EffectInstance`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectSpecIn {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// By the keys in the effect's `index.ts` (a value JSON can't hold,
+    /// such as an infinity, arrives as null and is left out).
+    pub params: HashMap<String, Option<f64>>,
+    #[serde(default)]
+    pub bypass: bool,
+}
+
+/// A chain's effects for the engine: those it has.
+fn effects(specs: &[EffectSpecIn]) -> Vec<EffectSpec> {
+    specs
+        .iter()
+        .filter_map(|e| {
+            let params: HashMap<String, f64> = e
+                .params
+                .iter()
+                .filter_map(|(k, v)| v.map(|v| (k.clone(), v)))
+                .collect();
+            EffectSettings::from_params(&e.kind, &params).map(|settings| EffectSpec {
+                id: e.id.clone(),
+                settings,
+                bypass: e.bypass,
+            })
+        })
+        .collect()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteSpec {
@@ -309,6 +342,8 @@ pub struct TrackSpec {
     pub instrument: Option<InstrumentSpecIn>,
     #[serde(default)]
     pub notes: Vec<NoteSpec>,
+    #[serde(default)]
+    pub effects: Vec<EffectSpecIn>,
 }
 
 #[derive(Deserialize)]
@@ -319,6 +354,8 @@ pub struct BusSpec {
     pub volume_db: f64,
     #[serde(default)]
     pub pan: f64,
+    #[serde(default)]
+    pub effects: Vec<EffectSpecIn>,
 }
 
 #[derive(Deserialize)]
@@ -344,6 +381,8 @@ pub struct SongSpec {
     pub tracks: Vec<TrackSpec>,
     pub buses: Vec<BusSpec>,
     pub master: MasterSpec,
+    #[serde(default)]
+    pub master_effects: Vec<EffectSpecIn>,
     pub tempo: Vec<TempoSpec>,
     pub beats_per_bar: f64,
 }
@@ -527,6 +566,7 @@ pub fn build(
                     velocity: n.velocity.clamp(0.0, 1.0),
                 })
                 .collect(),
+            effects: effects(&t.effects),
         })
         .collect();
     let buses = spec
@@ -536,6 +576,7 @@ pub fn build(
             id: b.id.clone(),
             volume: db_to_gain(b.volume_db),
             pan: b.pan.clamp(-1.0, 1.0),
+            effects: effects(&b.effects),
         })
         .collect();
     let master = Master {
@@ -560,6 +601,7 @@ pub fn build(
             tracks,
             buses,
             master,
+            master_effects: effects(&spec.master_effects),
             tempo,
             beats_per_bar: spec.beats_per_bar.max(1.0),
         },
@@ -759,5 +801,48 @@ mod tests {
             song.tracks[0].instrument.as_ref().map(InstrumentSpec::kind),
             Some(InstrumentKind::Synth)
         );
+    }
+
+    #[test]
+    fn reads_the_effect_chains_the_engine_has() {
+        let json = r#"{
+            "tracks": [
+                { "id": "v", "volumeDb": 0, "pan": 0, "audible": true, "output": null, "sends": [], "clips": [],
+                  "effects": [
+                      { "id": "c", "type": "compressor", "params": { "threshold": -30, "ratio": 6 } },
+                      { "id": "r", "type": "reverb", "params": { "decay": 2 } },
+                      { "id": "u", "type": "utility", "params": { "gain": null, "width": 0 }, "bypass": true }
+                  ] }
+            ],
+            "buses": [{ "id": "b", "effects": [{ "id": "l", "type": "limiter", "params": { "threshold": -6 } }] }],
+            "master": { "volumeDb": 0, "pan": 0, "limiterDb": -1 },
+            "masterEffects": [{ "id": "m", "type": "utility", "params": { "gain": -3 } }],
+            "tempo": [{ "beat": 0, "seconds": 0, "bpm": 120 }],
+            "beatsPerBar": 4
+        }"#;
+        let spec: SongSpec = serde_json::from_str(json).unwrap();
+        let (song, missing) = build(&spec, None, &HashMap::new(), 48000.0);
+        assert!(missing.is_empty());
+        // The reverb isn't in the engine yet: the chain plays without it.
+        let fx = &song.tracks[0].effects;
+        assert_eq!(
+            fx.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            ["c", "u"]
+        );
+        let EffectSettings::Compressor(c) = fx[0].settings else {
+            panic!("not the compressor");
+        };
+        assert_eq!((c.threshold, c.ratio), (-30.0, 6.0));
+        // A value JSON couldn't hold takes its default.
+        let EffectSettings::Utility(u) = fx[1].settings else {
+            panic!("not the utility");
+        };
+        assert_eq!((u.gain_db, u.width), (0.0, 0.0));
+        assert!(fx[1].bypass && !fx[0].bypass);
+        assert!(matches!(
+            song.buses[0].effects[0].settings,
+            EffectSettings::Limiter(_)
+        ));
+        assert_eq!(song.master_effects.len(), 1);
     }
 }

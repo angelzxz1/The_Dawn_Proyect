@@ -117,11 +117,7 @@ fn sends_feed_buses_after_the_fader() {
     a.volume = 0.5;
     a.sends = vec![Send { bus: 0, gain: 0.5 }];
     let mut s = song(vec![a]);
-    s.buses = vec![Bus {
-        id: "fx".into(),
-        volume: 1.0,
-        pan: 0.0,
-    }];
+    s.buses = vec![Bus::new("fx")];
     let (l, _) = play(s, 0.0, 0.1);
     // Dry 0.1, plus the send: 0.1 at half.
     assert!(close(l[LAG + 100], 0.15));

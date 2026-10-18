@@ -1,13 +1,16 @@
 // The song as the desktop app's native engine takes it
 // (src-tauri/src/audio/song.rs): every track with its level, pan, whether
 // it's heard (mute and solo, worked out as the browser's engine does,
-// mixGraph.ts), where it goes, its sends, its audio clips, and a MIDI
-// track's notes and instrument; the buses; the master; the tempo map. The
-// engine only renders what it's told. Pure.
+// mixGraph.ts), where it goes, its sends, its audio clips, a MIDI track's
+// notes and instrument, and its effects; the buses with theirs; the master
+// with its; the tempo map. The engine only renders what it's told. Pure.
 //
-// So far the native engine plays audio clips and every instrument's notes
-// (the piano, the Drum Rack, the synth) through the mix: effects and
-// automation aren't in it yet (unsupported() names what a project uses of
+// So far the native engine plays audio clips, every instrument's notes (the
+// piano, the Drum Rack, the synth) and some of the effects (NATIVE_EFFECTS)
+// through the mix; a chain plays without the others and without effects
+// keyed by another track (sidechains aren't in it yet: keyed by their own
+// input instead, a ducking compressor would squash what it ducks), and
+// automation isn't in it yet (unsupported() names what a project uses of
 // them).
 
 import { audibleTracks } from "../mixGraph";
@@ -20,6 +23,7 @@ import { PIANO_SAMPLE_URLS, noteNameToMidi } from "../../instruments/piano/piano
 import { tableKey } from "../../instruments/synth/synth";
 import { compileSynth, initSynthParams } from "../../instruments/synth/synthParams";
 import type { InstrumentType } from "../../instruments/registry";
+import { EFFECT_LABELS, type EffectInstance, type EffectType } from "../../effects/registry";
 
 /** The instruments the native engine plays. */
 export const NATIVE_INSTRUMENTS: readonly InstrumentType[] = ["piano", "drums", "synth"];
@@ -27,6 +31,9 @@ export const NATIVE_INSTRUMENTS: readonly InstrumentType[] = ["piano", "drums", 
 /** What the synth's sub oscillator plays (its shapes' wavetable), next to
  * the oscillators' tables (synth.ts tableKey). */
 export const SUB_TABLE = "sub";
+
+/** The effects the native engine plays; a chain plays without the others. */
+export const NATIVE_EFFECTS: readonly EffectType[] = ["compressor", "limiter", "utility"];
 
 /** The shortest a note plays (as the browser's engine, audioEngine.ts). */
 const MIN_NOTE_DURATION = 0.05;
@@ -57,6 +64,15 @@ export type NativeInstrument =
   /** Its tables: oscillator 1's, oscillator 2's, the sub's. */
   | { type: "synth"; settings: ReturnType<typeof compileSynth>; tables: string[] };
 
+/** An effect in a chain, with its parameters as the project keeps them. */
+export interface NativeEffect {
+  id: string;
+  type: EffectType;
+  params: Record<string, number>;
+  /** Skipped, as if unplugged (it keeps its place, and its state). */
+  bypass: boolean;
+}
+
 export interface NativeTrack {
   id: string;
   volumeDb: number;
@@ -69,6 +85,7 @@ export interface NativeTrack {
   /** What plays its notes, if the native engine has it. */
   instrument: NativeInstrument | null;
   notes: NativeNote[];
+  effects: NativeEffect[];
 }
 
 /** The ids the engine knows what's played by: a clip's file (or its
@@ -83,8 +100,9 @@ export interface NativeAudioIds {
 
 export interface NativeSong {
   tracks: NativeTrack[];
-  buses: { id: string }[];
+  buses: { id: string; effects: NativeEffect[] }[];
   master: { volumeDb: number; pan: number; limiterDb: number };
+  masterEffects: NativeEffect[];
   tempo: { beat: number; seconds: number; bpm: number }[];
   beatsPerBar: number;
 }
@@ -133,6 +151,17 @@ function nativeInstrument(channel: ChannelConfig, ids: NativeAudioIds): NativeIn
   return null;
 }
 
+/** Whether an effect listens to another track. */
+const sidechained = (fx: EffectInstance) => !!(fx.sidechain?.on && fx.sidechain.source);
+
+/** Whether the engine plays an effect. */
+const plays = (fx: EffectInstance) => NATIVE_EFFECTS.includes(fx.type) && !sidechained(fx);
+
+/** A chain's effects the engine plays, in order. */
+function nativeEffects(chain: EffectInstance[] | undefined): NativeEffect[] {
+  return (chain ?? []).filter(plays).map((fx) => ({ id: fx.id, type: fx.type, params: fx.params, bypass: !!fx.bypass }));
+}
+
 /** A MIDI track's notes on the timeline: each clip's, clamped or tiled
  * to its box (as the browser's engine plays them, engineSync.ts). */
 function nativeNotes(doc: ProjectState, channel: ChannelConfig): NativeNote[] {
@@ -166,25 +195,33 @@ export function describeSong(doc: ProjectState, session: { limiterDb: number; be
       clips: (doc.clipsByChannel[c.id] ?? []).flatMap((clip) => (clip.kind === "audio" ? [nativeClip(clip, ids.clip(clip))] : [])),
       instrument: nativeInstrument(c, ids),
       notes: nativeNotes(doc, c),
+      effects: nativeEffects(doc.channelEffects[c.id]),
     })),
-    buses: doc.buses.map((b) => ({ id: b.id })),
+    buses: doc.buses.map((b) => ({ id: b.id, effects: nativeEffects(doc.busEffects[b.id]) })),
     master: { volumeDb: doc.masterVolume, pan: doc.masterPan, limiterDb: session.limiterDb },
+    masterEffects: nativeEffects(doc.masterEffects),
     tempo: makeTempoMap(doc.bpm, doc.tempoChanges).segments.map((s) => ({ beat: s.beat, seconds: s.seconds, bpm: s.bpm })),
     beatsPerBar: session.beatsPerBar,
   };
 }
 
 /** What the project uses that the native engine doesn't play yet: the
- * tracks with instruments it doesn't have (MIDI tracks with one), with
- * effects, with automation, and whether the master or a bus has effects. */
+ * tracks with instruments it doesn't have, the effects it plays their
+ * chains without ("Reverb on Vox", "Compressor on Bass (sidechained)"),
+ * and the tracks with automation. */
 export function unsupported(doc: ProjectState): { instruments: string[]; effects: string[]; automation: string[] } {
   const named = (ids: string[]) => doc.channels.filter((c) => ids.includes(c.id)).map((c) => c.name);
   const instruments = doc.channels.filter((c) => c.type === "midi" && c.instrument !== null && !NATIVE_INSTRUMENTS.includes(c.instrument)).map((c) => c.id);
-  const effects = doc.channels.filter((c) => (doc.channelEffects[c.id] ?? []).some((fx) => !fx.bypass)).map((c) => c.id);
-  const busOrMaster = [
-    ...doc.buses.filter((b) => (doc.busEffects[b.id] ?? []).some((fx) => !fx.bypass)).map((b) => b.name),
-    ...(doc.masterEffects.some((fx) => !fx.bypass) ? [doc.masterName] : []),
+  const hosts: { name: string; chain: EffectInstance[] }[] = [
+    ...doc.channels.map((c) => ({ name: c.name, chain: doc.channelEffects[c.id] ?? [] })),
+    ...doc.buses.map((b) => ({ name: b.name, chain: doc.busEffects[b.id] ?? [] })),
+    { name: doc.masterName, chain: doc.masterEffects },
   ];
+  const effects = hosts.flatMap((h) =>
+    h.chain
+      .filter((fx) => !fx.bypass && !plays(fx))
+      .map((fx) => `${EFFECT_LABELS[fx.type]} on ${h.name}${NATIVE_EFFECTS.includes(fx.type) ? " (sidechained)" : ""}`)
+  );
   const automation = doc.channels.filter((c) => (c.automationLanes ?? []).some((lane) => lane.points.length > 0)).map((c) => c.id);
-  return { instruments: named(instruments), effects: [...named(effects), ...busOrMaster], automation: named(automation) };
+  return { instruments: named(instruments), effects, automation: named(automation) };
 }

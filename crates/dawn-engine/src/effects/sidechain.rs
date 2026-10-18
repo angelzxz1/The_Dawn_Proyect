@@ -112,6 +112,17 @@ impl KeyFilter {
         }
     }
 
+    /// Whether a low or high cut is on (the key then differs from the
+    /// input).
+    pub fn active(&self) -> bool {
+        self.active
+    }
+
+    /// The key's gain (linear).
+    pub fn gain(&self) -> f64 {
+        self.gain
+    }
+
     /// One sample of channel `ch` (0 or 1).
     #[inline]
     pub fn run(&mut self, x: f64, ch: usize) -> f64 {

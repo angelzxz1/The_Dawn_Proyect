@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { describeSong, unsupported, type NativeInstrument } from "./describe";
+import { NATIVE_EFFECTS, describeSong, unsupported, type NativeInstrument } from "./describe";
 import { compileDrumKit, defaultDrumKit } from "../../instruments/drum-rack/drumParams";
 import { compileSynth, initSynthParams } from "../../instruments/synth/synthParams";
 import type { ProjectState } from "../../project/project";
@@ -194,6 +195,12 @@ describe("the song for the native engine", () => {
     expect(song.tracks[1].effects).toEqual([]);
     expect(song.buses).toEqual([{ id: "verb", effects: [{ id: "l", type: "limiter", params: {}, bypass: false }] }]);
     expect(song.masterEffects.map((e) => e.id)).toEqual(["u2"]);
+  });
+
+  it("sends the effects the engine has ported, no more and no fewer", () => {
+    const source = readFileSync("crates/dawn-engine/src/effects/mod.rs", "utf8");
+    const ported = /pub const PORTED: &\[&str\] = &\[([^\]]*)\]/.exec(source)?.[1].match(/"[^"]+"/g)?.map((k) => JSON.parse(k));
+    expect([...NATIVE_EFFECTS].sort()).toEqual(ported?.sort());
   });
 
   it("has the master, the tempo map and the bar", () => {

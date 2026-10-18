@@ -47,6 +47,7 @@ The Dawn Project is a browser DAW, also built as a desktop app.
 
   Keep ASIO off (cargo feature `asio`) until the user confirms the
   licence is signed.
+
 - **Standing constraint (the user's words):** "Remove any github links or
   sponsors or any link related to github as well any message saying
   github. All feedback will be done via discord." This applies to app and
@@ -56,6 +57,7 @@ The Dawn Project is a browser DAW, also built as a desktop app.
 ## How the work is done (conventions)
 
 **Branch:**
+
 - Develop only on `claude/busy-rubin-wagwyi`.
 - After each merge, restart it from main:
   `git fetch origin main && git checkout -B claude/busy-rubin-wagwyi origin/main && git push -u origin claude/busy-rubin-wagwyi --force-with-lease`.
@@ -64,17 +66,13 @@ The Dawn Project is a browser DAW, also built as a desktop app.
   if the tree is clean, `git merge --ff-only origin/claude/busy-rubin-wagwyi`.
 
 **Commits** end with:
-```
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01EnrtGzrWSqGiprD4a4C9Ez
-```
 
-**PR bodies** end with
-"🤖 Generated with [Claude Code](https://claude.com/claude-code)" and the
-session URL. Don't put model names anywhere else. The repo has no PR
-template.
+```
+angelzxz1
+```
 
 **One PR per stage or batch:**
+
 - Subscribe to the PR's activity and set a `send_later` check-in (about
   50 minutes).
 - Merge when CI is green and `mergeable_state` is clean. The MCP merge
@@ -82,6 +80,7 @@ template.
 - After merging: unsubscribe, delete the check-in, restart the branch.
 
 **Checks before every push:**
+
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
@@ -103,6 +102,7 @@ surrounding comment density.
 
 Each JavaScript kernel (kept as source text so worklets and tests run the
 same code) is ported step for step:
+
 - `f64` state and `f32` buffers, with `as f32` wherever the JavaScript
   writes to a Float32Array.
 - The arithmetic in the same order.
@@ -111,6 +111,7 @@ same code) is ported step for step:
   round to f32 the same way (see `pitch_shift.rs`, `ShifterParams`).
 
 A fixture holds each port to the JavaScript:
+
 - `src/effects/<name>/<name>Parity.ts` renders the cases with the JS
   kernel, the way its worklet runs it (128-frame blocks, meters every N
   frames).
@@ -131,6 +132,7 @@ A fixture holds each port to the JavaScript:
   differences between V8's `tanh`/`pow` and libm, compounded at 4x rate.
 
 To add an effect, follow `docs/desktop.md` → "Porting the next kernel":
+
 1. Write `effects/<name>.rs` and register it in `effects/mod.rs`, adding
    its key to `PORTED`.
 2. Add an `EffectSettings`/`Kernel` variant in `mix/fx.rs` (box large
@@ -143,6 +145,7 @@ To add an effect, follow `docs/desktop.md` → "Porting the next kernel":
 ### Engine model (`crates/dawn-engine/src/mix/`)
 
 **Preparing a song:**
+
 - `Song::prepare(previous, sr)` runs off the audio thread. It builds
   every buffer, instrument (`Player`), effect, delay line and the
   compensation plan.
@@ -153,6 +156,7 @@ To add an effect, follow `docs/desktop.md` → "Porting the next kernel":
   fixed arrays for that reason.
 
 **Effect chains (`mix/fx.rs`):**
+
 - Where they run:
   - a track's after its sources, before its fader;
   - a bus's on its sends;
@@ -162,6 +166,7 @@ To add an effect, follow `docs/desktop.md` → "Porting the next kernel":
   128-frame chunks.
 
 **Delay compensation (`mix/latency.rs`):**
+
 - A port of `src/engine/latency.ts` `planCompensation`, in frames.
 - The delays: own (a group's own sources), channel (after a track's
   effects), send, bus, and a shared direct path to the master.
@@ -173,6 +178,7 @@ To add an effect, follow `docs/desktop.md` → "Porting the next kernel":
   `compensation()`).
 
 **Effect latencies:**
+
 - Limiter: its lookahead, 240 frames at 48 kHz.
 - Glue Compressor with oversampling: 15.
 - Pitch Shift: window·sr/2 + 2.
@@ -208,6 +214,7 @@ Temporary, never committed:
    For song details, an `eprintln!` in `engine_set_song` (`audio/mod.rs`)
    printing `built.compensation`, `prepared.latency()` and the chain
    kinds works well.
+
 3. Build with `npm run build`, then
    `cargo build -p dawn-desktop --features tauri/custom-protocol`, then
    restore the backed-up files at once and check `git diff`.
@@ -231,6 +238,7 @@ Temporary, never committed:
 ## Files touched this session (stage 3)
 
 **PR #10 (Gate, Glue, Parametric EQ, multiband effects):**
+
 - `crates/dawn-engine/src/effects/{gate,glue,param_eq,multiband,mb_dynamics}.rs`
 - `effects/sidechain.rs` (`KeyFilter::active()`, `gain()`)
 - `mix/fx.rs`
@@ -242,6 +250,7 @@ Temporary, never committed:
 - `NativeEngineSection.tsx`, `docs/desktop.md`
 
 **PR #11 (delay compensation):**
+
 - `mix/latency.rs` (new; planner, `Ring`, `Delay`, unit tests)
 - `mix/song.rs`: `Track.live`, `Song.compensation`, and on `Prepared` the
   `plan`, the delays and `latency()`
@@ -256,6 +265,7 @@ Temporary, never committed:
 - `native/nativeEngine.ts`, `describe.ts` (`NativeSession`)
 
 **PR #12 (Pitch Shift):**
+
 - `effects/pitch_shift.rs` (`PitchShiftKernel`, `ShifterParams`,
   `PitchShifter`)
 - `src/effects/pitch-shift/pitchShiftKernel.ts` (the worklet source,
@@ -263,6 +273,7 @@ Temporary, never committed:
 - `pitchShiftParity{,.test}.ts`, `tests/pitch_shift_parity.rs`
 
 **PR #13 (Furnace amp):**
+
 - `effects/amp.rs`: `AmpSettings::from_params` with the voicings,
   `AmpKernel`, and `AmpEffect` (mono mix to both sides)
 - `src/effects/furnace/ampParity{,.test}.ts`, `tests/amp_parity.rs`
@@ -295,19 +306,20 @@ Temporary, never committed:
    the same nodes the studio builds) and compare the Rust ports against
    those with a looser tolerance.
 
-   | Key | Folder | Label | Notes |
-   | --- | --- | --- | --- |
-   | `chorus` | `chorus/` | Chorus | |
-   | `delay` | `delay/` | Delay | tempo-synced |
-   | `distortion` | `saturator/` | Saturator | has `latency` from oversampling |
-   | `eq3` | `eq-three/` | EQ Three | |
-   | `filter` | `filter/` | Filter | |
-   | `reverb` | `reverb/` | Reverb | |
-   | `irLoader` | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |
-   | `tuner` | `tuner/` | Tuner | passes audio through, but the studio reads its pitch |
+   | Key          | Folder       | Label     | Notes                                                 |
+   | ------------ | ------------ | --------- | ----------------------------------------------------- |
+   | `chorus`     | `chorus/`    | Chorus    |                                                       |
+   | `delay`      | `delay/`     | Delay     | tempo-synced                                          |
+   | `distortion` | `saturator/` | Saturator | has `latency` from oversampling                       |
+   | `eq3`        | `eq-three/`  | EQ Three  |                                                       |
+   | `filter`     | `filter/`    | Filter    |                                                       |
+   | `reverb`     | `reverb/`    | Reverb    |                                                       |
+   | `irLoader`   | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |
+   | `tuner`      | `tuner/`     | Tuner     | passes audio through, but the studio reads its pitch  |
 
    Each needs its Web Audio node semantics reimplemented (BiquadFilter,
    Delay, Convolver, WaveShaper and so on).
+
 2. **NAM** (`namAmp`, `nam-amp/`). Its engine is C++
    (NeuralAmpModelerCore) and can be built into the engine as is, with
    the model files sent over.
@@ -321,13 +333,14 @@ Temporary, never committed:
 6. **Export** through the engine, native file dialogs, signed installers.
 
 **Smaller items:**
+
 - **Flaky synth preset test.**
   `src/instruments/synth/synth.test.ts`, "every factory preset is valid,
   plays, and survives a save/load round trip". It takes about 0.9 s
   alone, but failed once in a full parallel `vitest` run, probably
   hitting the 5 s default timeout. I suggested it as a separate task:
   confirm the timeout, then give the test a longer limit.
-- **Older UX list items 7–28** from earlier sessions are still open.
+- **Older UX list items 7–28** from earlier sessions are still open, those are listed on IMPROVEMENTS.md.
 - **A latent bug in the JS multiband kernels** (`mbDynamicsModel.ts`, and
   the same pattern in `multibandModel.ts`). `process()` reads the band
   count and `keyed` once per block. A pending band switch that lands

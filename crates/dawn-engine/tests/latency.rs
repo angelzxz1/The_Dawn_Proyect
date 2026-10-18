@@ -160,6 +160,16 @@ fn oversampling_counts_too() {
 }
 
 #[test]
+fn a_pitch_shifter_counts_half_its_window() {
+    let shift = EffectSpec::new(
+        "p",
+        EffectSettings::from_params("pitchShift", &[("pitch", 7.0), ("window", 0.05)]).unwrap(),
+    );
+    let s = song(vec![track("a", vec![], vec![shift])]);
+    assert_eq!(s.prepare(None, SR).latency(), 1200 + 2 + LOOKAHEAD);
+}
+
+#[test]
 fn the_clicks_wait_as_long_as_the_mix() {
     let first_click = |s: &Song| {
         let mut e = engine(s);

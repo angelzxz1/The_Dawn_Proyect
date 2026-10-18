@@ -9,11 +9,13 @@
 //!
 //! A MIDI track has its notes and its instrument; the instrument that plays
 //! them lives on from one version of the song to the next (`Player`), so a
-//! change doesn't cut off what's ringing.
+//! change doesn't cut off what's ringing. So do the effects in the tracks',
+//! buses' and master's chains (`fx`).
 
 use std::sync::Arc;
 
 use super::clip::Clip;
+use super::fx::{Chain, Effect, EffectSpec};
 use super::player::{InstrumentSpec, Note, Player, track_key};
 use super::tempo::{TempoSegment, constant};
 use crate::effects::limiter::LimiterSettings;
@@ -65,6 +67,8 @@ pub struct Track {
     pub instrument: Option<InstrumentSpec>,
     /// Its MIDI clips' notes, in the order they start.
     pub notes: Vec<Note>,
+    /// Its effects, in order (ahead of its fader).
+    pub effects: Vec<EffectSpec>,
 }
 
 impl Track {
@@ -79,6 +83,7 @@ impl Track {
             clips: vec![],
             instrument: None,
             notes: vec![],
+            effects: vec![],
         }
     }
 }
@@ -89,6 +94,19 @@ pub struct Bus {
     pub id: String,
     pub volume: f64,
     pub pan: f64,
+    /// Its effects, in order (ahead of its fader).
+    pub effects: Vec<EffectSpec>,
+}
+
+impl Bus {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            volume: 1.0,
+            pan: 0.0,
+            effects: vec![],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -115,6 +133,9 @@ pub struct Song {
     pub tracks: Vec<Track>,
     pub buses: Vec<Bus>,
     pub master: Master,
+    /// The master's effects, in order (after its fader, ahead of the
+    /// limiter).
+    pub master_effects: Vec<EffectSpec>,
     /// The tempo map (not empty).
     pub tempo: Vec<TempoSegment>,
     pub beats_per_bar: f64,
@@ -126,6 +147,7 @@ impl Default for Song {
             tracks: vec![],
             buses: vec![],
             master: Master::default(),
+            master_effects: vec![],
             tempo: constant(120.0).to_vec(),
             beats_per_bar: 4.0,
         }
@@ -186,14 +208,44 @@ pub struct Prepared {
     pub(crate) players: Vec<Option<Box<Player>>>,
     /// The tracks' ids as the live commands name them (`track_key`).
     pub(crate) track_keys: Vec<u64>,
+    /// Every chain's effects (the tracks', the buses', then the master's:
+    /// see `Song::host_effects`), new ones as with `players`.
+    pub(crate) fx: Vec<Chain>,
 }
 
 impl Song {
+    /// How many effect chains it has: a track's, a bus's, the master's.
+    pub(crate) fn host_count(&self) -> usize {
+        self.tracks.len() + self.buses.len() + 1
+    }
+
+    /// The effects of chain `h`: the tracks' first, then the buses', then
+    /// the master's.
+    pub(crate) fn host_effects(&self, h: usize) -> &[EffectSpec] {
+        let (t, b) = (self.tracks.len(), self.buses.len());
+        if h < t {
+            &self.tracks[h].effects
+        } else if h < t + b {
+            &self.buses[h - t].effects
+        } else {
+            &self.master_effects
+        }
+    }
+
+    /// Whether an effect with this id and of this kind is in any chain.
+    fn has_effect(&self, spec: &EffectSpec) -> bool {
+        (0..self.host_count()).any(|h| {
+            self.host_effects(h)
+                .iter()
+                .any(|e| e.id == spec.id && e.settings.kind() == spec.settings.kind())
+        })
+    }
+
     /// The song ready for the audio thread, at `sample_rate`. Its levels
     /// start at those of the tracks with the same ids in `previous` (the
     /// song playing now), so a change glides; a track whose instrument
     /// `previous` already had is played by the one playing it (none is
-    /// made for it here).
+    /// made for it here), and so is an effect `previous` already had.
     pub fn prepare(mut self, previous: Option<&Song>, sample_rate: f64) -> Prepared {
         let n = self.tracks.len();
         // A destination that isn't a track, or would make a loop, is the
@@ -291,10 +343,22 @@ impl Song {
             })
             .collect();
         let track_keys = self.tracks.iter().map(|t| track_key(&t.id)).collect();
+        let fx = (0..self.host_count())
+            .map(|h| {
+                self.host_effects(h)
+                    .iter()
+                    .map(|spec| {
+                        let playing = previous.is_some_and(|p| p.has_effect(spec));
+                        (!playing).then(|| Box::new(Effect::new(&spec.settings, sample_rate)))
+                    })
+                    .collect()
+            })
+            .collect();
 
         Prepared {
             players,
             track_keys,
+            fx,
             order,
             track_bufs: vec![Stereo::new(); n],
             bus_bufs: vec![Stereo::new(); self.buses.len()],

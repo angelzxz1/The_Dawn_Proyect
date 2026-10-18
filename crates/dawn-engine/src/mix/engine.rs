@@ -12,10 +12,12 @@
 //! master's fader and pan, then its limiter; the metronome after the
 //! limiter, delayed by its lookahead so the clicks stay on the beat heard.
 //! A MIDI track's instrument (`player`) plays its clips' notes and the keys
-//! played live into the track, ahead of its strip.
+//! played live into the track, ahead of its strip; a track's, a bus's and
+//! the master's effects (`fx`) run where the browser's chains are.
 
 use std::f64::consts::FRAC_PI_2;
 
+use super::fx;
 use super::metronome::{Loop, Metronome};
 use super::player::Player;
 use super::song::{Applied, Destination, MAX_BLOCK, Prepared, Song, Stereo};
@@ -175,6 +177,31 @@ impl Engine {
                     player.set_tempo(bpm);
                 }
                 None => self.missing = true,
+            }
+        }
+        // Each effect: the one already playing carries on, the same way.
+        let new = &mut *song;
+        for h in 0..new.song.host_count() {
+            for e in 0..new.song.host_effects(h).len() {
+                let spec = &new.song.host_effects(h)[e];
+                if new.fx[h][e].is_none() {
+                    'find: for oh in 0..old.song.host_count() {
+                        for (oe, o) in old.song.host_effects(oh).iter().enumerate() {
+                            if o.id == spec.id
+                                && old.fx[oh][oe]
+                                    .as_ref()
+                                    .is_some_and(|x| x.kind() == spec.settings.kind())
+                            {
+                                std::mem::swap(&mut new.fx[h][e], &mut old.fx[oh][oe]);
+                                break 'find;
+                            }
+                        }
+                    }
+                }
+                match &mut new.fx[h][e] {
+                    Some(effect) => effect.configure(&spec.settings),
+                    None => self.missing = true,
+                }
             }
         }
         self.limiter.set(song.song.master.limiter);
@@ -434,9 +461,17 @@ impl Engine {
             }
         }
 
-        // The strips, each before the track it feeds; then the buses.
+        // The strips (after their effects), each before the track it
+        // feeds; then the buses.
         for &i in &p.order {
             let track = &p.song.tracks[i];
+            let buf = &mut p.track_bufs[i];
+            fx::run(
+                &mut p.fx[i],
+                &track.effects,
+                &mut buf.l[..n],
+                &mut buf.r[..n],
+            );
             let target = Applied {
                 gain: track.volume * if track.audible { 1.0 } else { 0.0 },
                 pan: track.pan,
@@ -466,7 +501,15 @@ impl Engine {
                 add(&mut bus.r[..n], &out.r[..n], send.gain);
             }
         }
+        let tracks = p.song.tracks.len();
         for (i, bus) in p.song.buses.iter().enumerate() {
+            let buf = &mut p.bus_bufs[i];
+            fx::run(
+                &mut p.fx[tracks + i],
+                &bus.effects,
+                &mut buf.l[..n],
+                &mut buf.r[..n],
+            );
             let target = Applied {
                 gain: bus.volume,
                 pan: bus.pan,
@@ -483,7 +526,8 @@ impl Engine {
             keep_peak(&mut p.bus_peaks[i], peak);
         }
 
-        // The master: fader and pan, then the limiter, into the output.
+        // The master: fader and pan, its effects, then the limiter, into
+        // the output.
         let m = p.song.master;
         let target = Applied {
             gain: m.volume,
@@ -493,6 +537,8 @@ impl Engine {
         out_l.fill(0.0);
         out_r.fill(0.0);
         strip(&self.master, from, target, n, out_l, out_r);
+        let last = p.fx.len() - 1;
+        fx::run(&mut p.fx[last], &p.song.master_effects, out_l, out_r);
         self.master.l[..n].copy_from_slice(out_l);
         self.master.r[..n].copy_from_slice(out_r);
         self.limiter.process(

@@ -42,6 +42,19 @@ impl LimiterSettings {
             soft_clip,
         }
     }
+
+    /// The settings the Limiter effect's parameters make in the browser
+    /// (`audio.ts`): its node sets them on float32 AudioParams, so they're
+    /// rounded to float32 as there.
+    pub fn from_params<P: crate::params::ParamSource + ?Sized>(p: &P) -> Self {
+        let f32_ = |x: f64| x as f32 as f64;
+        Self {
+            ceiling: f32_(10f64.powf(p.param_or("threshold", -0.3) / 20.0)),
+            gain: f32_(10f64.powf(p.param_or("gain", 0.0) / 20.0)),
+            release: f32_(p.param_or("release", 0.05)),
+            soft_clip: p.param_or("softClip", 0.0) >= 0.5,
+        }
+    }
 }
 
 /// The meters over the last interval: the peak input (after the gain), the

@@ -101,6 +101,12 @@ pub struct Limiter {
     meters: Option<LimiterMeters>,
 }
 
+/// The frames a limiter's lookahead delays the audio by, at `sample_rate`
+/// (as the worklet's `latency`, rounded to a frame).
+pub fn lookahead_frames(sample_rate: f64) -> usize {
+    (sample_rate * LOOKAHEAD + 0.5).floor() as usize
+}
+
 impl Limiter {
     pub fn new(sample_rate: f64, settings: LimiterSettings) -> Self {
         let size = ((sample_rate * LOOKAHEAD + 0.5).floor() as usize + 1).max(2);
@@ -131,7 +137,7 @@ impl Limiter {
 
     /// The frames the lookahead delays the audio by.
     pub fn latency_frames(&self) -> usize {
-        (self.sample_rate * LOOKAHEAD + 0.5).floor() as usize
+        lookahead_frames(self.sample_rate)
     }
 
     pub fn set(&mut self, settings: LimiterSettings) {

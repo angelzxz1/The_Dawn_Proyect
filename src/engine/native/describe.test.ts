@@ -69,7 +69,7 @@ function project(): ProjectState {
   };
 }
 
-const session = { limiterDb: -1, beatsPerBar: 3 };
+const session = { limiterDb: -1, beatsPerBar: 3, compensation: true, live: [] };
 const idOf = {
   clip: (clip: AudioClipInstance) => (clip.warp ? `warp:${clip.id}` : clip.url),
   drumSample: (fileId: string) => `drum:${fileId}`,
@@ -201,6 +201,13 @@ describe("the song for the native engine", () => {
     const source = readFileSync("crates/dawn-engine/src/effects/mod.rs", "utf8");
     const ported = /pub const PORTED: &\[&str\] = &\[([^\]]*)\]/.exec(source)?.[1].match(/"[^"]+"/g)?.map((k) => JSON.parse(k));
     expect([...NATIVE_EFFECTS].sort()).toEqual(ported?.sort());
+  });
+
+  it("says whether delay compensation is on, and which tracks are played live", () => {
+    const song = describeSong(project(), { ...session, compensation: false, live: ["keys"] }, idOf);
+    expect(song.compensation).toBe(false);
+    expect(song.tracks.filter((t) => t.live).map((t) => t.id)).toEqual(["keys"]);
+    expect(describeSong(project(), session, idOf).compensation).toBe(true);
   });
 
   it("has the master, the tempo map and the bar", () => {

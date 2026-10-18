@@ -13,11 +13,14 @@
 //! limiter, delayed by its lookahead so the clicks stay on the beat heard.
 //! A MIDI track's instrument (`player`) plays its clips' notes and the keys
 //! played live into the track, ahead of its strip; a track's, a bus's and
-//! the master's effects (`fx`) run where the browser's chains are.
+//! the master's effects (`fx`) run where the browser's chains are, and
+//! delay compensation (`latency`) lines the paths up at the master: the
+//! tracks go into it through the shared direct delay, live ones straight.
 
 use std::f64::consts::FRAC_PI_2;
 
 use super::fx;
+use super::latency::Delay;
 use super::metronome::{Loop, Metronome};
 use super::player::Player;
 use super::song::{Applied, Destination, MAX_BLOCK, Prepared, Song, Stereo};
@@ -98,10 +101,9 @@ pub struct Engine {
     master: Stereo,
     /// A strip's output on its way to its destination and sends.
     scratch: Stereo,
+    /// The tracks going to the master through the direct delay.
+    direct: Stereo,
     click: Vec<f32>,
-    /// The clicks wait the limiter's lookahead (a ring of that many frames).
-    click_delay: Vec<f32>,
-    click_at: usize,
     /// A track needed an instrument that wasn't there (`take_missing`).
     missing: bool,
 }
@@ -110,7 +112,6 @@ impl Engine {
     pub fn new(sample_rate: f64) -> Self {
         let prepared = Box::new(Song::default().prepare(None, sample_rate));
         let limiter = Limiter::new(sample_rate, prepared.song.master.limiter);
-        let delay = limiter.latency_frames().max(1);
         Self {
             sample_rate,
             clock: 0,
@@ -127,9 +128,8 @@ impl Engine {
             limiter_meters: None,
             master: Stereo::new(),
             scratch: Stereo::new(),
+            direct: Stereo::new(),
             click: vec![0.0; MAX_BLOCK],
-            click_delay: vec![0.0; delay],
-            click_at: 0,
             missing: false,
         }
     }
@@ -203,6 +203,31 @@ impl Engine {
                     None => self.missing = true,
                 }
             }
+        }
+        // The delays: the ones playing carry on where they're as long, so
+        // what's in them isn't lost.
+        let keep = |a: &mut Delay, b: &mut Delay| {
+            if a.frames() == b.frames() {
+                std::mem::swap(a, b);
+            }
+        };
+        for i in 0..new.song.tracks.len() {
+            let id = &new.song.tracks[i].id;
+            if let Some(j) = old.song.tracks.iter().position(|t| &t.id == id) {
+                keep(&mut new.own_delays[i], &mut old.own_delays[j]);
+                keep(&mut new.channel_delays[i], &mut old.channel_delays[j]);
+                keep(&mut new.send_delays[i], &mut old.send_delays[j]);
+            }
+        }
+        for i in 0..new.song.buses.len() {
+            let id = &new.song.buses[i].id;
+            if let Some(j) = old.song.buses.iter().position(|b| &b.id == id) {
+                keep(&mut new.bus_delays[i], &mut old.bus_delays[j]);
+            }
+        }
+        keep(&mut new.direct_delay, &mut old.direct_delay);
+        if new.click_delay.frames() == old.click_delay.frames() {
+            std::mem::swap(&mut new.click_delay, &mut old.click_delay);
         }
         self.limiter.set(song.song.master.limiter);
         self.metronome.set_beats_per_bar(song.song.beats_per_bar);
@@ -390,6 +415,7 @@ impl Engine {
         p.track_bufs.iter_mut().for_each(|b| b.clear(n));
         p.bus_bufs.iter_mut().for_each(|b| b.clear(n));
         self.master.clear(n);
+        self.direct.clear(n);
 
         // The clips, over the stretches of the timeline this block plays
         // (the loop splits it where it jumps back).
@@ -461,8 +487,13 @@ impl Engine {
             }
         }
 
-        // The strips (after their effects), each before the track it
-        // feeds; then the buses.
+        // A track's own sources wait for the tracks feeding it.
+        for (delay, buf) in p.own_delays.iter_mut().zip(p.track_bufs.iter_mut()) {
+            delay.run(&mut buf.l[..n], &mut buf.r[..n]);
+        }
+
+        // The strips (after their effects, and the wait lining them up),
+        // each before the track it feeds; then the buses.
         for &i in &p.order {
             let track = &p.song.tracks[i];
             let buf = &mut p.track_bufs[i];
@@ -472,6 +503,7 @@ impl Engine {
                 &mut buf.l[..n],
                 &mut buf.r[..n],
             );
+            p.channel_delays[i].run(&mut buf.l[..n], &mut buf.r[..n]);
             let target = Applied {
                 gain: track.volume * if track.audible { 1.0 } else { 0.0 },
                 pan: track.pan,
@@ -490,17 +522,23 @@ impl Engine {
             );
             keep_peak(&mut p.track_peaks[i], peak);
             let dest = match track.destination {
-                Destination::Master => &mut self.master,
+                Destination::Master if p.plan.live[i] => &mut self.master,
+                Destination::Master => &mut self.direct,
                 Destination::Track(d) => &mut p.track_bufs[d],
             };
             add(&mut dest.l[..n], &out.l[..n], 1.0);
             add(&mut dest.r[..n], &out.r[..n], 1.0);
+            p.send_delays[i].run(&mut out.l[..n], &mut out.r[..n]);
             for send in &track.sends {
                 let bus = &mut p.bus_bufs[send.bus];
                 add(&mut bus.l[..n], &out.l[..n], send.gain);
                 add(&mut bus.r[..n], &out.r[..n], send.gain);
             }
         }
+        p.direct_delay
+            .run(&mut self.direct.l[..n], &mut self.direct.r[..n]);
+        add(&mut self.master.l[..n], &self.direct.l[..n], 1.0);
+        add(&mut self.master.r[..n], &self.direct.r[..n], 1.0);
         let tracks = p.song.tracks.len();
         for (i, bus) in p.song.buses.iter().enumerate() {
             let buf = &mut p.bus_bufs[i];
@@ -510,6 +548,7 @@ impl Engine {
                 &mut buf.l[..n],
                 &mut buf.r[..n],
             );
+            p.bus_delays[i].run(&mut buf.l[..n], &mut buf.r[..n]);
             let target = Applied {
                 gain: bus.volume,
                 pan: bus.pan,
@@ -558,16 +597,16 @@ impl Engine {
         }
         keep_peak(&mut p.master_peak, master_peak);
 
-        // The clicks, after the limiter, waiting its lookahead.
-        let time = self.time();
-        self.metronome.render(&mut self.click[..n], time);
-        let delay = self.click_delay.len();
+        // The clicks, after the limiter, waiting as long as the mix (its
+        // compensation, the master's effects and the limiter's lookahead).
+        let time = self.clock as f64 / self.sample_rate;
+        let click = &mut self.click[..n];
+        self.metronome.render(click, time);
+        click.iter_mut().for_each(|c| *c *= self.click_level);
+        p.click_delay.run(click);
         for i in 0..n {
-            let delayed = self.click_delay[self.click_at];
-            self.click_delay[self.click_at] = self.click[i] * self.click_level;
-            self.click_at = (self.click_at + 1) % delay;
-            out_l[i] += delayed;
-            out_r[i] += delayed;
+            out_l[i] += click[i];
+            out_r[i] += click[i];
         }
 
         self.clock += n as u64;

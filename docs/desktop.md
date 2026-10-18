@@ -139,8 +139,13 @@ and MIDI devices through the engine, files through native dialogs.
 - `mix/`: what plays the song - the transport (play with a count-in, stop,
   seek, the loop), audio clips, the strips (fader, Web Audio's stereo
   panner, mute), tracks feeding other tracks, post-fader sends, buses, the
-  master fader and limiter, and the metronome after the limiter. It renders
-  for whatever asks for samples: the app's audio stream, or (later) a file.
+  master fader and limiter, and the metronome after the limiter. Delay
+  compensation (`mix/latency.rs`, planned as the browser's `latency.ts`)
+  lines every path up at the master: effects that delay their audio (a
+  limiter's lookahead, oversampling) hold the other tracks, sends and buses
+  back to match, the armed MIDI track plays without waiting, and the clicks
+  wait as long as the mix. It renders for whatever asks for samples: the
+  app's audio stream, or (later) a file.
 - `effects/`: the DSP kernels, each a port of a JavaScript one from
   `src/effects/` that computes the same thing step for step: the same
   `f64` state and `f32` buffers as the JavaScript's numbers and
@@ -311,7 +316,7 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
    the Furnace amp), then what's built from Web Audio nodes today (chorus,
    delay, EQ Three, filter, reverb, the IR loader, saturator, tuner).
    NAM's engine is C++ (NeuralAmpModelerCore) and can be built into the
-   engine as is. Then sidechains, automation and delay compensation.
+   engine as is. Then sidechains and automation.
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in
    the project; then VST3 effects the same way; then plugin instruments on

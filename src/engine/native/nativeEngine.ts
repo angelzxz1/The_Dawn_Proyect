@@ -15,7 +15,7 @@ import { audioEngine } from "../audioEngine";
 import type { EngineFollower } from "../follower";
 import { warpedBuffer, warpKey } from "../warpRender";
 import { nativeBridge, type NativeStatus } from "./bridge";
-import { describeSong, SUB_TABLE, type NativeAudioIds } from "./describe";
+import { describeSong, SUB_TABLE, type NativeAudioIds, type NativeSession } from "./describe";
 import { loadDrumSample } from "../../instruments/drum-rack/drumRack";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "../../instruments/piano/piano";
 import { synthBend, tableFor, tableKey } from "../../instruments/synth/synth";
@@ -60,7 +60,7 @@ class NativeEngine {
   private sent = new Map<string, Promise<void>>();
   private unsubscribe: (() => void) | null = null;
   private songQueued = false;
-  private session = { limiterDb: -1, beatsPerBar: 4 };
+  private session: NativeSession = { limiterDb: -1, beatsPerBar: 4, compensation: true, live: [] };
   private statusAt = 0;
   private polling = false;
 
@@ -281,6 +281,12 @@ class NativeEngine {
     },
     beatsPerBar: (beats) => {
       this.session = { ...this.session, beatsPerBar: beats };
+      this.queueSong();
+    },
+    compensation: (enabled, live) => {
+      const s = this.session;
+      if (s.compensation === enabled && s.live.length === live.length && live.every((id) => s.live.includes(id))) return;
+      this.session = { ...s, compensation: enabled, live };
       this.queueSong();
     },
     position: () => {

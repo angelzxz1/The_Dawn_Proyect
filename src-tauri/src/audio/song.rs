@@ -344,6 +344,9 @@ pub struct TrackSpec {
     pub notes: Vec<NoteSpec>,
     #[serde(default)]
     pub effects: Vec<EffectSpecIn>,
+    /// Played live (the armed MIDI track): delay compensation skips it.
+    #[serde(default)]
+    pub live: bool,
 }
 
 #[derive(Deserialize)]
@@ -385,6 +388,13 @@ pub struct SongSpec {
     pub master_effects: Vec<EffectSpecIn>,
     pub tempo: Vec<TempoSpec>,
     pub beats_per_bar: f64,
+    /// Delay compensation (the Audio panel's setting).
+    #[serde(default = "on")]
+    pub compensation: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 /// An audio file the studio sent, decoded at `sample_rate`.
@@ -567,6 +577,7 @@ pub fn build(
                 })
                 .collect(),
             effects: effects(&t.effects),
+            live: t.live,
         })
         .collect();
     let buses = spec
@@ -604,6 +615,7 @@ pub fn build(
             master_effects: effects(&spec.master_effects),
             tempo,
             beats_per_bar: spec.beats_per_bar.max(1.0),
+            compensation: spec.compensation,
         },
         missing,
     )
@@ -844,5 +856,21 @@ mod tests {
             EffectSettings::Limiter(_)
         ));
         assert_eq!(song.master_effects.len(), 1);
+    }
+
+    #[test]
+    fn delay_compensation_is_on_unless_the_studio_turns_it_off() {
+        let spec: SongSpec = serde_json::from_str(SONG).unwrap();
+        let (song, _) = build(&spec, None, &HashMap::new(), 48000.0);
+        assert!(song.compensation && song.tracks.iter().all(|t| !t.live));
+        let json = SONG
+            .replace(
+                r#""beatsPerBar": 4"#,
+                r#""beatsPerBar": 4, "compensation": false"#,
+            )
+            .replace(r#""id": "a","#, r#""id": "a", "live": true,"#);
+        let spec: SongSpec = serde_json::from_str(&json).unwrap();
+        let (song, _) = build(&spec, None, &HashMap::new(), 48000.0);
+        assert!(!song.compensation && song.tracks[2].live);
     }
 }

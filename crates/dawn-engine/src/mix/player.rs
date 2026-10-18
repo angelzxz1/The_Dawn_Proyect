@@ -1,7 +1,7 @@
 //! A MIDI track's instrument as the engine plays it: the kernel (the Drum
-//! Rack, the piano), the notes its clips have sounding, and the keys held
-//! live (with the sustain pedal), which carry on from one version of the
-//! song to the next.
+//! Rack, the piano, the synth), the notes its clips have sounding, and the
+//! keys held live (with the sustain pedal, pitch bend and mod wheel), which
+//! carry on from one version of the song to the next.
 //!
 //! As in the browser's engine (`audioEngine.ts`): a clip's notes start and
 //! end where they sit; stopping, jumping and looping back release them
@@ -15,6 +15,7 @@ use super::clip::AudioData;
 use super::song::MAX_BLOCK;
 use crate::instruments::drums::{DrumEvent, DrumEventKind, DrumKit, Drums, PAD_COUNT};
 use crate::instruments::piano::{Piano, PianoEvent, PianoEventKind, PianoSample};
+use crate::instruments::synth::{Synth, SynthEvent, SynthEventKind, SynthSettings, Wavetable};
 
 /// What plays a track's notes, with its settings.
 #[derive(Clone, Debug)]
@@ -28,12 +29,20 @@ pub enum InstrumentSpec {
         /// Sorted by note; none until they've arrived.
         samples: Option<Arc<[PianoSample]>>,
     },
+    Synth {
+        settings: Box<SynthSettings>,
+        /// Oscillator 1's wavetable, oscillator 2's and the sub's shapes.
+        /// It plays nothing until it has all three (as in the browser,
+        /// where it starts once they're built).
+        tables: [Option<Wavetable>; 3],
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstrumentKind {
     Drums,
     Piano,
+    Synth,
 }
 
 impl InstrumentSpec {
@@ -41,6 +50,7 @@ impl InstrumentSpec {
         match self {
             InstrumentSpec::Drums { .. } => InstrumentKind::Drums,
             InstrumentSpec::Piano { .. } => InstrumentKind::Piano,
+            InstrumentSpec::Synth { .. } => InstrumentKind::Synth,
         }
     }
 }
@@ -58,6 +68,7 @@ pub struct Note {
 enum Kernel {
     Drums(Box<Drums>),
     Piano(Box<Piano>),
+    Synth(Box<Synth>),
 }
 
 const KEYS: usize = 128;
@@ -83,6 +94,7 @@ impl Player {
         let kernel = match spec {
             InstrumentSpec::Drums { .. } => Kernel::Drums(Box::new(Drums::new(sample_rate))),
             InstrumentSpec::Piano { .. } => Kernel::Piano(Box::new(Piano::new(sample_rate))),
+            InstrumentSpec::Synth { .. } => Kernel::Synth(Box::new(Synth::new(sample_rate))),
         };
         let mut player = Self {
             sample_rate,
@@ -102,6 +114,7 @@ impl Player {
         match self.kernel {
             Kernel::Drums(_) => InstrumentKind::Drums,
             Kernel::Piano(_) => InstrumentKind::Piano,
+            Kernel::Synth(_) => InstrumentKind::Synth,
         }
     }
 
@@ -117,7 +130,36 @@ impl Player {
                 }
             }
             (Kernel::Piano(k), InstrumentSpec::Piano { samples }) => k.set_samples(samples.clone()),
+            (Kernel::Synth(k), InstrumentSpec::Synth { settings, tables }) => {
+                k.set_settings(settings);
+                for (slot, table) in tables.iter().enumerate() {
+                    k.set_table(slot, table.clone());
+                }
+            }
             _ => {}
+        }
+    }
+
+    /// The song's tempo, which the synth's synced LFOs follow (its
+    /// starting tempo, as in the browser).
+    pub fn set_tempo(&mut self, bpm: f64) {
+        if let Kernel::Synth(k) = &mut self.kernel {
+            k.set_bpm(bpm);
+        }
+    }
+
+    /// The pitch bend, -1..1 of the instrument's bend range (only the
+    /// synth bends).
+    pub fn set_bend(&mut self, bend: f64) {
+        if let Kernel::Synth(k) = &mut self.kernel {
+            k.set_bend(bend.clamp(-1.0, 1.0));
+        }
+    }
+
+    /// The mod wheel, 0..1 (only the synth has a use for it).
+    pub fn set_mod_wheel(&mut self, amount: f64) {
+        if let Kernel::Synth(k) = &mut self.kernel {
+            k.set_mod_wheel(amount.clamp(0.0, 1.0));
         }
     }
 
@@ -140,6 +182,12 @@ impl Player {
                 time,
                 kind: PianoEventKind::On { note: key, vel },
             }),
+            // Not until its wavetables are in.
+            Kernel::Synth(k) if !(0..3).all(|slot| k.table(slot).is_some()) => {}
+            Kernel::Synth(k) => k.add_event(SynthEvent {
+                time,
+                kind: SynthEventKind::On { note: key, vel },
+            }),
         }
     }
 
@@ -151,6 +199,10 @@ impl Player {
             Kernel::Piano(k) => k.add_event(PianoEvent {
                 time,
                 kind: PianoEventKind::Off { note: key },
+            }),
+            Kernel::Synth(k) => k.add_event(SynthEvent {
+                time,
+                kind: SynthEventKind::Off { note: key },
             }),
         }
     }
@@ -164,6 +216,10 @@ impl Player {
             Kernel::Piano(k) => k.add_event(PianoEvent {
                 time,
                 kind: PianoEventKind::AllOff,
+            }),
+            Kernel::Synth(k) => k.add_event(SynthEvent {
+                time,
+                kind: SynthEventKind::AllOff,
             }),
         }
         self.clip_ends = [None; KEYS];
@@ -264,6 +320,7 @@ impl Player {
                 r.fill(0.0);
                 k.render(l, r, now);
             }
+            Kernel::Synth(k) => k.render(l, r, now),
         }
         (&self.out_l[..n], &self.out_r[..n])
     }

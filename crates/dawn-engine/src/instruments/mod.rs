@@ -9,6 +9,7 @@
 
 pub mod drums;
 pub mod piano;
+pub mod synth;
 
 /// JavaScript's `Math.round`: halves round up, toward +∞ (Rust's `round`
 /// rounds them away from zero).

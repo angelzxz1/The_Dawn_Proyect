@@ -23,4 +23,8 @@ export interface EngineFollower {
   noteOff(track: string, key: number): void;
   /** A track's sustain pedal (CC64). */
   sustain(track: string, down: boolean): void;
+  /** A track's pitch bend, in semitones (already scaled by the bend range). */
+  pitchBend(track: string, semitones: number): void;
+  /** A track's mod wheel, 0..1. */
+  modWheel(track: string, amount: number): void;
 }

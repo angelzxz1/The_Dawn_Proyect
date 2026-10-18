@@ -144,9 +144,11 @@ and MIDI devices through the engine, files through native dialogs.
   `f64` state and `f32` buffers as the JavaScript's numbers and
   Float32Arrays, the arithmetic in the same order.
 - `instruments/`: the instruments, the same way: the Drum Rack's kernel
-  (a port of `drumKernel.ts`), and the piano, a sampler that plays as
-  Tone.js's Sampler does (the nearest sample, pitched by its playback rate,
-  the velocity as its gain, Tone's release curve). A MIDI track's
+  (a port of `drumKernel.ts`), the synth's (a port of `synthKernel.ts`,
+  playing the wavetables the studio builds), and the piano, a sampler that
+  plays as Tone.js's Sampler does (the nearest sample, pitched by its
+  playback rate, the velocity as its gain, Tone's release curve). A MIDI
+  track's
   instrument plays its clips' notes on their sample and the keys played
   live; it lives on from one version of the song to the next
   (`mix/player.rs`), so an edit doesn't cut off what's ringing, and
@@ -162,20 +164,22 @@ The studio describes the song (`src/engine/native/describe.ts`): every
 track's level, pan and clips, whether it's heard (mute and solo, worked out
 by the same code as the browser's engine), where it goes, its sends, and a
 MIDI track's notes (as the browser plays them: clamped or tiled to their
-clips) and instrument (the Drum Rack's compiled kit, or the piano); the
-buses, the master and the tempo map. `nativeEngine.ts` sends that whenever
-the project changes, and each audio file once, decoded at the device's
-rate: a clip's (a warped clip sends its rendering), a sample pad's, the
-piano's samples. The browser's engine keeps running, silently: its
-transport tells the native engine everything it does
+clips) and instrument (the Drum Rack's compiled kit, the synth's compiled
+patch, or the piano); the buses, the master and the tempo map.
+`nativeEngine.ts` sends that whenever the project changes, and each audio
+file once, decoded at the device's rate: a clip's (a warped clip sends its
+rendering), a sample pad's, the piano's samples, and a synth's wavetables
+(its mip levels one after another, as one channel). Until a synth's tables
+are in it waits to play, as in the browser, and while a new table is on its
+way it keeps the one it had. The browser's engine keeps running, silently:
+its transport tells the native engine everything it does
 (`src/engine/follower.ts`), as do the keys played live (the on-screen keys,
-the computer keyboard, a MIDI controller) and the sustain pedal, and the
-playhead takes the native engine's position. So the rest of the studio
-doesn't change while parts move over.
+the computer keyboard, a MIDI controller), the sustain pedal, pitch bend
+and the mod wheel, and the playhead takes the native engine's position. So
+the rest of the studio doesn't change while parts move over.
 
-What it doesn't play yet - the synth, effects, automation - the Audio
-panel names for the project open, and those stay silent while the native
-engine is on.
+What it doesn't play yet - effects and automation - the Audio panel names
+for the project open, and those stay silent while the native engine is on.
 
 ### ASIO
 
@@ -286,13 +290,12 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
 
 1. **Recording through the engine**: the interface's inputs, monitoring
    with low latency, takes written to disk, latency compensation.
-2. **Instruments and effects in the engine**: the synth (the Drum Rack and
-   the piano play already), then the remaining effect kernels (gate,
-   glue, the multiband effects, EQ, utility, pitch shift, the Furnace amp),
-   then what's built from Web Audio nodes today
-   (chorus, delay, EQ Three, filter, reverb, the IR loader, saturator,
-   tuner, the piano sampler). NAM's engine is C++ (NeuralAmpModelerCore) and
-   can be built into the engine as is. Then automation and delay
+2. **Effects in the engine** (every instrument plays already): the
+   remaining effect kernels (gate, glue, the multiband effects, EQ,
+   utility, pitch shift, the Furnace amp), then what's built from Web
+   Audio nodes today (chorus, delay, EQ Three, filter, reverb, the IR
+   loader, saturator, tuner). NAM's engine is C++ (NeuralAmpModelerCore)
+   and can be built into the engine as is. Then automation and delay
    compensation.
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in

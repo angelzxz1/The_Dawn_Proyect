@@ -79,6 +79,8 @@ pub fn run() {
             audio::engine_set_song,
             audio::engine_key,
             audio::engine_sustain,
+            audio::engine_bend,
+            audio::engine_mod_wheel,
             audio::engine_play,
             audio::engine_stop,
             audio::engine_seek,

@@ -179,12 +179,14 @@ class AudioEngine {
    * Only instruments that implement `setDetune` (the synth) respond. */
   setPitchBend(channelId: string, semitones: number): void {
     this.channels.get(channelId)?.instrument.setDetune?.(semitones * 100);
+    this.follower?.pitchBend(channelId, semitones);
   }
 
   /** Live mod wheel, 0..1. Only instruments that implement `setModWheel`
    * (the synth) respond. */
   setModWheel(channelId: string, amount: number): void {
     this.channels.get(channelId)?.instrument.setModWheel?.(amount);
+    this.follower?.modWheel(channelId, amount);
   }
 
   /** True once every sampler currently loading has finished (or failed). */

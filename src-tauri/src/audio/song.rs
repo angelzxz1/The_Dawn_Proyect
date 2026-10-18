@@ -2,7 +2,7 @@
 //! seconds and dB, the routing already worked out, a MIDI track's notes and
 //! its instrument's settings. Turned into the engine's song with the audio
 //! files the studio has sent (clips' files, sample pads', the piano's
-//! samples).
+//! samples, the synth's wavetables).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,6 +10,10 @@ use std::sync::Arc;
 use dawn_engine::effects::limiter::LimiterSettings;
 use dawn_engine::instruments::drums::{DrumKit, PAD_COUNT, Pad};
 use dawn_engine::instruments::piano::PianoSample;
+use dawn_engine::instruments::synth::{
+    DEST_COUNT, EnvSettings, FilterSettings, LfoSettings, NoiseSettings, OscSettings, Route,
+    SubSettings, SynthSettings, VoiceSettings, Wavetable,
+};
 use dawn_engine::mix::tempo::TempoSegment;
 use dawn_engine::mix::{
     AudioData, Bus, Clip, ClipTiming, Destination, InstrumentSpec, Master, Note, Send, Song, Track,
@@ -75,6 +79,190 @@ pub struct PianoSampleSpec {
     pub audio: String,
 }
 
+/// An index the studio found with `indexOf` (never -1 for what it sends,
+/// but if it were, the first).
+fn index(i: i64) -> usize {
+    i.max(0) as usize
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthOscSpec {
+    pub on: bool,
+    pub warp: i64,
+    pub unison: i64,
+    pub dest: i64,
+    pub phase: f64,
+    pub random_phase: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthSubSpec {
+    pub on: bool,
+    pub shape: i64,
+    pub octave: f64,
+    pub dest: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthNoiseSpec {
+    pub on: bool,
+    pub pink: bool,
+    pub dest: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthFilterSpec {
+    pub on: bool,
+    #[serde(rename = "type")]
+    pub kind: i64,
+    pub keytrack: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthEnvSpec {
+    pub delay: f64,
+    pub attack: f64,
+    pub hold: f64,
+    pub decay: f64,
+    pub sustain: f64,
+    pub release: f64,
+    pub attack_curve: f64,
+    pub decay_curve: f64,
+    pub release_curve: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthLfoSpec {
+    pub shape: i64,
+    pub rate: f64,
+    pub sync: bool,
+    pub beats: f64,
+    pub mode: i64,
+    pub phase: f64,
+    pub fade: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthVoiceSpec {
+    pub mode: i64,
+    pub polyphony: i64,
+    pub glide: f64,
+    pub bend_range: f64,
+    pub velocity: f64,
+}
+
+/// The synth's settings, as `compileSynth` makes them.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthSpec {
+    pub base: Vec<f64>,
+    /// Four numbers a route: source, destination, amount, bipolar.
+    pub routes: Vec<f64>,
+    pub osc: Vec<SynthOscSpec>,
+    pub sub: SynthSubSpec,
+    pub noise: SynthNoiseSpec,
+    pub filters: Vec<SynthFilterSpec>,
+    pub serial: bool,
+    pub envs: Vec<SynthEnvSpec>,
+    pub lfos: Vec<SynthLfoSpec>,
+    pub macros: Vec<f64>,
+    pub voice: SynthVoiceSpec,
+}
+
+impl SynthSpec {
+    fn settings(&self) -> SynthSettings {
+        let mut s = SynthSettings::default();
+        for (to, from) in s.base.iter_mut().zip(&self.base).take(DEST_COUNT) {
+            *to = *from;
+        }
+        let routes: Vec<Route> = self
+            .routes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|r| r[0] >= 0.0 && r[1] >= 0.0)
+            .map(|r| Route {
+                source: r[0] as usize,
+                dest: r[1] as usize,
+                amount: r[2],
+                bipolar: r[3] != 0.0,
+            })
+            .collect();
+        s = s.with_routes(&routes);
+        for (to, o) in s.osc.iter_mut().zip(&self.osc) {
+            *to = OscSettings {
+                on: o.on,
+                warp: index(o.warp),
+                unison: index(o.unison),
+                dest: index(o.dest),
+                phase: o.phase,
+                random_phase: o.random_phase,
+            };
+        }
+        s.sub = SubSettings {
+            on: self.sub.on,
+            shape: index(self.sub.shape),
+            octave: self.sub.octave,
+            dest: index(self.sub.dest),
+        };
+        s.noise = NoiseSettings {
+            on: self.noise.on,
+            pink: self.noise.pink,
+            dest: index(self.noise.dest),
+        };
+        for (to, f) in s.filters.iter_mut().zip(&self.filters) {
+            *to = FilterSettings {
+                on: f.on,
+                kind: index(f.kind),
+                keytrack: f.keytrack,
+            };
+        }
+        s.serial = self.serial;
+        for (to, e) in s.envs.iter_mut().zip(&self.envs) {
+            *to = EnvSettings {
+                delay: e.delay,
+                attack: e.attack,
+                hold: e.hold,
+                decay: e.decay,
+                sustain: e.sustain,
+                release: e.release,
+                attack_curve: e.attack_curve,
+                decay_curve: e.decay_curve,
+                release_curve: e.release_curve,
+            };
+        }
+        for (to, l) in s.lfos.iter_mut().zip(&self.lfos) {
+            *to = LfoSettings {
+                shape: index(l.shape),
+                rate: l.rate,
+                sync: l.sync,
+                beats: l.beats,
+                mode: index(l.mode),
+                phase: l.phase,
+                fade: l.fade,
+            };
+        }
+        for (to, m) in s.macros.iter_mut().zip(&self.macros) {
+            *to = *m;
+        }
+        s.voice = VoiceSettings {
+            mode: index(self.voice.mode),
+            polyphony: index(self.voice.polyphony),
+            glide: self.voice.glide,
+            bend_range: self.voice.bend_range,
+            velocity: self.voice.velocity,
+        };
+        s
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum InstrumentSpecIn {
@@ -86,6 +274,13 @@ pub enum InstrumentSpecIn {
     },
     #[serde(rename_all = "camelCase")]
     Piano { samples: Vec<PianoSampleSpec> },
+    #[serde(rename_all = "camelCase")]
+    Synth {
+        settings: Box<SynthSpec>,
+        /// Oscillator 1's wavetable, oscillator 2's and the sub's (sent
+        /// like audio: one channel, the mip levels one after another).
+        tables: Vec<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -161,9 +356,12 @@ pub struct LoadedAudio {
 
 /// An instrument's settings for the engine. Files that haven't arrived
 /// (at this rate) go in `missing`; until they do, a pad plays nothing, and
-/// the piano nothing at all.
+/// the piano nothing at all. A synth waiting for a new wavetable keeps the
+/// one it had (`previous`, the track's instrument in the song playing), as
+/// the browser's does; with none yet, it waits to play.
 fn instrument(
     spec: &InstrumentSpecIn,
+    previous: Option<&InstrumentSpec>,
     audio: &HashMap<String, LoadedAudio>,
     sample_rate: f64,
     missing: &mut Vec<String>,
@@ -226,13 +424,31 @@ fn instrument(
                     .then(|| loaded.into()),
             }
         }
+        InstrumentSpecIn::Synth { settings, tables } => {
+            let had = match previous {
+                Some(InstrumentSpec::Synth { tables, .. }) => Some(tables),
+                _ => None,
+            };
+            InstrumentSpec::Synth {
+                settings: Box::new(settings.settings()),
+                tables: std::array::from_fn(|slot| {
+                    tables
+                        .get(slot)
+                        .and_then(|id| file(id))
+                        .and_then(Wavetable::new)
+                        .or_else(|| had.and_then(|t| t[slot].clone()))
+                }),
+            }
+        }
     }
 }
 
-/// The engine's song, at `sample_rate`. A clip whose file hasn't been sent
-/// (or was decoded at another rate) is left out; their files come back.
+/// The engine's song, at `sample_rate`, following `previous` (the one
+/// playing). A clip whose file hasn't been sent (or was decoded at another
+/// rate) is left out; their files come back.
 pub fn build(
     spec: &SongSpec,
+    previous: Option<&Song>,
     audio: &HashMap<String, LoadedAudio>,
     sample_rate: f64,
 ) -> (Song, Vec<String>) {
@@ -295,10 +511,12 @@ pub fn build(
                     }
                 })
                 .collect(),
-            instrument: t
-                .instrument
-                .as_ref()
-                .map(|i| instrument(i, audio, sample_rate, &mut missing)),
+            instrument: t.instrument.as_ref().map(|i| {
+                let playing = previous
+                    .and_then(|p| p.tracks.iter().find(|x| x.id == t.id))
+                    .and_then(|x| x.instrument.as_ref());
+                instrument(i, playing, audio, sample_rate, &mut missing)
+            }),
             notes: t
                 .notes
                 .iter()
@@ -352,6 +570,7 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dawn_engine::instruments::synth::FRAME_SAMPLES;
     use dawn_engine::mix::InstrumentKind;
 
     /// A song as `describe.ts` writes it: a drum track with one sample pad
@@ -389,7 +608,7 @@ mod tests {
     #[test]
     fn reads_the_instruments_and_notes_the_studio_sends() {
         let spec: SongSpec = serde_json::from_str(SONG).unwrap();
-        let (song, missing) = build(&spec, &HashMap::new(), 48000.0);
+        let (song, missing) = build(&spec, None, &HashMap::new(), 48000.0);
         // Nothing sent yet: every file is missing, the piano has no samples.
         assert_eq!(
             missing,
@@ -419,7 +638,7 @@ mod tests {
         // samples, in order.
         let audio: HashMap<String, LoadedAudio> =
             missing.iter().map(|id| (id.clone(), file())).collect();
-        let (song, missing) = build(&spec, &audio, 48000.0);
+        let (song, missing) = build(&spec, None, &audio, 48000.0);
         assert!(missing.is_empty());
         let Some(InstrumentSpec::Drums { samples, .. }) = &song.tracks[0].instrument else {
             panic!("not drums");
@@ -435,6 +654,110 @@ mod tests {
         assert_eq!(
             song.tracks[1].instrument.as_ref().map(InstrumentSpec::kind),
             Some(InstrumentKind::Piano)
+        );
+    }
+
+    /// A synth track as `describe.ts` writes it, with the Init patch
+    /// (`compileSynth`) and an LFO on the cutoff, playing `tables`.
+    fn synth_song(tables: [&str; 3]) -> SongSpec {
+        let json = format!(
+            r#"{{
+            "tracks": [
+                {{ "id": "s", "volumeDb": 0, "pan": 0, "audible": true, "output": null, "sends": [], "clips": [],
+                   "instrument": {{ "type": "synth", "settings": SETTINGS, "tables": ["{}", "{}", "{}"] }},
+                   "notes": [] }}
+            ],
+            "buses": [],
+            "master": {{ "volumeDb": 0, "pan": 0, "limiterDb": -1 }},
+            "tempo": [{{ "beat": 0, "seconds": 0, "bpm": 120 }}],
+            "beatsPerBar": 4
+        }}"#,
+            tables[0], tables[1], tables[2]
+        )
+        .replace("SETTINGS", r#"{"base":[0.7,0.5,0.5,0,0.5,0.5,0.25,0.75,0.8,0.5,0.5,0,0,0.5,0.5,0.25,0.75,0.8,0.5,0.5,0.25,0.5,1,0.1,0,0,1,0,0.1,0,0,1,0.638809459365963,0.638809459365963,0.4716662155617413,0.5,0.7777777777777778],"routes":[3,22,0.25,1],"osc":[{"on":true,"warp":0,"unison":1,"dest":0,"phase":0,"randomPhase":1},{"on":false,"warp":0,"unison":1,"dest":0,"phase":0,"randomPhase":1}],"sub":{"on":false,"shape":0,"octave":-1,"dest":3},"noise":{"on":false,"pink":false,"dest":0},"filters":[{"on":true,"type":1,"keytrack":0},{"on":false,"type":3,"keytrack":0}],"serial":true,"envs":[{"delay":0,"attack":0.002,"hold":0,"decay":0.6,"sustain":1,"release":0.15,"attackCurve":0,"decayCurve":0.6,"releaseCurve":0.6},{"delay":0,"attack":0.002,"hold":0,"decay":0.4,"sustain":0,"release":0.15,"attackCurve":0,"decayCurve":0.6,"releaseCurve":0.6},{"delay":0,"attack":0.002,"hold":0,"decay":1.2,"sustain":0,"release":0.15,"attackCurve":0,"decayCurve":0.6,"releaseCurve":0.6}],"lfos":[{"shape":0,"rate":2,"sync":true,"beats":1,"mode":0,"phase":0,"fade":0},{"shape":1,"rate":2,"sync":true,"beats":0.5,"mode":0,"phase":0,"fade":0},{"shape":6,"rate":0.5,"sync":false,"beats":1,"mode":1,"phase":0,"fade":0}],"macros":[0,0,0,0],"voice":{"mode":0,"polyphony":8,"glide":0,"bendRange":2,"velocity":0.6}}"#);
+        serde_json::from_str(&json).unwrap()
+    }
+
+    /// A wavetable of `frames` frames, sent at 48 kHz.
+    fn table(frames: usize) -> LoadedAudio {
+        LoadedAudio {
+            sample_rate: 48000.0,
+            data: Arc::new(AudioData {
+                channels: vec![vec![0.0; frames * FRAME_SAMPLES]],
+            }),
+        }
+    }
+
+    fn synth_tables(song: &Song) -> (&SynthSettings, Vec<Option<usize>>) {
+        let Some(InstrumentSpec::Synth { settings, tables }) = &song.tracks[0].instrument else {
+            panic!("not the synth");
+        };
+        (
+            settings,
+            tables
+                .iter()
+                .map(|t| t.as_ref().map(Wavetable::frames))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn reads_the_synths_settings_and_waits_for_its_wavetables() {
+        let names = [
+            "48000:wavetable:basic",
+            "48000:wavetable:fm",
+            "48000:wavetable:sub",
+        ];
+        let spec = synth_song(names);
+        let (song, missing) = build(&spec, None, &HashMap::new(), 48000.0);
+        assert_eq!(missing, names);
+        let (settings, tables) = synth_tables(&song);
+        assert_eq!(tables, [None, None, None]);
+        assert_eq!(settings.base[0], 0.7);
+        assert_eq!(settings.base[36], 0.7777777777777778);
+        assert!(settings.osc[0].on && !settings.osc[1].on);
+        assert_eq!(settings.osc[0].random_phase, 1.0);
+        assert_eq!(settings.sub.dest, 3);
+        assert_eq!(settings.sub.octave, -1.0);
+        assert_eq!(settings.filters[0].kind, 1);
+        assert!(settings.serial);
+        assert_eq!(settings.envs[0].decay_curve, 0.6);
+        assert_eq!(settings.lfos[1].beats, 0.5);
+        assert_eq!(settings.lfos[2].mode, 1);
+        assert_eq!(settings.voice.bend_range, 2.0);
+        assert_eq!(settings.voice.polyphony, 8);
+        assert_eq!(
+            settings.routes(),
+            [Route {
+                source: 3,
+                dest: 22,
+                amount: 0.25,
+                bipolar: true
+            }]
+        );
+
+        // They've arrived (a file that isn't whole frames isn't one).
+        let mut audio = HashMap::from([
+            (names[0].to_owned(), table(3)),
+            (names[1].to_owned(), table(2)),
+            (names[2].to_owned(), table(4)),
+        ]);
+        let (playing, missing) = build(&spec, None, &audio, 48000.0);
+        assert!(missing.is_empty());
+        assert_eq!(synth_tables(&playing).1, [Some(3), Some(2), Some(4)]);
+
+        // Oscillator 1 changes table: until the new one's in, the synth
+        // keeps the one it has.
+        let next = synth_song(["48000:wavetable:vowels", names[1], names[2]]);
+        let (song, missing) = build(&next, Some(&playing), &audio, 48000.0);
+        assert_eq!(missing, ["48000:wavetable:vowels"]);
+        assert_eq!(synth_tables(&song).1, [Some(3), Some(2), Some(4)]);
+        audio.insert("48000:wavetable:vowels".into(), table(5));
+        let (song, _) = build(&next, Some(&playing), &audio, 48000.0);
+        assert_eq!(synth_tables(&song).1, [Some(5), Some(2), Some(4)]);
+        assert_eq!(
+            song.tracks[0].instrument.as_ref().map(InstrumentSpec::kind),
+            Some(InstrumentKind::Synth)
         );
     }
 }

@@ -208,6 +208,82 @@ export const FACTORY_SYNTH_PRESETS: SynthPreset[] = [
     mod(p, "lfo1", "filter2.cutoff", 0.15);
     p.voice = { ...p.voice, velocity: 0.2, volume: -4 };
   }),
+  // Pop-ballad and dance-pop pads: wide stacks, a pump, bass and lead weight.
+  build("Prism Bloom", "Pad", (p) => {
+    p.osc1 = defaultOsc({ table: "daybreak", position: 0.35, unison: 8, detune: 0.3, width: 1, level: 0.55 });
+    p.osc2 = defaultOsc({ position: 0.5, transpose: 12, unison: 4, detune: 0.2, width: 1, level: 0.25 });
+    p.filter1 = defaultFilter({ type: "lp24", cutoff: 1600, resonance: 0.18 });
+    p.filter2 = defaultFilter({ on: true, type: "hp12", cutoff: 180, resonance: 0.05 });
+    p.envs[0] = defaultEnv({ attack: 0.6, attackCurve: 0.3, decay: 1, sustain: 0.9, release: 2.8 });
+    p.envs[2] = defaultEnv({ attack: 2.5, attackCurve: -0.2, sustain: 1, release: 3 });
+    mod(p, "env3", "filter1.cutoff", 0.18);
+    p.lfos[2] = defaultLfo({ shape: "smooth", sync: false, rate: 0.2, mode: "free" });
+    mod(p, "lfo3", "osc1.detune", 0.1);
+    mod(p, "lfo3", "osc1.position", 0.15);
+    // Macro 1 opens it up.
+    mod(p, "macro1", "filter1.cutoff", 0.3, false);
+    p.voice = { ...p.voice, velocity: 0.3, volume: -6.5 };
+  }),
+  build("Pump Glow", "Pad", (p) => {
+    // A quarter-note ramp on the volume, like a pad ducked by the kick.
+    p.osc1 = defaultOsc({ position: 0.5, unison: 7, detune: 0.25, width: 1, level: 0.6 });
+    p.osc2 = defaultOsc({ table: "analog", position: 0.4, transpose: -12, unison: 2, detune: 0.1, level: 0.3 });
+    p.filter1 = defaultFilter({ type: "lp12", cutoff: 3200, resonance: 0.12 });
+    p.envs[0] = defaultEnv({ attack: 0.02, decay: 0.5, sustain: 1, release: 0.6 });
+    p.lfos[0] = defaultLfo({ shape: "ramp", division: 7, mode: "trigger" });
+    mod(p, "lfo1", "voice.volume", 0.22, false);
+    mod(p, "lfo1", "filter1.cutoff", 0.1, false);
+    p.voice = { ...p.voice, velocity: 0.3, volume: -17 };
+  }),
+  build("Ember Low", "Pad", (p) => {
+    p.osc1 = defaultOsc({ table: "analog", position: 0.5, unison: 4, detune: 0.3, blend: 0.9, width: 0.5, level: 0.6 });
+    p.osc2 = defaultOsc({ position: 0.5, transpose: -12, unison: 2, detune: 0.12, width: 0.3, level: 0.4 });
+    p.sub = { on: true, shape: "sine", octave: -1, level: 0.35, pan: 0, dest: "direct" };
+    p.filter1 = defaultFilter({ type: "ladder", cutoff: 650, resonance: 0.3, drive: 0.45, keytrack: 0.5 });
+    p.envs[0] = defaultEnv({ attack: 0.25, decay: 1, sustain: 0.95, release: 1.5 });
+    p.lfos[2] = defaultLfo({ shape: "smooth", sync: false, rate: 0.25, mode: "free" });
+    mod(p, "lfo3", "filter1.cutoff", 0.1);
+    mod(p, "lfo3", "osc1.detune", 0.15);
+    mod(p, "macro1", "filter1.cutoff", 0.35, false);
+    p.voice = { ...p.voice, polyphony: 6, velocity: 0.3, volume: -10 };
+  }),
+  build("Halo Voices", "Pad", (p) => {
+    p.osc1 = defaultOsc({ table: "choir", position: 0.5, unison: 6, detune: 0.18, width: 1, level: 0.6 });
+    p.osc2 = defaultOsc({ table: "vowels", position: 0.2, transpose: 12, unison: 2, width: 1, level: 0.25 });
+    p.noise = { on: true, color: "pink", level: 0.05, pan: 0, dest: "f1" };
+    p.filter1 = defaultFilter({ type: "formant", cutoff: 1200, resonance: 0.3, morph: 0.4, mix: 0.6 });
+    p.filter2 = defaultFilter({ on: true, type: "hp12", cutoff: 250, resonance: 0.05 });
+    p.envs[0] = defaultEnv({ attack: 0.9, decay: 1, sustain: 1, release: 3 });
+    p.lfos[1] = defaultLfo({ shape: "triangle", division: 1, mode: "free" });
+    mod(p, "lfo2", "filter1.morph", 0.3);
+    p.lfos[2] = defaultLfo({ shape: "smooth", sync: false, rate: 0.18, mode: "free" });
+    mod(p, "lfo3", "osc2.position", 0.4);
+    p.voice = { ...p.voice, velocity: 0.2, volume: -2 };
+  }),
+  build("Neon Fifths", "Pad", (p) => {
+    p.osc1 = defaultOsc({ table: "daybreak", position: 0.7, unison: 6, detune: 0.22, width: 0.9, level: 0.55 });
+    p.osc2 = defaultOsc({ table: "sync", position: 0.3, transpose: 7, unison: 3, detune: 0.15, width: 0.8, level: 0.3 });
+    p.filter1 = defaultFilter({ type: "lp24", cutoff: 4200, resonance: 0.25 });
+    p.envs[0] = defaultEnv({ attack: 0.08, decay: 0.8, sustain: 0.85, release: 1.4 });
+    p.envs[1] = defaultEnv({ attack: 0.4, decay: 1.2, sustain: 0.3 });
+    mod(p, "env2", "filter1.cutoff", 0.15);
+    p.lfos[1] = defaultLfo({ shape: "sine", sync: false, rate: 5, mode: "free", fade: 1.2 });
+    vibrato(p, "lfo2", 0.2);
+    mod(p, "modwheel", "osc2.position", 0.4, false);
+    p.voice = { ...p.voice, velocity: 0.4, volume: -7.5 };
+  }),
+  build("Blaze Wall", "Pad", (p) => {
+    p.osc1 = defaultOsc({ position: 0.55, warp: "fold", warpAmount: 0.25, unison: 5, detune: 0.25, width: 0.9, level: 0.55 });
+    p.osc2 = defaultOsc({ table: "growl", position: 0.4, transpose: -12, unison: 2, detune: 0.1, level: 0.35 });
+    p.filter1 = defaultFilter({ type: "lp24", cutoff: 2400, resonance: 0.3, drive: 0.6 });
+    p.envs[0] = defaultEnv({ attack: 0.15, decay: 1, sustain: 0.9, release: 1 });
+    p.lfos[0] = defaultLfo({ shape: "triangle", division: 10 });
+    mod(p, "lfo1", "filter1.cutoff", 0.15, false);
+    mod(p, "lfo1", "osc1.warpAmount", 0.2, false);
+    // Macro 1 turns up the heat.
+    mod(p, "macro1", "osc1.warpAmount", 0.4, false);
+    p.voice = { ...p.voice, velocity: 0.3, volume: -16 };
+  }),
 
   // --- Pluck ---
   build("Crystal Pluck", "Pluck", (p) => {

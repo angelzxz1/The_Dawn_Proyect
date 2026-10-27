@@ -10,6 +10,7 @@ import { Container, Logo, OpenDawn } from "./ui";
 const NAV: [string, string][] = [
   ["/features", "Features"],
   ["/how-it-works", "How it works"],
+  ["/guides", "Guides"],
   ["/faq", "FAQ"],
   ["/support", "Support"],
 ];
@@ -47,6 +48,7 @@ export function SiteFooter() {
   const links: [string, string][] = [
     ["/features", "Features"],
     ["/how-it-works", "How it works"],
+    ["/guides", "Guides"],
     ["/faq", "FAQ"],
     ["/support", "Support"],
     ["/credits", "Credits"],

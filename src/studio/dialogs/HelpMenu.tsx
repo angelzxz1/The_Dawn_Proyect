@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, CircleHelp, Compass, LifeBuoy, MessageSquare, Wrench } from "lucide-react";
+import { BookOpen, CircleHelp, Compass, LifeBuoy, MessageSquare, SlidersHorizontal, Wrench } from "lucide-react";
 import { useShortcuts } from "@/ui/shortcuts";
 
 /** Help in the header: the tour, the guides on the website, and (when
@@ -25,6 +25,7 @@ export function HelpMenu({ onTour, onFeedback }: { onTour: () => void; onFeedbac
     ["/how-it-works#setup", "Setup guide", BookOpen],
     ["/how-it-works#latency", "Latency, explained", Wrench],
     ["/how-it-works#troubleshooting", "Troubleshooting", LifeBuoy],
+    ["/guides/daybreak", "Daybreak synth guide", SlidersHorizontal],
     ["/faq", "Questions and answers", CircleHelp],
   ];
 

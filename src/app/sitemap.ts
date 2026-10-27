@@ -10,6 +10,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ["", 1],
     ["/features", 0.9],
     ["/how-it-works", 0.9],
+    ["/guides", 0.8],
+    ["/guides/daybreak", 0.7],
     ["/faq", 0.8],
     ["/support", 0.7],
     ["/privacy", 0.3],

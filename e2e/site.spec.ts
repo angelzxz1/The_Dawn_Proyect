@@ -2,7 +2,7 @@
 
 import { test, expect } from "./fixtures";
 
-const PAGES = ["/", "/features", "/how-it-works", "/faq", "/support", "/privacy", "/credits", "/license"];
+const PAGES = ["/", "/features", "/how-it-works", "/guides", "/guides/daybreak", "/faq", "/support", "/privacy", "/credits", "/license"];
 
 for (const path of PAGES) {
   test(`${path} loads`, async ({ page }) => {

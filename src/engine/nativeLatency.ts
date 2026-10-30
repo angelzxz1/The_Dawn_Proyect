@@ -14,7 +14,7 @@ let measured: NativeLatencies | null = null;
 let measuring: Promise<NativeLatencies> | null = null;
 
 function fallback(): NativeLatencies {
-  return { shaper2x: 129, shaper4x: 193 };
+  return { shaper2x: 128, shaper4x: 192 };
 }
 
 /** The latencies (samples) - measured if that's done. */

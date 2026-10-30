@@ -288,8 +288,9 @@ Temporary, never committed:
   - audio clips;
   - every instrument (piano, Drum Rack, synth), from clips and live keys;
   - the mix: volume, pan, mute, solo, groups, sends, buses;
-  - effects `PORTED` = chorus, compressor, delay, eq3, filter, gate, glue,
-    limiter, mbDynamics, multiband, paramEq, pitchShift, tubeAmp, utility;
+  - effects `PORTED` = chorus, compressor, delay, distortion (the
+    Saturator), eq3, filter, gate, glue, limiter, mbDynamics, multiband,
+    paramEq, pitchShift, tubeAmp, utility;
   - delay compensation, the master limiter and the metronome.
 - **The panel lists what it doesn't play:**
   - instruments it lacks;
@@ -310,12 +311,24 @@ Temporary, never committed:
    - The Chorus and the Delay: DelayNode (`effects/delay_node.rs`) and
      Tone's LFO (`effects/tone_lfo.rs`: Chromium's wave-table oscillator,
      AudioToGain's WaveShaper, Scale). The Filter's LFO uses it too.
+   - The Saturator: WaveShaperNode with its 2x/4x oversampling
+     (`effects/wave_shaper.rs`, Blink's `UpSampler`/`DownSampler`).
 
    They match Chromium to the last bit or a float32 rounding, except where
    an LFO sweeps: Chromium's wave tables come from its FFT, ours are
    summed, so they differ in the last bit. That's under 6e-6 on the Filter,
    and up to 2e-4 on the Chorus (it moves a delay's read position by one
    float32 step now and then); `chorus_parity.rs` allows 5e-4.
+
+   The Saturator is exact without oversampling. With it,
+   `saturator_parity.rs` allows 5e-3: the Chromium the tests run (141)
+   downsamples with an FFT convolution, the port with the direct one
+   Chromium's main branch now uses, and that last-bit difference grows
+   into a slow drift of a few 1e-4 in the DC blocker after the shaper (a
+   float32 10 Hz high pass with its poles right by DC; Chromium's own
+   output drifts as much with its input's last bits). Its latency is what
+   the studio measures in Chrome: 128 frames at 2x, 192 at 4x. The
+   studio's fallback said 129/193 until this change.
 
    The ports copy Chromium's graph quirks, since that's what the studio
    plays:
@@ -332,13 +345,12 @@ Temporary, never committed:
 
    | Key          | Folder       | Label     | Notes                                                 |
    | ------------ | ------------ | --------- | ----------------------------------------------------- |
-   | `distortion` | `saturator/` | Saturator | has `latency` from oversampling                       |
    | `reverb`     | `reverb/`    | Reverb    |                                                       |
    | `irLoader`   | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |
    | `tuner`      | `tuner/`     | Tuner     | passes audio through, but the studio reads its pitch  |
 
-   Each needs its Web Audio node semantics reimplemented (BiquadFilter,
-   Delay, Convolver, WaveShaper and so on).
+   Each needs its Web Audio node semantics reimplemented (the Convolver,
+   for the Reverb and the IR Loader).
 
 2. **NAM** (`namAmp`, `nam-amp/`). Its engine is C++
    (NeuralAmpModelerCore) and can be built into the engine as is, with

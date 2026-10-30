@@ -16,15 +16,18 @@ pub mod mb_dynamics;
 pub mod multiband;
 pub mod param_eq;
 pub mod pitch_shift;
+pub mod saturator;
 pub mod sidechain;
 pub mod tone_lfo;
 pub mod utility;
+pub mod wave_shaper;
 
 /// The effect types (their saved keys) whose kernels have been ported.
 pub const PORTED: &[&str] = &[
     "chorus",
     "compressor",
     "delay",
+    "distortion",
     "eq3",
     "filter",
     "gate",

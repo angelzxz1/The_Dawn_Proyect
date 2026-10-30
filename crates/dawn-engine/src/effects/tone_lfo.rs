@@ -17,6 +17,8 @@
 use std::f64::consts::PI;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use super::wave_shaper::shape;
+
 /// The LFO's waveform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LfoShape {
@@ -364,14 +366,7 @@ impl ToneLfo {
         }
         let x = self.group[self.next] + self.offset;
         self.next += 1;
-        // The WaveShaper (`WaveShaperCurveValues`).
-        let last = (CURVE_LENGTH - 1) as i32;
-        let v = ((x + 1.0) * 511.5).clamp(0.0, last as f32);
-        let i = v as i32;
-        let v1 = self.curve[i.clamp(0, last) as usize];
-        let v2 = self.curve[(i + 1).clamp(0, last) as usize];
-        let shaped = v1 + (v - i as f32) * (v2 - v1);
-        shaped * self.mult + self.add
+        shape(&self.curve, x) * self.mult + self.add
     }
 
     /// The oscillator's next four samples (`ProcessARateVector`).

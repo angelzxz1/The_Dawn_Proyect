@@ -178,7 +178,7 @@ export function NativeEngineSection({ prefs, update }: { prefs: AudioPrefs; upda
           <p className="text-[11px] leading-snug text-muted">
             So far it plays audio clips and every instrument (the piano, the Drum Rack and the synth, from clips and the keys you
             play) through the mix (volume, pan, mute, solo, groups, sends), the dynamics and EQ effects (Compressor, Glue
-            Compressor, Noise Gate, Limiter, the multiband effects, Parametric EQ, EQ Three, Utility), the Filter, the Chorus, the Delay, the Pitch Shift and the Furnace amp,
+            Compressor, Noise Gate, Limiter, the multiband effects, Parametric EQ, EQ Three, Utility), the Filter, the Chorus, the Delay, the Saturator, the Pitch Shift and the Furnace amp,
             with delay compensation, the master limiter and the metronome. The other effects, sidechains, automation and
             recording come next: until then, turn it off for those.
           </p>

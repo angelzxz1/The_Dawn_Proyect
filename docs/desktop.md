@@ -16,15 +16,16 @@ It's early. Today:
   interface's own driver - Core Audio on macOS, WASAPI on Windows (ASIO once
   its licence is signed, below). So far it plays the audio clips and every
   instrument through the mix (volume, pan, mute, solo, groups, sends), the
-  dynamics and EQ effects, the Pitch Shift and the Furnace amp, with delay
-  compensation, the master limiter and the metronome. The other effects,
+  dynamics and EQ effects, the Filter, the Pitch Shift and the Furnace amp,
+  with delay compensation, the master limiter and the metronome. The other effects,
   sidechains, automation and recording still need the browser's engine: the
   panel says what of the project it doesn't play yet, and Record asks to
   turn it off.
 - **The DSP is moving over**: `crates/dawn-engine` holds the kernels ported
-  to Rust so far - the instruments, the dynamics and EQ effects, the Pitch
-  Shift, the Furnace amp, the metronome and clip playback - each tested
-  against the JavaScript's own output (below).
+  to Rust so far - the instruments, the dynamics and EQ effects, the
+  Filter, the Pitch Shift, the Furnace amp, the metronome and clip
+  playback - each tested against the JavaScript's own output, or for the
+  effects built from Web Audio nodes, Chromium's (below).
 
 ## Getting the installers
 
@@ -152,7 +153,10 @@ and MIDI devices through the engine, files through native dialogs.
   state and `f32` buffers as the JavaScript's numbers and Float32Arrays, the
   arithmetic in the same order. So far the Compressor, the Glue Compressor,
   the Noise Gate, the Limiter, the Multiband Compressor, Multiband Dynamics,
-  the Parametric EQ, the Pitch Shift, the Furnace amp and the Utility. They
+  the Parametric EQ, the Pitch Shift, the Furnace amp and the Utility. The
+  Filter and the EQ Three are built from the browser's BiquadFilterNodes,
+  so they're ports of Chromium's (`biquad_node.rs`) and the studio's
+  wiring of them. They
   run in the tracks', buses' and master's chains where the browser's do
   (`mix/fx.rs`): a track's on what it plays and what's routed into it, ahead
   of its fader; a bus's on its sends; the master's after its fader, ahead of
@@ -236,6 +240,18 @@ Both sides build the test signal themselves, from the same steps
 (`src/test/kernelParity.ts` and `crates/dawn-engine/tests/common/mod.rs`);
 the fixture keeps its hash to catch the two drifting apart.
 
+The effects built from Web Audio nodes (the Filter, the EQ Three) have no
+kernel of ours to run in Node, so their fixtures are rendered in Chromium
+instead (`src/test/webAudioParity.ts`): an OfflineAudioContext plays the
+test signal through the same nodes the studio builds, and a midway change
+is made through their `set()` while the render is suspended. The tests are
+`<name>Parity.webaudio.test.ts`, in Vitest's `web-audio` project; remake
+a fixture with
+`UPDATE_ENGINE_FIXTURES=1 npx vitest run --project web-audio <name>Parity`.
+The ports follow Chromium's code (`biquad.cc`, `biquad_filter_handler.cc`),
+and match it to the last bit or within a float32 rounding, but for the
+Filter's LFO, which Chromium reads from a wave table (a few millionths).
+
 ### Porting the next kernel
 
 1. Copy the JavaScript kernel into `crates/dawn-engine/src/effects/<name>.rs`
@@ -314,8 +330,8 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
    with low latency, takes written to disk, latency compensation.
 2. **Effects in the engine** (every instrument plays already, and every
    effect with its own DSP kernel): what's built from Web Audio nodes today
-   (chorus, delay, EQ Three, filter, reverb, the IR loader, saturator,
-   tuner). NAM's engine is C++ (NeuralAmpModelerCore) and can be built into
+   (chorus, delay, reverb, the IR loader, saturator, tuner; the EQ Three
+   and the Filter are done). NAM's engine is C++ (NeuralAmpModelerCore) and can be built into
    the engine as is. Then sidechains and automation.
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in

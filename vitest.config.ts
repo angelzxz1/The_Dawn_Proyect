@@ -1,11 +1,13 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
-// Two kinds of tests live next to the code in src/:
+// Three kinds of tests live next to the code in src/:
 // - unit tests (*.test.ts), run in Node;
 // - component tests (*.test.tsx), which draw a component on its own in
 //   Chromium (Vitest's browser mode, through Playwright) with the app's
-//   styles, so layout, pointer events and scrolling are the real ones.
+//   styles, so layout, pointer events and scrolling are the real ones;
+// - Web Audio tests (*.webaudio.test.ts), which render through the
+//   browser's own audio nodes in Chromium (src/test/webAudioParity.ts).
 // e2e/ holds the browser tests of the whole site, which Playwright runs
 // (playwright.config.ts).
 export default defineConfig({
@@ -16,7 +18,7 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: "unit", include: ["src/**/*.test.ts"] },
+        test: { name: "unit", include: ["src/**/*.test.ts"], exclude: [...configDefaults.exclude, "src/**/*.webaudio.test.ts"] },
       },
       {
         extends: true,
@@ -36,6 +38,22 @@ export default defineConfig({
             screenshotFailures: false,
             // The studio is laid out for a desktop screen.
             viewport: { width: 1600, height: 1000 },
+            instances: [{ browser: "chromium" }],
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "web-audio",
+          include: ["src/**/*.webaudio.test.ts"],
+          // UPDATE_ENGINE_FIXTURES=1 rewrites the Rust parity fixtures.
+          provide: { updateEngineFixtures: process.env.UPDATE_ENGINE_FIXTURES === "1" },
+          browser: {
+            enabled: true,
+            provider: "playwright",
+            headless: true,
+            screenshotFailures: false,
             instances: [{ browser: "chromium" }],
           },
         },

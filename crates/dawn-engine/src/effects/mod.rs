@@ -2,7 +2,10 @@
 //! effect folders (`src/effects/<name>/`).
 
 pub mod amp;
+pub mod biquad_node;
 pub mod compressor;
+pub mod eq_three;
+pub mod filter;
 pub mod gate;
 pub mod glue;
 pub mod limiter;
@@ -16,6 +19,8 @@ pub mod utility;
 /// The effect types (their saved keys) whose kernels have been ported.
 pub const PORTED: &[&str] = &[
     "compressor",
+    "eq3",
+    "filter",
     "gate",
     "glue",
     "limiter",

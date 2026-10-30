@@ -288,8 +288,8 @@ Temporary, never committed:
   - audio clips;
   - every instrument (piano, Drum Rack, synth), from clips and live keys;
   - the mix: volume, pan, mute, solo, groups, sends, buses;
-  - effects `PORTED` = compressor, gate, glue, limiter, mbDynamics,
-    multiband, paramEq, pitchShift, tubeAmp, utility;
+  - effects `PORTED` = compressor, eq3, filter, gate, glue, limiter,
+    mbDynamics, multiband, paramEq, pitchShift, tubeAmp, utility;
   - delay compensation, the master limiter and the metronome.
 - **The panel lists what it doesn't play:**
   - instruments it lacks;
@@ -301,18 +301,19 @@ Temporary, never committed:
 ## Next steps
 
 1. **The Web Audio-node effects.** Their parity can't be checked in node,
-   because the nodes don't run there. The plan is to render reference
-   fixtures in Chromium (Playwright with an OfflineAudioContext, through
-   the same nodes the studio builds) and compare the Rust ports against
-   those with a looser tolerance.
+   because the nodes don't run there, so their fixtures are rendered in
+   Chromium: `src/test/webAudioParity.ts` plays the test signal through
+   the studio's own nodes in an OfflineAudioContext, in Vitest's
+   `web-audio` project (`<name>Parity.webaudio.test.ts`). The Filter and
+   the EQ Three are done, on a port of Chromium's BiquadFilterNode
+   (`effects/biquad_node.rs`); they match Chromium to the last bit or a
+   float32 rounding, the Filter's LFO within 1e-5. The rest:
 
    | Key          | Folder       | Label     | Notes                                                 |
    | ------------ | ------------ | --------- | ----------------------------------------------------- |
    | `chorus`     | `chorus/`    | Chorus    |                                                       |
    | `delay`      | `delay/`     | Delay     | tempo-synced                                          |
    | `distortion` | `saturator/` | Saturator | has `latency` from oversampling                       |
-   | `eq3`        | `eq-three/`  | EQ Three  |                                                       |
-   | `filter`     | `filter/`    | Filter    |                                                       |
    | `reverb`     | `reverb/`    | Reverb    |                                                       |
    | `irLoader`   | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |
    | `tuner`      | `tuner/`     | Tuner     | passes audio through, but the studio reads its pitch  |

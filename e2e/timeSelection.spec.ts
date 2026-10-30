@@ -21,6 +21,9 @@ type Grid = Awaited<ReturnType<typeof grid>>;
 /** Drags from a bar on one lane to a bar on another (a bar's start, plus a
  * little: the selection snaps to the bar). */
 async function selectTime(page: Page, studio: Studio, g: Grid, [fromTrack, fromBar]: [string, number], [toTrack, toBar]: [string, number]) {
+  // The lowest lanes can be under the arrangement's fold.
+  await studio.lane(toTrack).scrollIntoViewIfNeeded();
+  await studio.lane(fromTrack).scrollIntoViewIfNeeded();
   const from = (await studio.lane(fromTrack).boundingBox())!;
   const to = (await studio.lane(toTrack).boundingBox())!;
   await page.mouse.move(g.left + (fromBar - 1) * g.bar + 3, from.y + from.height / 2);

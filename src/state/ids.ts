@@ -1,9 +1,9 @@
-// New ids for tracks, clips, buses and automation lanes ("ch-3", "clip-12",
-// ...), and a new track's defaults.
+// New ids for tracks, clips, buses, automation lanes and markers ("ch-3",
+// "clip-12", ...), and a new track's defaults.
 
 import type { ChannelConfig, ChannelType } from "@/project/types";
 
-const counters = { ch: 0, clip: 0, bus: 0, auto: 0, take: 0 };
+const counters = { ch: 0, clip: 0, bus: 0, auto: 0, take: 0, mark: 0 };
 type IdKind = keyof typeof counters;
 
 function next(kind: IdKind): string {
@@ -15,11 +15,12 @@ export const newClipId = () => next("clip");
 export const newBusId = () => next("bus");
 export const newAutomationLaneId = () => next("auto");
 export const newTakeLaneId = () => next("take");
+export const newMarkerId = () => next("mark");
 
 /** After restoring ids (opening a project), makes sure the next new id of
  * that kind can't collide with a restored one. */
 export function bumpIdFrom(id: string): void {
-  const match = id.match(/^(ch|clip|bus|auto|take)-(\d+)$/);
+  const match = id.match(/^(ch|clip|bus|auto|take|mark)-(\d+)$/);
   if (!match) return;
   const kind = match[1] as IdKind;
   counters[kind] = Math.max(counters[kind], parseInt(match[2], 10));

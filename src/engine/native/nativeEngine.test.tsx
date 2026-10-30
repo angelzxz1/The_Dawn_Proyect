@@ -69,6 +69,7 @@ function project(url: string): ProjectState {
     busEffects: {},
     bpm: 120,
     tempoChanges: [],
+    markers: [],
     timeSignature: { numerator: 4, denominator: 4 },
     masterVolume: 0,
     masterPan: 0,

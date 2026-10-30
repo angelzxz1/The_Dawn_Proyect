@@ -446,3 +446,19 @@ describe("tempo changes", () => {
     ]);
   });
 });
+
+describe("section markers", () => {
+  it("an older project, saved before markers were, has none", () => {
+    expect(normalizeProject({ bpm: 100 })?.markers).toEqual([]);
+  });
+
+  it("keeps them in order, and drops broken ones", () => {
+    const project = normalizeProject({
+      markers: [{ id: "mark-2", beat: 16, name: "Chorus" }, { id: "mark-1", beat: 0, name: "Intro" }, { beat: -1, name: "x" }, "y"],
+    });
+    expect(project?.markers).toEqual([
+      { id: "mark-1", beat: 0, name: "Intro" },
+      { id: "mark-2", beat: 16, name: "Chorus" },
+    ]);
+  });
+});

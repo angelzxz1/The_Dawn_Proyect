@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import type { EffectInstance } from "../effects/registry";
 import type { TempoChange } from "./tempoMap";
+import type { SongMarker } from "./markers";
 
 export interface ProjectState {
   channels: ChannelConfig[];
@@ -25,6 +26,8 @@ export interface ProjectState {
   bpm: number;
   /** Tempo changes after the start (tempoMap.ts); none for one tempo. */
   tempoChanges: TempoChange[];
+  /** The song's sections (markers.ts), in order. */
+  markers: SongMarker[];
   timeSignature: TimeSignature;
   masterVolume: number;
   masterPan: number;

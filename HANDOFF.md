@@ -58,12 +58,12 @@ The Dawn Project is a browser DAW, also built as a desktop app.
 
 **Branch:**
 
-- Develop only on `claude/busy-rubin-wagwyi`.
-- After each merge, restart it from main:
-  `git fetch origin main && git checkout -B claude/busy-rubin-wagwyi origin/main && git push -u origin claude/busy-rubin-wagwyi --force-with-lease`.
-  Uncommitted work carries over.
-- A fresh container may clone the branch at an old commit. Fetch first;
-  if the tree is clean, `git merge --ff-only origin/claude/busy-rubin-wagwyi`.
+- For now (since 2026-10-29), work on `main`: the user said "Let's work
+  for now on main always. I'll let you now when we'll create a new
+  branch." Leave the changes uncommitted and give the user the commit
+  command; they commit it themselves.
+- Before that, work went on `claude/busy-rubin-wagwyi`, restarted from
+  main after each merge.
 
 **Commits** end with:
 
@@ -86,8 +86,13 @@ angelzxz1
 - `cargo test --workspace`
 - `npx tsc --noEmit`
 - `npm run lint`
-- `npx vitest run` (603 tests now)
-- `npx playwright test` (146 passed, 1 skipped)
+- `npx vitest run` (619 unit and component tests on 2026-10-30; under
+  load, add `--testTimeout 60000`, see "Flaky synth preset test" below)
+- `npx playwright test` (149 tests, 1 skipped). It serves `out/`, so run
+  `npm run build` first or it tests the last build. On Windows on 2026-10-30,
+  four site page tests failed on 404s for resources `serve` didn't find
+  (`site.spec.ts`). The credits one was checked on `main` without the day's
+  changes and failed the same way.
 
 CI (`.github/workflows/ci.yml`) runs `cargo test -p dawn-engine -p dawn-plugins`,
 clippy and fmt. `desktop.yml` builds on Windows, macOS and Linux.
@@ -377,8 +382,16 @@ Temporary, never committed:
 - **IMPROVEMENTS.md** (checked against the code on 2026-10-29). It has
   checkboxes, and each finished item names the commit that did it.
   - Part 1 (code) is all done.
-  - Part 2 (UX) items 1–6 are done.
-  - Items 7–28 are open; 8, 12, 16, 20, 21 and 25 are partly there.
+  - Part 2 (UX) items 1–7 are done. Item 7, section markers, was added
+    on 2026-10-30 (`src/project/markers.ts`, `src/state/markerActions.ts`,
+    `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`); its
+    entry names the commit by its title, so put the hash in once it's
+    committed. The next release's "What's new" (`src/content/whatsNew.ts`)
+    should mention it.
+  - Items 8–28 are open; 8, 12, 16, 20, 21 and 25 are partly there. Next
+    up is 8, snap that adapts to zoom and snaps to clip edges.
+  - The project document now has `markers` (in beats). The native engine
+    ignores them; they only move the playhead and the loop.
 - **A latent bug in the JS multiband kernels** (`mbDynamicsModel.ts`, and
   the same pattern in `multibandModel.ts`). `process()` reads the band
   count and `keyed` once per block. A pending band switch that lands

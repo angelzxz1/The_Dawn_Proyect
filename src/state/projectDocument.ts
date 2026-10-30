@@ -129,6 +129,7 @@ export function openInStore(project: SerializedProject, blobs: Map<string, Blob>
       (c.automationLanes ?? []).forEach((lane) => bumpIdFrom(lane.id));
     });
     snap.buses.forEach((b) => bumpIdFrom(b.id));
+    (snap.markers ?? []).forEach((m) => bumpIdFrom(m.id));
     effectListsOf(snap)
       .flat()
       .forEach((fx) => {
@@ -151,6 +152,7 @@ export function openInStore(project: SerializedProject, blobs: Map<string, Blob>
     busEffects: snap.busEffects,
     bpm: snap.bpm,
     tempoChanges: snap.tempoChanges ?? [],
+    markers: snap.markers ?? [],
     timeSignature: snap.timeSignature,
     masterVolume: snap.masterVolume,
     masterPan: snap.masterPan,

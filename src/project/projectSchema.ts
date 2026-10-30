@@ -20,6 +20,7 @@ import { INSTRUMENT_TYPES, readInstrumentSettings } from "../instruments/registr
 import { HEX_COLOR } from "./colors";
 import { cleanClipName } from "./clipEdits";
 import { clampBpm, makeTempoMap, type TempoChange } from "./tempoMap";
+import { normalizeMarkers, type SongMarker } from "./markers";
 import { clampTrackHeight } from "./trackHeight";
 import { MASTER_OUTPUT, normalizeGroups } from "../engine/routing";
 import { cleanMarkers } from "./warp";
@@ -95,6 +96,8 @@ export interface SerializedProject {
   bpm: number;
   /** Tempo changes after the start (tempoMap.ts). */
   tempoChanges: TempoChange[];
+  /** The song's sections (markers.ts). */
+  markers: SongMarker[];
   timeSignature: TimeSignature;
   masterVolume: number;
   masterPan: number;
@@ -518,6 +521,7 @@ export function normalizeProject(raw: unknown): SerializedProject | null {
         return typeof cr.beat === "number" && typeof cr.bpm === "number" ? [{ beat: cr.beat, bpm: cr.bpm }] : [];
       })
     ).changes,
+    markers: normalizeMarkers(r.markers),
     timeSignature: {
       numerator: int(ts.numerator, 4, 1, 32),
       denominator: oneOf(ts.denominator, [1, 2, 4, 8, 16], 4),

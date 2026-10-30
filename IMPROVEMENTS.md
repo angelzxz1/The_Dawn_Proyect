@@ -1,11 +1,11 @@
 # Improvements
 
-Checked against the code and the commit history on 2026-10-29.
+Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30.
 
 - `[x]` is done; the commit that did it is in brackets.
 - `[ ]` is still open; "Partly" says what already exists.
 
-**Summary:** Part 1 is all done. In Part 2, items 1–6 are done and items 7–28 are open; six of the open items (8, 12, 16, 20, 21, 25) are partly there.
+**Summary:** Part 1 is all done. In Part 2, items 1–7 are done and items 8–28 are open; six of the open items (8, 12, 16, 20, 21, 25) are partly there.
 
 ## Part 1: Code improvements
 
@@ -64,7 +64,10 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
 - [x] **4. Comping:** loop-record several takes and pick the best parts. (`a247a97`)
 - [x] **5. Timing and tempo:** warp/time-stretch audio, a tempo map with tempo changes, and quantizing audio. (`527f033`, `72b0bdb`, `7acccc6`)
 - [x] **6. Zoom like other DAWs:** Ctrl+wheel and pinch to zoom, zoom-to-fit and zoom-to-selection, and resizable track heights. (`47c7c5b`)
-- [ ] **7. Markers and song sections** (Intro, Verse, Chorus) that you can jump to and loop, like Logic's arrangement markers.
+- [x] **7. Markers and song sections** (Intro, Verse, Chorus) that you can jump to and loop, like Logic's arrangement markers. (the "Add section markers" commit)
+  - A Sections lane under the tempo lane. Double-click it to add a marker on the nearest bar, named after a common song form (Intro, Verse, Chorus…). Click a marker to jump there, drag it to move it, double-click it to rename it. Right-click it to loop its section (to the next marker, or the song's end), pick a name or remove it.
+  - Shift+M adds a marker on the bar nearest the playhead; Shift+←/→ jump to the previous or next one.
+  - Kept in beats (`src/project/markers.ts`), saved with the project, and undoable. Time edits (insert silence, delete time) don't move them, as they don't move the tempo changes or the loop.
 - [ ] **8. Snap that adapts to zoom,** plus snapping to other clips' edges.
   - Partly: clicking the ruler snaps to a unit that follows the zoom (`snapUnitFor`). Clips still snap to the grid setting, and there is no snapping to clip edges.
 - [ ] **9. Velocity and automation drawing tools:** curves, ramps and line tools, as in FL and Ableton.

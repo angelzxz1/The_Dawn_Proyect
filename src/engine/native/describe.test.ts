@@ -61,6 +61,7 @@ function project(): ProjectState {
     busEffects: {},
     bpm: 120,
     tempoChanges: [{ beat: 8, bpm: 90 }],
+    markers: [],
     timeSignature: { numerator: 3, denominator: 4 },
     masterVolume: -2,
     masterPan: 0,

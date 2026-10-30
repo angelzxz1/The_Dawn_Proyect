@@ -63,6 +63,9 @@ import { getCopiedRange } from "@/state/clipboard";
 import { DrumPads } from "@/instruments/drum-rack/DrumPads";
 import { LOOP_BAR_HEIGHT, LoopBar, LoopFields } from "@/studio/transport/LoopBar";
 import { TEMPO_LANE_HEIGHT, TempoLane } from "@/studio/transport/TempoLane";
+import { MARKER_LANE_HEIGHT, MarkerLane } from "@/studio/transport/MarkerLane";
+import { nextMarker, previousMarker, sectionOf } from "@/project/markers";
+import { markerActions } from "@/state/markerActions";
 import { ExpressionControls } from "@/studio/notes/ExpressionControls";
 import { PianoRollEditor } from "@/studio/notes/PianoRollEditor";
 import { ScaleSelector } from "@/studio/notes/ScaleSelector";
@@ -309,6 +312,8 @@ export function Daw() {
   /** Where the beats fall (tempoMap.ts): the grid, the loop, the
    * metronome. */
   const tempo = useMemo(() => makeTempoMap(bpm, tempoChanges), [bpm, tempoChanges]);
+  /** The song's sections (markers.ts). */
+  const markers = useProjectValue("markers");
   const timeSignature = useProjectValue("timeSignature");
   const [metronomeEnabled, setMetronomeEnabled] = useState(false);
   const [transportState, setTransportState] = useState<TransportState>(
@@ -1530,6 +1535,37 @@ export function Daw() {
     const next = nudgeLoop(loop, e.key, unit, e.ctrlKey || e.metaKey);
     if (next) setLoop(next);
   };
+  // --- Section markers (markers.ts) ---
+
+  const jumpToBeat = useCallback((beat: number) => handleSeek(secondsAtBeat(tempo, beat)), [handleSeek, tempo]);
+
+  /** Loops a marker's section: to the next marker, or the song's end. */
+  const loopSection = useCallback(
+    (id: string) => {
+      const songEnd = beatAtSeconds(tempo, channels.reduce((max, c) => Math.max(max, endOfContent(c.id)), 0));
+      const section = sectionOf(markers, id, songEnd, beatsPerBar);
+      if (!section) return;
+      setLoop({ on: true, ...section });
+      setLoopSelected(true);
+    },
+    [tempo, channels, endOfContent, markers, beatsPerBar]
+  );
+
+  const addMarkerAtPlayhead = () => {
+    const beat = beatAtSeconds(tempo, audioEngine.getTransportSeconds());
+    return markerActions.add(Math.max(0, Math.round(beat / beatsPerBar)) * beatsPerBar);
+  };
+
+  /** The marker before or after the playhead. While playing, one just
+   * passed counts as where you are, so "previous" goes to the one before. */
+  const jumpToMarker = (direction: -1 | 1): boolean => {
+    const beat = beatAtSeconds(tempo, audioEngine.getTransportSeconds());
+    const to = direction > 0 ? nextMarker(markers, beat) : previousMarker(markers, beat, transportState === "playing" ? 1 : 0);
+    if (!to) return false;
+    jumpToBeat(to.beat);
+    return true;
+  };
+
   useShortcuts("studio", [
     { keys: "space", label: "Play / pause", run: () => handleTogglePlay() },
     { keys: "=", label: "Zoom in", run: () => zoomBy(ZOOM_STEP) },
@@ -1588,6 +1624,9 @@ export function Daw() {
       label: "Move the selected loop brace (Ctrl/Cmd: resize it)",
       run: nudgeLoopWith,
     },
+    { keys: "shift+m", label: "Add a section marker on the bar nearest the playhead", run: () => void addMarkerAtPlayhead() },
+    { keys: "shift+arrowleft", label: "Jump to the previous section marker", run: () => jumpToMarker(-1) },
+    { keys: "shift+arrowright", label: "Jump to the next section marker", run: () => jumpToMarker(1) },
     {
       keys: "mod+g",
       label: "Group the picked tracks, or the selected one",
@@ -2343,7 +2382,7 @@ export function Daw() {
             block instead of getting stuck relative to an inner element. */}
         <div className="sticky top-0 z-20 flex shrink-0 bg-surface">
           <div
-            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT + LOOP_BAR_HEIGHT + TEMPO_LANE_HEIGHT }}
+            style={{ width: TRACK_HEADER_WIDTH, height: RULER_HEIGHT + LOOP_BAR_HEIGHT + TEMPO_LANE_HEIGHT + MARKER_LANE_HEIGHT }}
             className="flex shrink-0 flex-col border-b border-r border-border bg-surface"
           >
             <div className="flex flex-1 items-end justify-end gap-2 px-2 pb-[1px]">
@@ -2373,6 +2412,13 @@ export function Daw() {
               title="The tempo lane: double-click it to add a tempo change"
             >
               Tempo
+            </div>
+            <div
+              className="flex items-center justify-end border-t border-border/60 px-2 text-[9px] font-semibold uppercase tracking-wider text-muted"
+              style={{ height: MARKER_LANE_HEIGHT }}
+              title="The section lane: double-click it to add a marker (Intro, Verse, Chorus), or press Shift+M"
+            >
+              Sections
             </div>
           </div>
           <div ref={rulerViewportRef} className="flex-1 overflow-hidden border-b border-border">
@@ -2407,6 +2453,20 @@ export function Daw() {
               beatsPerBar={beatsPerBar}
               snapUnit={snapUnitFor(tempo, pxPerSecond, beatsPerBar)}
               onChange={changeTempo}
+            />
+            <MarkerLane
+              markers={markers}
+              tempo={tempo}
+              pxPerSecond={pxPerSecond}
+              totalSeconds={totalSeconds}
+              beatsPerBar={beatsPerBar}
+              snapUnit={snapUnitFor(tempo, pxPerSecond, beatsPerBar)}
+              onAdd={markerActions.add}
+              onRename={markerActions.rename}
+              onMove={markerActions.move}
+              onRemove={markerActions.remove}
+              onJump={jumpToBeat}
+              onLoop={loopSection}
             />
           </div>
         </div>

@@ -236,8 +236,18 @@ export class Studio {
     return this.page.getByTestId("tempo-lane");
   }
 
-  /** The autosaved tempo map, and where each track's clips and their
-   * notes are (s), by track name. */
+  /** The section lane, under the tempo lane. */
+  get markerLane(): Locator {
+    return this.page.getByTestId("marker-lane");
+  }
+
+  /** Where the playhead is (px from the song's start). */
+  playheadX(): Promise<number> {
+    return this.page.getByTestId("playhead").evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).m41);
+  }
+
+  /** The autosaved tempo map and section markers, and where each track's
+   * clips and their notes are (s), by track name. */
   autosavedTiming(): Promise<SavedTiming | null> {
     return this.page.evaluate(
       () =>
@@ -250,7 +260,11 @@ export class Studio {
             get.onsuccess = () => {
               type Raw = { offset: number; length: number; notes?: { time: number; duration: number }[]; warp?: { bpm: number; mode: string } };
               const p = get.result as
-                | { bpm: number; tempoChanges?: { beat: number; bpm: number }[]; channels: { id: string; name: string }[]; clipsByChannel: Record<string, Raw[]> }
+                | {
+                    bpm: number;
+                    tempoChanges?: { beat: number; bpm: number }[];
+                    markers?: { beat: number; name: string }[];
+                    channels: { id: string; name: string }[]; clipsByChannel: Record<string, Raw[]> }
                 | undefined;
               if (!p) return resolve(null);
               const clips = Object.fromEntries(
@@ -264,7 +278,12 @@ export class Studio {
                   })),
                 ])
               );
-              resolve({ bpm: p.bpm, tempoChanges: p.tempoChanges ?? [], clips });
+              resolve({
+                bpm: p.bpm,
+                tempoChanges: p.tempoChanges ?? [],
+                markers: (p.markers ?? []).map((m) => ({ beat: m.beat, name: m.name })),
+                clips,
+              });
             };
           };
         })
@@ -276,6 +295,7 @@ export class Studio {
 export interface SavedTiming {
   bpm: number;
   tempoChanges: { beat: number; bpm: number }[];
+  markers: { beat: number; name: string }[];
   clips: Record<string, { offset: number; length: number; notes: { time: number; duration: number }[]; warp?: { bpm: number; mode: string } }[]>;
 }
 

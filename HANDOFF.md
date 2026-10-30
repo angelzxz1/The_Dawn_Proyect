@@ -339,9 +339,15 @@ Temporary, never committed:
   `src/instruments/synth/synth.test.ts`, "every factory preset is valid,
   plays, and survives a save/load round trip". It takes about 0.9 s
   alone, but failed once in a full parallel `vitest` run, probably
-  hitting the 5 s default timeout. I suggested it as a separate task:
-  confirm the timeout, then give the test a longer limit.
-- **Older UX list items 7–28** from earlier sessions are still open, those are listed on IMPROVEMENTS.md.
+  hitting the 5 s default timeout. Still open on 2026-10-29: under heavy
+  CPU load, other slow tests (ClipBlock, drum kits, wavetables, damaged
+  saved data) time out the same way, and all pass with
+  `--testTimeout 60000`. Give the slow tests a longer limit.
+- **IMPROVEMENTS.md** (checked against the code on 2026-10-29). It has
+  checkboxes, and each finished item names the commit that did it.
+  - Part 1 (code) is all done.
+  - Part 2 (UX) items 1–6 are done.
+  - Items 7–28 are open; 8, 12, 16, 20, 21 and 25 are partly there.
 - **A latent bug in the JS multiband kernels** (`mbDynamicsModel.ts`, and
   the same pattern in `multibandModel.ts`). `process()` reads the band
   count and `keyed` once per block. A pending band switch that lands

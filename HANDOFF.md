@@ -288,8 +288,8 @@ Temporary, never committed:
   - audio clips;
   - every instrument (piano, Drum Rack, synth), from clips and live keys;
   - the mix: volume, pan, mute, solo, groups, sends, buses;
-  - effects `PORTED` = compressor, eq3, filter, gate, glue, limiter,
-    mbDynamics, multiband, paramEq, pitchShift, tubeAmp, utility;
+  - effects `PORTED` = chorus, compressor, delay, eq3, filter, gate, glue,
+    limiter, mbDynamics, multiband, paramEq, pitchShift, tubeAmp, utility;
   - delay compensation, the master limiter and the metronome.
 - **The panel lists what it doesn't play:**
   - instruments it lacks;
@@ -304,15 +304,34 @@ Temporary, never committed:
    because the nodes don't run there, so their fixtures are rendered in
    Chromium: `src/test/webAudioParity.ts` plays the test signal through
    the studio's own nodes in an OfflineAudioContext, in Vitest's
-   `web-audio` project (`<name>Parity.webaudio.test.ts`). The Filter and
-   the EQ Three are done, on a port of Chromium's BiquadFilterNode
-   (`effects/biquad_node.rs`); they match Chromium to the last bit or a
-   float32 rounding, the Filter's LFO within 1e-5. The rest:
+   `web-audio` project (`<name>Parity.webaudio.test.ts`). Done, on ports
+   of Chromium's nodes:
+   - The Filter and the EQ Three: BiquadFilterNode (`effects/biquad_node.rs`).
+   - The Chorus and the Delay: DelayNode (`effects/delay_node.rs`) and
+     Tone's LFO (`effects/tone_lfo.rs`: Chromium's wave-table oscillator,
+     AudioToGain's WaveShaper, Scale). The Filter's LFO uses it too.
+
+   They match Chromium to the last bit or a float32 rounding, except where
+   an LFO sweeps: Chromium's wave tables come from its FFT, ours are
+   summed, so they differ in the last bit. That's under 6e-6 on the Filter,
+   and up to 2e-4 on the Chorus (it moves a delay's read position by one
+   float32 step now and then); `chorus_parity.rs` allows 5e-4.
+
+   The ports copy Chromium's graph quirks, since that's what the studio
+   plays:
+   - A feedback loop runs a block at a time, so what comes back is 128
+     frames late. With Ping-Pong only the right side waits.
+   - The Chorus's right delay reads its splitter in place. That gives it
+     no input in its first block, and odd input for one block whenever the
+     feedback loop is wired or unwired (`RightInput` in `chorus.rs`).
+   - Tone's LFO sets its "stopped" value whenever its type or phase
+     changes, even while running. After a Spread or waveform change, that
+     offset stays added to the wave (`initial_value` in `tone_lfo.rs`).
+
+   The rest:
 
    | Key          | Folder       | Label     | Notes                                                 |
    | ------------ | ------------ | --------- | ----------------------------------------------------- |
-   | `chorus`     | `chorus/`    | Chorus    |                                                       |
-   | `delay`      | `delay/`     | Delay     | tempo-synced                                          |
    | `distortion` | `saturator/` | Saturator | has `latency` from oversampling                       |
    | `reverb`     | `reverb/`    | Reverb    |                                                       |
    | `irLoader`   | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |

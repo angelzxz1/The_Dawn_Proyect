@@ -3,7 +3,10 @@
 
 pub mod amp;
 pub mod biquad_node;
+pub mod chorus;
 pub mod compressor;
+pub mod delay;
+pub mod delay_node;
 pub mod eq_three;
 pub mod filter;
 pub mod gate;
@@ -14,11 +17,14 @@ pub mod multiband;
 pub mod param_eq;
 pub mod pitch_shift;
 pub mod sidechain;
+pub mod tone_lfo;
 pub mod utility;
 
 /// The effect types (their saved keys) whose kernels have been ported.
 pub const PORTED: &[&str] = &[
+    "chorus",
     "compressor",
+    "delay",
     "eq3",
     "filter",
     "gate",

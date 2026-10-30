@@ -35,7 +35,7 @@ export const NATIVE_INSTRUMENTS: readonly InstrumentType[] = ["piano", "drums", 
 export const SUB_TABLE = "sub";
 
 /** The effects the native engine plays; a chain plays without the others. */
-export const NATIVE_EFFECTS: readonly EffectType[] = ["compressor", "eq3", "filter", "gate", "glue", "limiter", "mbDynamics", "multiband", "paramEq", "pitchShift", "tubeAmp", "utility"];
+export const NATIVE_EFFECTS: readonly EffectType[] = ["chorus", "compressor", "delay", "eq3", "filter", "gate", "glue", "limiter", "mbDynamics", "multiband", "paramEq", "pitchShift", "tubeAmp", "utility"];
 
 /** The shortest a note plays (as the browser's engine, audioEngine.ts). */
 const MIN_NOTE_DURATION = 0.05;

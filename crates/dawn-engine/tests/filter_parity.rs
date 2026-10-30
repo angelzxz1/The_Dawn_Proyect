@@ -8,9 +8,10 @@ mod common;
 use common::{FixtureReader, Signal};
 use dawn_engine::effects::filter::{FilterKernel, FilterSettings};
 
-/// -100 dB. Without the LFO the port is exact; Chromium's LFO reads a wave
-/// table, so with it the two differ by a few millionths (the run prints
-/// the largest difference per case).
+/// -100 dB. Without the LFO the port is exact; with it the two differ by
+/// a few millionths at most, as Chromium makes the LFO's wave table with
+/// its FFT and the port sums it (the run prints the largest difference
+/// per case).
 const TOLERANCE: f64 = 1e-5;
 
 const BLOCK: usize = 128;

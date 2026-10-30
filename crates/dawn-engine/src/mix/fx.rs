@@ -9,7 +9,9 @@
 
 use super::song::MAX_BLOCK;
 use crate::effects::amp::{self, AmpEffect, AmpSettings};
+use crate::effects::chorus::{ChorusKernel, ChorusSettings};
 use crate::effects::compressor::{CompressorKernel, CompressorSettings};
+use crate::effects::delay::{DelayKernel, DelaySettings};
 use crate::effects::eq_three::{EqThreeKernel, EqThreeSettings};
 use crate::effects::filter::{FilterKernel, FilterSettings};
 use crate::effects::gate::{GateKernel, GateSettings};
@@ -27,7 +29,9 @@ use crate::params::ParamSource;
 #[derive(Clone, Debug, PartialEq)]
 pub enum EffectSettings {
     Amp(Box<AmpSettings>),
+    Chorus(Box<ChorusSettings>),
     Compressor(CompressorSettings),
+    Delay(DelaySettings),
     EqThree(EqThreeSettings),
     Filter(FilterSettings),
     Gate(GateSettings),
@@ -43,7 +47,9 @@ pub enum EffectSettings {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectKind {
     Amp,
+    Chorus,
     Compressor,
+    Delay,
     EqThree,
     Filter,
     Gate,
@@ -64,7 +70,9 @@ impl EffectSettings {
     /// those keyed by another track).
     pub fn from_params<P: ParamSource + ?Sized>(kind: &str, params: &P) -> Option<Self> {
         Some(match kind {
+            "chorus" => Self::Chorus(Box::new(ChorusSettings::from_params(params))),
             "compressor" => Self::Compressor(CompressorSettings::from_params(params, false)),
+            "delay" => Self::Delay(DelaySettings::from_params(params)),
             "eq3" => Self::EqThree(EqThreeSettings::from_params(params)),
             "filter" => Self::Filter(FilterSettings::from_params(params)),
             "tubeAmp" => Self::Amp(Box::new(AmpSettings::from_params(params))),
@@ -94,10 +102,21 @@ impl EffectSettings {
         }
     }
 
+    /// Works out, off the audio thread, what its kernel needs at
+    /// `sample_rate` that would take too long on it (the Chorus's LFO
+    /// tables).
+    pub fn prepare(&mut self, sample_rate: f64) {
+        if let Self::Chorus(s) = self {
+            s.prepare(sample_rate);
+        }
+    }
+
     pub fn kind(&self) -> EffectKind {
         match self {
             Self::Amp(_) => EffectKind::Amp,
+            Self::Chorus(_) => EffectKind::Chorus,
             Self::Compressor(_) => EffectKind::Compressor,
+            Self::Delay(_) => EffectKind::Delay,
             Self::EqThree(_) => EffectKind::EqThree,
             Self::Filter(_) => EffectKind::Filter,
             Self::Gate(_) => EffectKind::Gate,
@@ -134,7 +153,9 @@ impl EffectSpec {
 
 enum Kernel {
     Amp(Box<AmpEffect>),
+    Chorus(Box<ChorusKernel>),
     Compressor(Box<CompressorKernel>),
+    Delay(Box<DelayKernel>),
     EqThree(Box<EqThreeKernel>),
     Filter(Box<FilterKernel>),
     Gate(Box<GateKernel>),
@@ -157,9 +178,13 @@ impl Effect {
     pub fn new(settings: &EffectSettings, sample_rate: f64) -> Self {
         let kernel = match settings {
             EffectSettings::Amp(s) => Kernel::Amp(Box::new(AmpEffect::new(sample_rate, s))),
+            EffectSettings::Chorus(s) => {
+                Kernel::Chorus(Box::new(ChorusKernel::new(sample_rate, s)))
+            }
             EffectSettings::Compressor(s) => {
                 Kernel::Compressor(Box::new(CompressorKernel::new(sample_rate, s)))
             }
+            EffectSettings::Delay(s) => Kernel::Delay(Box::new(DelayKernel::new(sample_rate, s))),
             EffectSettings::EqThree(s) => {
                 Kernel::EqThree(Box::new(EqThreeKernel::new(sample_rate, s)))
             }
@@ -195,7 +220,9 @@ impl Effect {
     pub fn kind(&self) -> EffectKind {
         match self.kernel {
             Kernel::Amp(_) => EffectKind::Amp,
+            Kernel::Chorus(_) => EffectKind::Chorus,
             Kernel::Compressor(_) => EffectKind::Compressor,
+            Kernel::Delay(_) => EffectKind::Delay,
             Kernel::EqThree(_) => EffectKind::EqThree,
             Kernel::Filter(_) => EffectKind::Filter,
             Kernel::Gate(_) => EffectKind::Gate,
@@ -214,7 +241,9 @@ impl Effect {
     pub fn configure(&mut self, settings: &EffectSettings) {
         match (&mut self.kernel, settings) {
             (Kernel::Amp(k), EffectSettings::Amp(s)) => k.set(s),
+            (Kernel::Chorus(k), EffectSettings::Chorus(s)) => k.set(s),
             (Kernel::Compressor(k), EffectSettings::Compressor(s)) => k.set(s),
+            (Kernel::Delay(k), EffectSettings::Delay(s)) => k.set(s),
             (Kernel::EqThree(k), EffectSettings::EqThree(s)) => k.set(s),
             (Kernel::Filter(k), EffectSettings::Filter(s)) => k.set(s),
             (Kernel::Gate(k), EffectSettings::Gate(s)) => k.set(s),
@@ -234,7 +263,9 @@ impl Effect {
         let n = l.len().min(r.len());
         match &mut self.kernel {
             Kernel::Amp(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
+            Kernel::Chorus(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Compressor(k) => k.process_in_place(&mut l[..n], Some(&mut r[..n]), None, None),
+            Kernel::Delay(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::EqThree(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Filter(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Gate(k) => {

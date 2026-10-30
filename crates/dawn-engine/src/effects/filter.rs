@@ -3,7 +3,8 @@
 //! Port of the studio's node (`src/effects/filter/filterChain.ts`, with the
 //! stage design in `filterModel.ts`): one to four BiquadFilterNodes in
 //! series, as Chromium runs them (`biquad_node.rs`), blended with the dry
-//! signal; an LFO sweeps every stage's cutoff through its detune.
+//! signal; a Tone LFO (`tone_lfo.rs`) sweeps every stage's cutoff
+//! through its detune.
 //! `tests/filter_parity.rs` holds the port to what Chromium renders.
 //!
 //! Low and high pass steepen as Butterworth cascades, the resonance on the
@@ -15,6 +16,7 @@
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
 use super::biquad_node::{BiquadState, BiquadType, Coefs};
+use super::tone_lfo::{LfoShape, LfoWave, ToneLfo, WaveTables};
 use crate::instruments::js_round;
 use crate::params::ParamSource;
 
@@ -124,16 +126,21 @@ pub struct FilterKernel {
     coefs: [Coefs; MAX_STAGES],
     dry: f32,
     wet: f32,
-    lfo_rate: f32,
-    /// The LFO's scaling to cents: (0..1)·mult + add.
-    lfo_mult: f32,
-    lfo_add: f32,
-    /// In cycles.
-    lfo_phase: f64,
+    /// In cents (the stages' detune).
+    lfo: ToneLfo,
+    /// The LFO has a depth (otherwise it sweeps 0 to 0).
+    swept: bool,
 }
 
 impl FilterKernel {
     pub fn new(sample_rate: f64, s: &FilterSettings) -> Self {
+        // A sine's tables are the same at every rate.
+        let mut lfo = ToneLfo::new(sample_rate);
+        let sine = LfoWave {
+            shape: LfoShape::Sine,
+            phase: 0.0,
+        };
+        lfo.set_wave(&WaveTables::new(sine, s.lfo_rate, sample_rate));
         let mut k = Self {
             sr: sample_rate,
             stages: design(s).0,
@@ -142,10 +149,8 @@ impl FilterKernel {
             coefs: [Coefs::default(); MAX_STAGES],
             dry: 0.0,
             wet: 0.0,
-            lfo_rate: 0.0,
-            lfo_mult: 0.0,
-            lfo_add: 0.0,
-            lfo_phase: 0.0,
+            lfo,
+            swept: false,
         };
         k.set(s);
         k
@@ -164,32 +169,21 @@ impl FilterKernel {
         }
         self.dry = (1.0 - s.wet) as f32;
         self.wet = s.wet as f32;
-        self.lfo_rate = s.lfo_rate as f32;
+        self.lfo.set_rate(s.lfo_rate);
         let cents = s.lfo_depth * LFO_MAX_OCTAVES * 1200.0;
-        let (min, max) = (-cents, cents);
-        self.lfo_mult = (max - min) as f32;
-        self.lfo_add = min as f32;
-    }
-
-    /// The LFO's next value, in cents (the stages' detune).
-    #[inline]
-    fn lfo(&mut self) -> f32 {
-        let s = (2.0 * PI * self.lfo_phase).sin();
-        self.lfo_phase += self.lfo_rate as f64 / self.sr;
-        self.lfo_phase -= self.lfo_phase.floor();
-        let unipolar = (0.5 * (s + 1.0)) as f32;
-        unipolar * self.lfo_mult + self.lfo_add
+        self.lfo.set_range(-cents, cents);
+        self.swept = cents != 0.0;
     }
 
     pub fn process_in_place(&mut self, l: &mut [f32], r: &mut [f32]) {
         let n = l.len().min(r.len());
         let (l, r) = (&mut l[..n], &mut r[..n]);
         let count = self.count;
-        if self.lfo_mult == 0.0 && self.lfo_add == 0.0 {
+        if !self.swept {
             // The LFO runs on at no depth, so it's where it would be when
             // the depth goes up.
             for _ in 0..n {
-                self.lfo();
+                self.lfo.next_value();
             }
             for (ch, buf) in [l, r].into_iter().enumerate() {
                 for x in buf.iter_mut() {
@@ -202,7 +196,7 @@ impl FilterKernel {
             }
         } else {
             for i in 0..n {
-                let detune = self.lfo();
+                let detune = self.lfo.next_value();
                 let mut y = [l[i], r[i]];
                 for (j, st) in self.stages[..count].iter().enumerate() {
                     let c = if detune == 0.0 {

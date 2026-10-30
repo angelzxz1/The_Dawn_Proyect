@@ -61,10 +61,16 @@ fn engine(song: &Song) -> Engine {
     e
 }
 
-fn render(e: &mut Engine, seconds: f64) -> Vec<f32> {
+fn render_stereo(e: &mut Engine, seconds: f64) -> (Vec<f32>, Vec<f32>) {
     let n = (seconds * SR) as usize;
     let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);
     e.render(&mut l, &mut r);
+    (l, r)
+}
+
+/// For a mono mix: both sides, which are the same.
+fn render(e: &mut Engine, seconds: f64) -> Vec<f32> {
+    let (l, r) = render_stereo(e, seconds);
     assert_eq!(l, r);
     l
 }
@@ -203,11 +209,14 @@ fn every_ported_type_plays_in_a_chain() {
             effects: vec![effect("e", kind, &[])],
             ..Track::new("a")
         };
-        let out = render(&mut engine(&song(vec![t])), 0.4);
-        assert!(out.iter().all(|x| x.is_finite()), "{kind}");
-        let peak = out[out.len() - 4800..]
-            .iter()
-            .fold(0.0f32, |m, x| m.max(x.abs()));
-        assert!(peak > 0.05, "{kind}: {peak}");
+        // The Chorus and the Delay make the sides differ.
+        let (l, r) = render_stereo(&mut engine(&song(vec![t])), 0.4);
+        for out in [l, r] {
+            assert!(out.iter().all(|x| x.is_finite()), "{kind}");
+            let peak = out[out.len() - 4800..]
+                .iter()
+                .fold(0.0f32, |m, x| m.max(x.abs()));
+            assert!(peak > 0.05, "{kind}: {peak}");
+        }
     }
 }

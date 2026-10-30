@@ -276,6 +276,19 @@ impl Song {
     /// `previous` already had is played by the one playing it (none is
     /// made for it here), and so is an effect `previous` already had.
     pub fn prepare(mut self, previous: Option<&Song>, sample_rate: f64) -> Prepared {
+        for t in &mut self.tracks {
+            t.effects
+                .iter_mut()
+                .for_each(|e| e.settings.prepare(sample_rate));
+        }
+        for b in &mut self.buses {
+            b.effects
+                .iter_mut()
+                .for_each(|e| e.settings.prepare(sample_rate));
+        }
+        for e in &mut self.master_effects {
+            e.settings.prepare(sample_rate);
+        }
         let n = self.tracks.len();
         // A destination that isn't a track, or would make a loop, is the
         // master. (The studio never sends one; this keeps a bad one safe.)

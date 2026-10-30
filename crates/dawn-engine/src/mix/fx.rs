@@ -10,6 +10,8 @@
 use super::song::MAX_BLOCK;
 use crate::effects::amp::{self, AmpEffect, AmpSettings};
 use crate::effects::compressor::{CompressorKernel, CompressorSettings};
+use crate::effects::eq_three::{EqThreeKernel, EqThreeSettings};
+use crate::effects::filter::{FilterKernel, FilterSettings};
 use crate::effects::gate::{GateKernel, GateSettings};
 use crate::effects::glue::OS_LATENCY;
 use crate::effects::glue::{GlueKernel, GlueSettings};
@@ -26,6 +28,8 @@ use crate::params::ParamSource;
 pub enum EffectSettings {
     Amp(Box<AmpSettings>),
     Compressor(CompressorSettings),
+    EqThree(EqThreeSettings),
+    Filter(FilterSettings),
     Gate(GateSettings),
     Glue(GlueSettings),
     Limiter(LimiterSettings),
@@ -40,6 +44,8 @@ pub enum EffectSettings {
 pub enum EffectKind {
     Amp,
     Compressor,
+    EqThree,
+    Filter,
     Gate,
     Glue,
     Limiter,
@@ -59,6 +65,8 @@ impl EffectSettings {
     pub fn from_params<P: ParamSource + ?Sized>(kind: &str, params: &P) -> Option<Self> {
         Some(match kind {
             "compressor" => Self::Compressor(CompressorSettings::from_params(params, false)),
+            "eq3" => Self::EqThree(EqThreeSettings::from_params(params)),
+            "filter" => Self::Filter(FilterSettings::from_params(params)),
             "tubeAmp" => Self::Amp(Box::new(AmpSettings::from_params(params))),
             "gate" => Self::Gate(GateSettings::from_params(params, false)),
             "glue" => Self::Glue(GlueSettings::from_params(params, false)),
@@ -90,6 +98,8 @@ impl EffectSettings {
         match self {
             Self::Amp(_) => EffectKind::Amp,
             Self::Compressor(_) => EffectKind::Compressor,
+            Self::EqThree(_) => EffectKind::EqThree,
+            Self::Filter(_) => EffectKind::Filter,
             Self::Gate(_) => EffectKind::Gate,
             Self::Glue(_) => EffectKind::Glue,
             Self::Limiter(_) => EffectKind::Limiter,
@@ -125,6 +135,8 @@ impl EffectSpec {
 enum Kernel {
     Amp(Box<AmpEffect>),
     Compressor(Box<CompressorKernel>),
+    EqThree(Box<EqThreeKernel>),
+    Filter(Box<FilterKernel>),
     Gate(Box<GateKernel>),
     Glue(Box<GlueKernel>),
     /// With a copy of its input, as it doesn't work in place.
@@ -147,6 +159,12 @@ impl Effect {
             EffectSettings::Amp(s) => Kernel::Amp(Box::new(AmpEffect::new(sample_rate, s))),
             EffectSettings::Compressor(s) => {
                 Kernel::Compressor(Box::new(CompressorKernel::new(sample_rate, s)))
+            }
+            EffectSettings::EqThree(s) => {
+                Kernel::EqThree(Box::new(EqThreeKernel::new(sample_rate, s)))
+            }
+            EffectSettings::Filter(s) => {
+                Kernel::Filter(Box::new(FilterKernel::new(sample_rate, s)))
             }
             EffectSettings::Gate(s) => Kernel::Gate(Box::new(GateKernel::new(sample_rate, s))),
             EffectSettings::Glue(s) => Kernel::Glue(Box::new(GlueKernel::new(sample_rate, s))),
@@ -178,6 +196,8 @@ impl Effect {
         match self.kernel {
             Kernel::Amp(_) => EffectKind::Amp,
             Kernel::Compressor(_) => EffectKind::Compressor,
+            Kernel::EqThree(_) => EffectKind::EqThree,
+            Kernel::Filter(_) => EffectKind::Filter,
             Kernel::Gate(_) => EffectKind::Gate,
             Kernel::Glue(_) => EffectKind::Glue,
             Kernel::Limiter(..) => EffectKind::Limiter,
@@ -195,6 +215,8 @@ impl Effect {
         match (&mut self.kernel, settings) {
             (Kernel::Amp(k), EffectSettings::Amp(s)) => k.set(s),
             (Kernel::Compressor(k), EffectSettings::Compressor(s)) => k.set(s),
+            (Kernel::EqThree(k), EffectSettings::EqThree(s)) => k.set(s),
+            (Kernel::Filter(k), EffectSettings::Filter(s)) => k.set(s),
             (Kernel::Gate(k), EffectSettings::Gate(s)) => k.set(s),
             (Kernel::Glue(k), EffectSettings::Glue(s)) => k.set(s),
             (Kernel::Limiter(k, ..), EffectSettings::Limiter(s)) => k.set(*s),
@@ -213,6 +235,8 @@ impl Effect {
         match &mut self.kernel {
             Kernel::Amp(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Compressor(k) => k.process_in_place(&mut l[..n], Some(&mut r[..n]), None, None),
+            Kernel::EqThree(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
+            Kernel::Filter(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Gate(k) => {
                 k.process_in_place(&mut l[..n], &mut r[..n]);
             }

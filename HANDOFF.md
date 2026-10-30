@@ -288,8 +288,8 @@ Temporary, never committed:
   - audio clips;
   - every instrument (piano, Drum Rack, synth), from clips and live keys;
   - the mix: volume, pan, mute, solo, groups, sends, buses;
-  - effects `PORTED` = compressor, gate, glue, limiter, mbDynamics,
-    multiband, paramEq, pitchShift, tubeAmp, utility;
+  - effects `PORTED` = compressor, eq3, filter, gate, glue, limiter,
+    mbDynamics, multiband, paramEq, pitchShift, tubeAmp, utility;
   - delay compensation, the master limiter and the metronome.
 - **The panel lists what it doesn't play:**
   - instruments it lacks;
@@ -301,18 +301,19 @@ Temporary, never committed:
 ## Next steps
 
 1. **The Web Audio-node effects.** Their parity can't be checked in node,
-   because the nodes don't run there. The plan is to render reference
-   fixtures in Chromium (Playwright with an OfflineAudioContext, through
-   the same nodes the studio builds) and compare the Rust ports against
-   those with a looser tolerance.
+   because the nodes don't run there, so their fixtures are rendered in
+   Chromium: `src/test/webAudioParity.ts` plays the test signal through
+   the studio's own nodes in an OfflineAudioContext, in Vitest's
+   `web-audio` project (`<name>Parity.webaudio.test.ts`). The Filter and
+   the EQ Three are done, on a port of Chromium's BiquadFilterNode
+   (`effects/biquad_node.rs`); they match Chromium to the last bit or a
+   float32 rounding, the Filter's LFO within 1e-5. The rest:
 
    | Key          | Folder       | Label     | Notes                                                 |
    | ------------ | ------------ | --------- | ----------------------------------------------------- |
    | `chorus`     | `chorus/`    | Chorus    |                                                       |
    | `delay`      | `delay/`     | Delay     | tempo-synced                                          |
    | `distortion` | `saturator/` | Saturator | has `latency` from oversampling                       |
-   | `eq3`        | `eq-three/`  | EQ Three  |                                                       |
-   | `filter`     | `filter/`    | Filter    |                                                       |
    | `reverb`     | `reverb/`    | Reverb    |                                                       |
    | `irLoader`   | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |
    | `tuner`      | `tuner/`     | Tuner     | passes audio through, but the studio reads its pitch  |
@@ -338,9 +339,15 @@ Temporary, never committed:
   `src/instruments/synth/synth.test.ts`, "every factory preset is valid,
   plays, and survives a save/load round trip". It takes about 0.9 s
   alone, but failed once in a full parallel `vitest` run, probably
-  hitting the 5 s default timeout. I suggested it as a separate task:
-  confirm the timeout, then give the test a longer limit.
-- **Older UX list items 7–28** from earlier sessions are still open, those are listed on IMPROVEMENTS.md.
+  hitting the 5 s default timeout. Still open on 2026-10-29: under heavy
+  CPU load, other slow tests (ClipBlock, drum kits, wavetables, damaged
+  saved data) time out the same way, and all pass with
+  `--testTimeout 60000`. Give the slow tests a longer limit.
+- **IMPROVEMENTS.md** (checked against the code on 2026-10-29). It has
+  checkboxes, and each finished item names the commit that did it.
+  - Part 1 (code) is all done.
+  - Part 2 (UX) items 1–6 are done.
+  - Items 7–28 are open; 8, 12, 16, 20, 21 and 25 are partly there.
 - **A latent bug in the JS multiband kernels** (`mbDynamicsModel.ts`, and
   the same pattern in `multibandModel.ts`). `process()` reads the band
   count and `keyed` once per block. A pending band switch that lands

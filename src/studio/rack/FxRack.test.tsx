@@ -93,6 +93,12 @@ describe("the effect cards", () => {
     expect(onBypassToggle).toHaveBeenCalledWith("a");
   });
 
+  test("a bypassed effect says it isn't playing; the others don't", async () => {
+    const { screen } = renderRack({ effects: [effect("a", "reverb", true), effect("b", "delay")] });
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Bypassed");
+    expect(screen.getByRole("status").all()).toHaveLength(1);
+  });
+
   test("an effect dropped from the browser goes where it's dropped, with its preset", () => {
     const { onAddEffect } = renderRack({ effects: [effect("a", "reverb"), effect("b", "delay")] });
     drop(gap(1), carrying({ [EFFECT_DRAG_MIME]: "chorus" }));

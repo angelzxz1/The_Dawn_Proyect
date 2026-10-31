@@ -256,3 +256,25 @@ describe("other kinds of track", () => {
       .toContain("inset(0% 0px 0px)");
   });
 });
+
+describe("a silent track", () => {
+  test("says why, beside its name", async () => {
+    const detail = "Silent: another track is soloed. Solo this one too, or unsolo the others, to hear it.";
+    const { screen } = renderHeader({ silent: { label: "Silent", detail } });
+    await expect.element(screen.getByRole("status", { name: detail })).toHaveTextContent("Silent");
+  });
+
+  test("monitoring with no signal coming in says so after a few seconds, and stops once there is", async () => {
+    engine.input = 0;
+    const { screen } = renderHeader({ channel: channel({ type: "audio", instrument: null }), monitoring: true });
+    const note = screen.getByRole("status", { name: /^Monitoring, but no signal/ });
+    await expect.element(note, { timeout: 6000 }).toBeVisible();
+    engine.input = 0.2;
+    await expect.element(note, { timeout: 3000 }).not.toBeInTheDocument();
+  });
+
+  test("its FX button counts the bypassed effects", async () => {
+    const { screen } = renderHeader({ channel: channel({ type: "audio", instrument: null }), effectsCount: 3, bypassedCount: 1 });
+    await expect.element(screen.getByTitle("FX (3, 1 bypassed) — instrument & effects")).toBeVisible();
+  });
+});

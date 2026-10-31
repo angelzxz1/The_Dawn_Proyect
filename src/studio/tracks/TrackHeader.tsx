@@ -14,11 +14,13 @@ import {
   Sliders,
   Trash2,
   Upload,
+  VolumeX,
   X,
 } from "lucide-react";
 import { ValueBar } from "./ValueBar";
 import { Meter } from "./Meter";
 import { InputMeter } from "./InputMeter";
+import { useNoInputSignal } from "./useNoInputSignal";
 import type { ChannelConfig } from "@/project/types";
 import { INSTRUMENT_LABELS } from "@/instruments/registry";
 import { TRACK_COLOR_PALETTE, type TrackColor, type TrackColorPick } from "@/project/colors";
@@ -157,6 +159,26 @@ interface TrackHeaderProps {
   /** Audio tracks: the track its input comes from, when that's not the
    * audio interface ("Audio From"). */
   inputName?: string | null;
+  /** Why it can't be heard, besides its own Mute (silentStates.ts), if it
+   * can't: a short label and the whole story. */
+  silent?: { label: string; detail: string } | null;
+  /** How many of its effects are bypassed. */
+  bypassedCount?: number;
+}
+
+/** A note that a track is silent, beside its name. */
+function SilentChip({ label, detail }: { label: string; detail: string }) {
+  return (
+    <span
+      role="status"
+      title={detail}
+      aria-label={detail}
+      className="flex shrink-0 items-center gap-0.5 rounded border border-[#E6AD5E]/50 bg-[#E6AD5E]/15 px-1 text-[9px] font-medium text-[#E6AD5E]"
+    >
+      <VolumeX size={9} aria-hidden />
+      {label}
+    </span>
+  );
 }
 
 function formatDb(db: number): string {
@@ -227,6 +249,8 @@ export const TrackHeader = memo(function TrackHeader({
   picked = false,
   outputName,
   inputName,
+  silent = null,
+  bypassedCount = 0,
 }: TrackHeaderProps) {
   const id = channel.id;
   const onSelect = () => actions.select(id);
@@ -260,6 +284,9 @@ export const TrackHeader = memo(function TrackHeader({
   const [showColorPicker, setShowColorPicker] = useState(false);
   const isMidi = channel.type === "midi";
   const isGroup = channel.type === "group";
+  // Monitoring the audio interface with nothing coming in.
+  const noSignal = useNoInputSignal(monitoring && !isMidi && !isGroup && !inputName);
+  const shownSilence = silent ?? (noSignal ? { label: "No input", detail: "Monitoring, but no signal is coming in: check the track's Input, the cable and the interface's level." } : null);
   // As many of its rows as fit: the name (with mute and solo, alone),
   // the input, mute, solo and FX row, pan and volume, then the files row.
   const oneRow = rowHeight < CONTROLS_ROW_FROM;
@@ -388,6 +415,7 @@ export const TrackHeader = memo(function TrackHeader({
             {channel.name}
           </span>
         )}
+        {shownSilence && <SilentChip {...shownSilence} />}
         {isGroup && !oneRow && (
           <span title={`${memberCount} track${memberCount === 1 ? "" : "s"} in this group`} className="shrink-0 rounded border border-border px-1 text-[9px] text-muted">
             {memberCount}
@@ -522,7 +550,7 @@ export const TrackHeader = memo(function TrackHeader({
           <MuteSolo channel={channel} onMuteToggle={onMuteToggle} onSoloToggle={onSoloToggle} />
           <button
             type="button"
-            title={`FX${effectsCount > 0 ? ` (${effectsCount})` : ""} — instrument & effects`}
+            title={`FX${effectsCount > 0 ? ` (${effectsCount}${bypassedCount > 0 ? `, ${bypassedCount} bypassed` : ""})` : ""} — instrument & effects`}
             onClick={() => onOpenFx()}
             className={`relative flex h-5 items-center gap-1 rounded border border-border px-1.5 text-[10px] font-medium hover:bg-surface-raised ${
               effectsCount > 0 ? "text-accent" : "text-muted"
@@ -534,6 +562,9 @@ export const TrackHeader = memo(function TrackHeader({
               <span className="flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[7px] font-bold text-black">
                 {effectsCount}
               </span>
+            )}
+            {bypassedCount > 0 && (
+              <span aria-hidden className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#E6AD5E]" />
             )}
           </button>
         </div>

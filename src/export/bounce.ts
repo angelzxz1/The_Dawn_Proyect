@@ -7,6 +7,7 @@
 import * as Tone from "tone";
 import { createInstrument } from "../instruments/nodes";
 import { applyEffectParam, createEffectNode, IrLoaderChain } from "../effects/nodes";
+import { interpolateAutomation } from "../engine/automation";
 import { MAX_COMPENSATION } from "../engine/nodes";
 import { decodeEffectFileAudio, readEffectFileText, referencedEffectFiles } from "../effects/effectFiles";
 import { NamAmpChain } from "../effects/nam-amp/namAmp";
@@ -75,25 +76,6 @@ export interface RenderedAudio {
   sampleRate: number;
 }
 
-/** Linearly interpolates an automation lane's value at time `t` - flat
- * before the first point and after the last. Kept in sync with
- * audioEngine.ts's own copy (identical logic, but the offline render can't
- * share the live engine's private instance method). */
-function interpolateAutomation(points: { time: number; value: number }[], t: number): number | null {
-  if (points.length === 0) return null;
-  if (points.length === 1 || t <= points[0].time) return points[0].value;
-  const last = points[points.length - 1];
-  if (t >= last.time) return last.value;
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    if (t >= a.time && t <= b.time) {
-      const ratio = (t - a.time) / (b.time - a.time || 1);
-      return a.value + (b.value - a.value) * ratio;
-    }
-  }
-  return last.value;
-}
 
 /** Builds one effects rack (skipping bypassed entries, matching the live
  * engine's audioEngine.ts `wireEffectsChain`) feeding into `dest`, and

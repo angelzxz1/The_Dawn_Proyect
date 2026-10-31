@@ -1,11 +1,11 @@
 # Improvements
 
-Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, item 8 on 2026-10-31.
+Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, items 8, 9 and 22 on 2026-10-31.
 
 - `[x]` is done; the commit that did it is in brackets.
 - `[ ]` is still open; "Partly" says what already exists.
 
-**Summary:** Part 1 is all done. In Part 2, items 1–8 are done and items 9–28 are open; five of the open items (12, 16, 20, 21, 25) are partly there.
+**Summary:** Part 1 is all done. In Part 2, items 1–9 and 22 are done and the rest of 10–28 are open; five of the open items (12, 16, 20, 21, 25) are partly there.
 
 ## Part 1: Code improvements
 
@@ -71,7 +71,10 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
 - [x] **8. Snap that adapts to zoom,** plus snapping to other clips' edges. (commit to come)
   - The Snap menu has **Adaptive**: the grid clips snap to follows the zoom, the finest line drawn (`snapUnitFor`), as the ruler, the loop and the markers already did. The fixed sizes stay; new projects still start on 1 Bar.
   - With the grid on, a moved clip's start or end, or a resized clip's end, snaps to another clip's edge on any track once it comes within 8 px, before the grid (`src/studio/timeline/clipSnap.ts`). Clips moving with the selection aren't snapped to. Alt drags free of both, as on the loop, marker and tempo lanes.
-- [ ] **9. Velocity and automation drawing tools:** curves, ramps and line tools, as in FL and Ableton.
+- [x] **9. Velocity and automation drawing tools:** curves, ramps and line tools, as in FL and Ableton. (commit to come)
+  - Automation: a segment can bend (a point's `curve`, -1..1, `curveShape` in `src/engine/automation.ts`, which the engine, the export and the lane all use). With the pointer tool, Alt-drag a segment to bend it and Shift-drag to draw a straight line (a ramp) over what's there, on the grid (Alt: off it). The draw tool draws freehand, a point per grid line crossed; the erase tool deletes the points it passes over (`src/project/curveEdits.ts`).
+  - Velocity: drag on empty space in the piano roll's velocity lane to put the notes it spans on a line (only the selected ones, with a selection); Alt draws freehand.
+  - Fixed on the way: a point added before the last one was kept out of time order, which playback assumes, so it played wrong until a reload.
 
 ### Mixing
 
@@ -97,7 +100,10 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
   - Partly: grooves can be previewed. Samples, presets and amp models can't, and there are no favorites or recent items.
 - [ ] **21. More templates:** guitar recording, podcast and beat-making setups with the routing already wired.
   - Partly: Guitar Demo, Beat and Voice + Guitar exist. There's no podcast template.
-- [ ] **22. Clear warnings for silent states:** "track muted by solo", "monitoring is on but no input", "this effect is bypassed".
+- [x] **22. Clear warnings for silent states:** "track muted by solo", "monitoring is on but no input", "this effect is bypassed". (commit to come)
+  - A track that can't be heard for a reason other than its own Mute says why beside its name (`src/project/silentStates.ts`): another track is soloed, it plays into a muted group or track, its fader is all the way down, or it's a MIDI track with no instrument. The chip's tooltip tells the whole story.
+  - A track monitoring the audio interface says "No input" once nothing has come in for 3 seconds (`useNoInputSignal.ts`), and stops when a signal arrives.
+  - A bypassed effect's card is labelled "Bypassed" (not just dimmed), and the track's FX button counts the bypassed effects in its tooltip, with a dot.
 
 ### Visual and comfort
 

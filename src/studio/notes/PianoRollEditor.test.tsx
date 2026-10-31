@@ -178,6 +178,50 @@ describe("editing notes", () => {
     expect(roll.notes()).toEqual([note("C4", 0, BEAT, 64 / 127), note("E4", 1, BEAT, 64 / 127)]);
   });
 
+  describe("drawing velocities", () => {
+    const four = [note("C4", 0), note("E4", 1), note("G4", 2), note("A4", 3)];
+    // The velocity lane: 65 px tall, full velocity 59 px up.
+    const laneAt = (roll: ReturnType<typeof renderRoll>, seconds: number, velocity: number) => {
+      const lane = document.querySelector<HTMLElement>("[data-velocity-lane]")!;
+      return { lane, point: pointIn(lane, seconds * roll.pxPerSecond(), 65 - velocity * 59) };
+    };
+    const midi = (notes: NoteEvent[] | undefined) => notes?.map((n) => Math.round(n.velocity * 127));
+
+    test("a drag across the lane puts the notes it spans on a line", () => {
+      const roll = renderRoll({ notes: four });
+      const from = laneAt(roll, 0, 0.2);
+      const to = laneAt(roll, 2, 0.6);
+      drag(from.lane, from.point, to.point);
+      // 0.2, 0.4 and 0.6 of 127; the last note is past the line.
+      expect(midi(roll.notes())).toEqual([25, 51, 76, 102]);
+    });
+
+    test("with a selection, only the selected notes", async () => {
+      const roll = renderRoll({ notes: four });
+      await userEvent.click(roll.noteAt(1));
+      const from = laneAt(roll, 0, 0.3);
+      const to = laneAt(roll, 3, 0.3);
+      drag(from.lane, from.point, to.point);
+      expect(midi(roll.notes())).toEqual([102, 38, 102, 102]);
+    });
+
+    test("with Alt, freehand: each note takes the value where the pointer crosses it", () => {
+      const roll = renderRoll({ notes: four });
+      const lane = laneAt(roll, 0, 0).lane;
+      const a = laneAt(roll, 0.5, 0.9).point;
+      const b = laneAt(roll, 1.5, 0.1).point;
+      const c = laneAt(roll, 2.5, 0.9).point;
+      // Down at a, through b, up at c.
+      lane.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: a.x, clientY: a.y, button: 0, buttons: 1, pointerId: 1, altKey: true }));
+      lane.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: b.x, clientY: b.y, buttons: 1, pointerId: 1, altKey: true }));
+      lane.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: c.x, clientY: c.y, buttons: 1, pointerId: 1, altKey: true }));
+      lane.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: c.x, clientY: c.y, pointerId: 1, altKey: true }));
+      // The first and last notes are outside the stroke; the middle two are
+      // halfway along its two legs, at 0.5.
+      expect(midi(roll.notes())).toEqual([102, 64, 64, 102]);
+    });
+  });
+
   test("Select mode: a box drawn over notes selects them, and Delete removes them", async () => {
     const roll = renderRoll({ notes: [note("C4", 0), note("E4", 0.5), note("G4", 2)] });
     await roll.screen.getByRole("button", { name: "Select" }).click();

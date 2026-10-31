@@ -12,6 +12,7 @@ import { audioEngine } from "@/engine/audioEngine";
 import { copyNotes, getCopiedNotes } from "@/state/clipboard";
 import { ScaleSelector } from "./ScaleSelector";
 import { ClipOverview } from "./ClipOverview";
+import { velocityLine, type CurvePoint } from "@/project/curveEdits";
 import { useShortcuts } from "@/ui/shortcuts";
 
 interface PianoRollEditorProps {
@@ -781,6 +782,50 @@ export function PianoRollEditor({
     target.addEventListener("pointerup", onUp);
   };
 
+  // --- Velocity lane: drag on empty space to draw the velocities on a
+  // line across the notes it spans (the selected ones, with a selection);
+  // with Alt, freehand: each note takes the value where the pointer
+  // crosses it. ---
+  const [velocityGuide, setVelocityGuide] = useState<[CurvePoint, CurvePoint] | null>(null);
+  const handleVelocityDrawPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || e.target !== e.currentTarget) return;
+    const target = e.currentTarget;
+    const rect = target.getBoundingClientRect();
+    target.setPointerCapture(e.pointerId);
+    const base = notes;
+    const only = selectedIds.size > 0 ? selectedIds : undefined;
+    const at = (ev: { clientX: number; clientY: number }): CurvePoint => ({
+      time: Math.max(0, (ev.clientX - rect.left) / pxPerSecond),
+      value: (rect.bottom - ev.clientY) / VELOCITY_SPAN,
+    });
+    const from = at(e);
+    const freehand = e.altKey;
+    let last = from;
+    let drawn = velocityLine(base, from, from, clampVelocity, only);
+    const update = (ev: PointerEvent | React.PointerEvent) => {
+      const to = at(ev);
+      if (freehand) {
+        drawn = velocityLine(drawn, last, to, clampVelocity, only);
+        last = to;
+      } else {
+        drawn = velocityLine(base, from, to, clampVelocity, only);
+        setVelocityGuide([from, to]);
+      }
+      setNotes(drawn);
+    };
+    update(e);
+    const onMove = (ev: PointerEvent) => update(ev);
+    const onUp = () => {
+      target.releasePointerCapture(e.pointerId);
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      setVelocityGuide(null);
+      commit(drawn);
+    };
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+  };
+
   /** Sets every selected note to one velocity (1..127), from the toolbar field. */
   const setSelectedVelocity = (midiVelocity: number) => {
     const v = clampVelocity(midiVelocity / 127);
@@ -984,7 +1029,7 @@ export function PianoRollEditor({
           {mode === "draw"
             ? "drag on empty space to draw a note · shift-click or drag a selection to move it · drag its right edge to resize · right-click a note to delete it"
             : "drag on empty space to box-select notes · shift-click to add/remove a note · drag a selection to move it · Delete to remove"}
-          {" · press B to toggle mode · Q to quantize · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste: click the ruler (or empty space in select mode) to choose where pastes land, otherwise they go to the playhead · drag a velocity bar of a selection to change them all"}
+          {" · press B to toggle mode · Q to quantize · arrow keys nudge the selection · Space to play/pause · Ctrl/Cmd+C/V to copy/paste: click the ruler (or empty space in select mode) to choose where pastes land, otherwise they go to the playhead · drag a velocity bar of a selection to change them all, or across the velocity lane to draw them on a line (Alt: freehand)"}
         </div>
 
         <div className="flex flex-col overflow-hidden p-3">
@@ -1225,7 +1270,27 @@ export function PianoRollEditor({
               style={{ height: VELOCITY_H }}
               className="flex-1 overflow-hidden border-t border-border"
             >
-              <div className="relative" style={{ width: contentWidth, height: VELOCITY_H }}>
+              <div
+                data-velocity-lane
+                className="relative cursor-crosshair"
+                style={{ width: contentWidth, height: VELOCITY_H, touchAction: "none" }}
+                onPointerDown={handleVelocityDrawPointerDown}
+                title="Drag a bar to change its note (or the selection) · drag on empty space to draw the velocities on a line (Alt: freehand)"
+              >
+                {velocityGuide && (
+                  <svg className="pointer-events-none absolute inset-0" width={contentWidth} height={VELOCITY_H}>
+                    <line
+                      x1={velocityGuide[0].time * pxPerSecond}
+                      y1={VELOCITY_H - clampVelocity(velocityGuide[0].value) * VELOCITY_SPAN}
+                      x2={velocityGuide[1].time * pxPerSecond}
+                      y2={VELOCITY_H - clampVelocity(velocityGuide[1].value) * VELOCITY_SPAN}
+                      stroke="white"
+                      strokeWidth={1}
+                      strokeDasharray="2,2"
+                      opacity={0.7}
+                    />
+                  </svg>
+                )}
                 <div
                   className="pointer-events-none absolute left-0 w-full border-t border-dashed border-foreground/35"
                   style={{ bottom: VELOCITY_REF * VELOCITY_SPAN }}

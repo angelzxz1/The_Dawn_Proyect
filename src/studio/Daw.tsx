@@ -37,6 +37,7 @@ import { useStableActions } from "@/ui/useStableActions";
 import { TimelineScrollbar } from "@/studio/timeline/TimelineScrollbar";
 import { clampZoom, fitSpan, scrollKeeping, wheelZoomFactor, ZOOM_STEP } from "@/studio/timeline/zoom";
 import type { ClipSpan } from "@/studio/timeline/clipSnap";
+import { silentReasons, silentText } from "@/project/silentStates";
 import { TimelineRuler } from "@/studio/timeline/TimelineRuler";
 import { Playhead } from "@/studio/timeline/Playhead";
 import { TransportBar } from "@/studio/transport/TransportBar";
@@ -368,6 +369,11 @@ export function Daw() {
   const zoomUnit = snapUnitFor(tempo, pxPerSecond, beatsPerBar);
   const grid = useMemo(() => makeGrid(tempo, snapBeatsForResolution(snapResolution, beatsPerBar, zoomUnit)), [tempo, snapResolution, beatsPerBar, zoomUnit]);
   const barGrid = useMemo(() => makeGrid(tempo, beatsPerBar), [tempo, beatsPerBar]);
+  /** Why each silent track can't be heard (silentStates.ts), for its header. */
+  const silentByTrack = useMemo(
+    () => new Map([...silentReasons(channels)].map(([id, reason]) => [id, silentText(reason)])),
+    [channels]
+  );
   /** Every clip's place, for a dragged one to snap to (clipSnap.ts). */
   const clipSpans = useMemo<ClipSpan[]>(
     () => Object.values(clipsByChannel).flatMap((clips) => clips.map((c) => ({ id: c.id, start: c.offset, end: c.offset + c.length }))),
@@ -2500,6 +2506,8 @@ export function Daw() {
                   hasNotes={clipsOf(channel.id).some((c) => c.kind === "midi" && c.notes.length > 0)}
                   hasClipContent={clipsOf(channel.id).length > 0}
                   effectsCount={(channelEffects[channel.id] ?? []).length}
+                  bypassedCount={(channelEffects[channel.id] ?? []).filter((fx) => fx.bypass).length}
+                  silent={silentByTrack.get(channel.id)}
                   canRemove={channels.length > 1}
                   canMoveUp={canMoveTrack(channels, channel.id, -1)}
                   canMoveDown={canMoveTrack(channels, channel.id, 1)}
@@ -2636,6 +2644,8 @@ export function Daw() {
                       beatsPerBar={beatsPerBar}
                       height={AUTOMATION_LANE_HEIGHT}
                       color={trackColorOf(channel)}
+                      tool={clipTool}
+                      grid={grid}
                       onChange={(points) => handleAutomationPointsChange(channel.id, automationTarget, points)}
                       onDragStart={pushHistory}
                     />

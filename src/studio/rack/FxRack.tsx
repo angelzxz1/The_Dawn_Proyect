@@ -306,51 +306,63 @@ export function FxRack({
 
         {effects.map((fx, i) => (
           <div key={fx.id} className="flex items-stretch">
-            <div
-              className={`flex shrink-0 rounded-xl ${EFFECT_UI[fx.type].cardWidth} ${fx.bypass ? "opacity-50" : ""}`}
-              style={{ background: "#1B1C22", border: "1px solid #2E2F37" }}
-            >
+            <div className="relative flex shrink-0">
               <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(REORDER_DRAG_MIME, fx.id);
-                  e.dataTransfer.effectAllowed = "move";
-                }}
-                title="Drag to reorder"
-                className="flex w-3 shrink-0 cursor-grab items-center justify-center rounded-l hover:bg-black/10 active:cursor-grabbing"
+                className={`flex shrink-0 rounded-xl ${EFFECT_UI[fx.type].cardWidth} ${fx.bypass ? "opacity-50" : ""}`}
+                style={{ background: "#1B1C22", border: "1px solid #2E2F37" }}
               >
-                <GripVertical size={10} className="text-muted" />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col p-2.5 pl-1.5">
-                <div className="flex min-h-0 flex-1 flex-col">
-                {(() => {
-                  const { RackCard } = EFFECT_UI[fx.type];
-                  return (
-                    <RackCard
-                      hostId={hostId}
-                      effectId={fx.id}
-                      params={fx.params}
-                      bypass={!!fx.bypass}
-                      bpm={bpm}
-                      file={fx.file}
-                      sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
-                      onBypassToggle={() => onBypassToggle(fx.id)}
-                      onRemove={() => onRemoveEffect(fx.id)}
-                      onExpand={() => onOpenEffectWindow?.(fx.id)}
-                      onParamChange={(key, v) => onParamChange(fx.id, key, v)}
-                      onParamDragStart={onParamDragStart}
-                      onLoadFile={(file) => onLoadEffectFile?.(fx.id, file) ?? Promise.resolve("Can't load files here.")}
-                      onClearFile={() => onClearEffectFile?.(fx.id)}
-                    />
-                  );
-                })()}
+                <div
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(REORDER_DRAG_MIME, fx.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  title="Drag to reorder"
+                  className="flex w-3 shrink-0 cursor-grab items-center justify-center rounded-l hover:bg-black/10 active:cursor-grabbing"
+                >
+                  <GripVertical size={10} className="text-muted" />
                 </div>
-                {onPresetChange && (
-                  <div className="mt-1.5">
-                    <PresetMenu variant="rack" effect={fx} bpm={bpm} onChange={(change) => onPresetChange(fx.id, change)} />
+                <div className="flex min-w-0 flex-1 flex-col p-2.5 pl-1.5">
+                  <div className="flex min-h-0 flex-1 flex-col">
+                  {(() => {
+                    const { RackCard } = EFFECT_UI[fx.type];
+                    return (
+                      <RackCard
+                        hostId={hostId}
+                        effectId={fx.id}
+                        params={fx.params}
+                        bypass={!!fx.bypass}
+                        bpm={bpm}
+                        file={fx.file}
+                        sidechainName={sidechainSourceName(fx.sidechain, sidechainSources ?? [])}
+                        onBypassToggle={() => onBypassToggle(fx.id)}
+                        onRemove={() => onRemoveEffect(fx.id)}
+                        onExpand={() => onOpenEffectWindow?.(fx.id)}
+                        onParamChange={(key, v) => onParamChange(fx.id, key, v)}
+                        onParamDragStart={onParamDragStart}
+                        onLoadFile={(file) => onLoadEffectFile?.(fx.id, file) ?? Promise.resolve("Can't load files here.")}
+                        onClearFile={() => onClearEffectFile?.(fx.id)}
+                      />
+                    );
+                  })()}
                   </div>
-                )}
+                  {onPresetChange && (
+                    <div className="mt-1.5">
+                      <PresetMenu variant="rack" effect={fx} bpm={bpm} onChange={(change) => onPresetChange(fx.id, change)} />
+                    </div>
+                  )}
+                </div>
               </div>
+              {fx.bypass && (
+                // Undimmed, over the dimmed card: it isn't playing.
+                <span
+                  role="status"
+                  title="Bypassed: this effect isn't playing. Turn it back on with its power button."
+                  className="pointer-events-none absolute bottom-1.5 right-2 rounded border border-[#E6AD5E]/50 bg-[#1B1C22] px-1 text-[9px] font-medium text-[#E6AD5E]"
+                >
+                  Bypassed
+                </span>
+              )}
             </div>
             <DropGap
               index={i + 1}

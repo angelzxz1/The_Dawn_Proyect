@@ -102,6 +102,9 @@ export interface AutomationPoint {
   /** Absolute position on the arrangement timeline, in seconds. */
   time: number;
   value: number;
+  /** How the segment from this point to the next bends, -1..1
+   * (engine/automation.ts `curveShape`); absent or 0 is a straight line. */
+  curve?: number;
 }
 
 export type AutomationTarget =

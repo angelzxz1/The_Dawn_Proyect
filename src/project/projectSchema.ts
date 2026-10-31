@@ -244,7 +244,11 @@ function normalizeLane(
       const pid = nonEmptyId(pr.id);
       if (!pid || typeof pr.time !== "number" || typeof pr.value !== "number") return null;
       if (!Number.isFinite(pr.time) || !Number.isFinite(pr.value)) return null;
-      return { id: pid, time: Math.max(0, pr.time), value: num(mapValue(pr.value), 0, range[0], range[1]) };
+      const point: AutomationPoint = { id: pid, time: Math.max(0, pr.time), value: num(mapValue(pr.value), 0, range[0], range[1]) };
+      // A bend, if there is one (straight ones aren't kept).
+      const curve = num(pr.curve, 0, -1, 1);
+      if (curve !== 0) point.curve = curve;
+      return point;
     })
   ).sort((a, b) => a.time - b.time);
   return { id, target, points };

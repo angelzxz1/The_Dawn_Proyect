@@ -434,7 +434,10 @@ Temporary, never committed:
    that report their loudness sound different from before.
 3. **Sidechains:** keys routed from other tracks, with the browser's tap
    points and latency alignment (`mixGraph.ts` `resolveSidechains`,
-   `keyDelay`). Then **automation**.
+   `keyDelay`). Then **automation**: points with straight or bent
+   segments, read by `interpolateAutomation` and `curveShape`
+   (`src/engine/automation.ts`); the engine's port has to bend them the
+   same way.
 4. **Live input and recording through the engine:** the interface's
    inputs, low-latency monitoring, takes written to disk.
 5. **Plugins:** P2 CLAP effects in the engine (with their windows and
@@ -446,22 +449,31 @@ Temporary, never committed:
 - **IMPROVEMENTS.md** (checked against the code on 2026-10-29). It has
   checkboxes, and each finished item names the commit that did it.
   - Part 1 (code) is all done.
-  - Part 2 (UX) items 1–8 are done. Item 8 (2026-10-31): an Adaptive
+  - Part 2 (UX) items 1–9 are done. Item 8 (2026-10-31): an Adaptive
     snap setting that follows the zoom, and clips snapping to other
-    clips' edges (`clipSnap.ts`; Alt drags free). Item 7, section markers, was added
+    clips' edges (`clipSnap.ts`; Alt drags free). Item 9 (2026-10-31):
+    automation segments bend (`AutomationPoint.curve`, `curveShape` in
+    `engine/automation.ts`), lines, freehand and erasing on the lane
+    (`project/curveEdits.ts`), and lines or freehand in the velocity lane.
+    Item 22 (2026-10-31): track headers say why a track is silent
+    (`project/silentStates.ts`: solo elsewhere, a muted group or track it
+    plays into, its fader down, no instrument), "No input" while
+    monitoring silence (`useNoInputSignal.ts`), and bypassed effects are
+    labelled in the rack and counted on the FX button. Item 7, section markers, was added
     on 2026-10-30 (`src/project/markers.ts`, `src/state/markerActions.ts`,
     `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`), in
     `23dbe29`. The next release's "What's new" (`src/content/whatsNew.ts`)
     should mention it.
-  - Items 9–28 are open; 12, 16, 20, 21 and 25 are partly there. Next
-    up is 9, velocity and automation drawing tools.
+  - Items 10–21 and 23–28 are open; 12, 16, 20, 21 and 25 are partly
+    there. Next in `nextSteps.md` is 16 (the count-in).
   - The project document now has `markers` (in beats). The native engine
     ignores them; they only move the playhead and the loop.
 - **The order of what's left** is in `nextSteps.md`, which is kept
   locally (it's in `.gitignore`). Phase 2's first two steps (the Convolver:
   the Reverb and the IR Loader, 2026-10-30; the Tuner, 2026-10-31) are
   done, and NAM was dropped from it (above), so Phase 2 is done. Phase 3
-  (editing) has begun: step 7 (Part 2 #8, snapping) was done on
-  2026-10-31; next is step 8 (Part 2 #9). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  (editing) has begun: steps 7, 8 and 9 (Part 2 #8, snapping; #9,
+  drawing tools; #22, silent states) were done on 2026-10-31; next is
+  step 10 (Part 2 #16). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
   double-click test clicks twice in one go, and the JS multiband kernels
   read the band count and their key per sample, as the Rust ports do.

@@ -295,10 +295,23 @@ pub struct EffectSpecIn {
     pub params: HashMap<String, Option<f64>>,
     #[serde(default)]
     pub bypass: bool,
+    /// The file it plays (sent like a clip's: the IR Loader's impulse
+    /// response), if it has one.
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
-/// A chain's effects for the engine: those it has.
-fn effects(specs: &[EffectSpecIn]) -> Vec<EffectSpec> {
+/// A chain's effects for the engine: those it has. A file that hasn't
+/// arrived (at this rate) goes in `missing`; until it does, the effect
+/// keeps the one it had (in `previous`, the song playing), as the
+/// browser's does, or with none plays without one.
+fn effects(
+    specs: &[EffectSpecIn],
+    previous: Option<&Song>,
+    audio: &HashMap<String, LoadedAudio>,
+    sample_rate: f64,
+    missing: &mut Vec<String>,
+) -> Vec<EffectSpec> {
     specs
         .iter()
         .filter_map(|e| {
@@ -307,7 +320,22 @@ fn effects(specs: &[EffectSpecIn]) -> Vec<EffectSpec> {
                 .iter()
                 .filter_map(|(k, v)| v.map(|v| (k.clone(), v)))
                 .collect();
-            EffectSettings::from_params(&e.kind, &params).map(|settings| EffectSpec {
+            let mut settings = EffectSettings::from_params(&e.kind, &params)?;
+            if settings.takes_file()
+                && let Some(id) = &e.file
+            {
+                let file = match audio.get(id) {
+                    Some(a) if a.sample_rate == sample_rate => Some(a.data.clone()),
+                    _ => {
+                        missing.push(id.clone());
+                        previous
+                            .and_then(|p| p.effect(&e.id))
+                            .and_then(|p| p.settings.file().cloned())
+                    }
+                };
+                settings.set_file(file);
+            }
+            Some(EffectSpec {
                 id: e.id.clone(),
                 settings,
                 bypass: e.bypass,
@@ -576,7 +604,7 @@ pub fn build(
                     velocity: n.velocity.clamp(0.0, 1.0),
                 })
                 .collect(),
-            effects: effects(&t.effects),
+            effects: effects(&t.effects, previous, audio, sample_rate, &mut missing),
             live: t.live,
         })
         .collect();
@@ -587,7 +615,7 @@ pub fn build(
             id: b.id.clone(),
             volume: db_to_gain(b.volume_db),
             pan: b.pan.clamp(-1.0, 1.0),
-            effects: effects(&b.effects),
+            effects: effects(&b.effects, previous, audio, sample_rate, &mut missing),
         })
         .collect();
     let master = Master {
@@ -605,6 +633,13 @@ pub fn build(
             bpm: s.bpm,
         })
         .collect();
+    let master_effects = effects(
+        &spec.master_effects,
+        previous,
+        audio,
+        sample_rate,
+        &mut missing,
+    );
     missing.sort();
     missing.dedup();
     (
@@ -612,7 +647,7 @@ pub fn build(
             tracks,
             buses,
             master,
-            master_effects: effects(&spec.master_effects),
+            master_effects,
             tempo,
             beats_per_bar: spec.beats_per_bar.max(1.0),
             compensation: spec.compensation,
@@ -822,7 +857,7 @@ mod tests {
                 { "id": "v", "volumeDb": 0, "pan": 0, "audible": true, "output": null, "sends": [], "clips": [],
                   "effects": [
                       { "id": "c", "type": "compressor", "params": { "threshold": -30, "ratio": 6 } },
-                      { "id": "r", "type": "reverb", "params": { "decay": 2 } },
+                      { "id": "r", "type": "tuner", "params": {} },
                       { "id": "u", "type": "utility", "params": { "gain": null, "width": 0 }, "bypass": true }
                   ] }
             ],
@@ -835,7 +870,7 @@ mod tests {
         let spec: SongSpec = serde_json::from_str(json).unwrap();
         let (song, missing) = build(&spec, None, &HashMap::new(), 48000.0);
         assert!(missing.is_empty());
-        // The reverb isn't in the engine yet: the chain plays without it.
+        // The tuner isn't in the engine yet: the chain plays without it.
         let fx = &song.tracks[0].effects;
         assert_eq!(
             fx.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
@@ -856,6 +891,39 @@ mod tests {
             EffectSettings::Limiter(_)
         ));
         assert_eq!(song.master_effects.len(), 1);
+    }
+
+    #[test]
+    fn an_ir_loader_waits_for_its_file_keeping_the_one_it_had() {
+        let song = |file: &str| {
+            let json = format!(
+                r#"{{
+                "tracks": [
+                    {{ "id": "g", "volumeDb": 0, "pan": 0, "audible": true, "output": null, "sends": [], "clips": [],
+                       "effects": [{{ "id": "ir", "type": "irLoader", "params": {{}}, "file": "{file}" }}] }}
+                ],
+                "buses": [],
+                "master": {{ "volumeDb": 0, "pan": 0, "limiterDb": -1 }},
+                "tempo": [{{ "beat": 0, "seconds": 0, "bpm": 120 }}],
+                "beatsPerBar": 4
+            }}"#
+            );
+            serde_json::from_str::<SongSpec>(&json).unwrap()
+        };
+        let ir_file = |s: &Song| s.tracks[0].effects[0].settings.file().cloned();
+        // Not sent yet: it plays without one.
+        let (waiting, missing) = build(&song("48000:ir:a"), None, &HashMap::new(), 48000.0);
+        assert_eq!(missing, ["48000:ir:a"]);
+        assert!(ir_file(&waiting).is_none());
+        // Sent: it has it.
+        let audio = HashMap::from([("48000:ir:a".to_owned(), file())]);
+        let (playing, missing) = build(&song("48000:ir:a"), Some(&waiting), &audio, 48000.0);
+        assert!(missing.is_empty());
+        let had = ir_file(&playing).expect("the file");
+        // Another file on its way: it keeps this one meanwhile.
+        let (next, missing) = build(&song("48000:ir:b"), Some(&playing), &audio, 48000.0);
+        assert_eq!(missing, ["48000:ir:b"]);
+        assert!(Arc::ptr_eq(&ir_file(&next).unwrap(), &had));
     }
 
     #[test]

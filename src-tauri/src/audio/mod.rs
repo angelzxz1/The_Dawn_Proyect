@@ -168,7 +168,10 @@ pub fn engine_set_song(state: State<'_, AudioState>, song: SongSpec) -> Result<S
         .as_ref()
         .ok_or("No audio device is open.")?
         .sample_rate;
-    let (built, missing) = song::build(&song, inner.song.as_ref(), &inner.audio, sample_rate);
+    let (mut built, missing) = song::build(&song, inner.song.as_ref(), &inner.audio, sample_rate);
+    // The effects' impulses are made on the song kept to follow, so the
+    // next version keeps them when they're the same.
+    built.prepare_effects(inner.song.as_ref(), sample_rate);
     let prepared = Box::new(built.clone().prepare(inner.song.as_ref(), sample_rate));
     inner.send(Command::Song(prepared))?;
     inner.song = Some(built);

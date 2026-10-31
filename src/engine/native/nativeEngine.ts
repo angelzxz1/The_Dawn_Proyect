@@ -5,8 +5,9 @@
 //
 // It sends the song again whenever the project changes, and each audio
 // file once, decoded at the device's rate: a clip's (a warped clip: its
-// rendering, warpRender.ts), a sample pad's, the piano's samples (and a
-// synth's wavetables, as one run of samples). What's still on its way is
+// rendering, warpRender.ts), a sample pad's, the piano's samples, an IR
+// Loader's impulse response (and a synth's wavetables, as one run of
+// samples). What's still on its way is
 // silent until it arrives. Keys played live, the sustain pedal, pitch bend
 // and mod wheel go straight to it.
 
@@ -16,6 +17,7 @@ import type { EngineFollower } from "../follower";
 import { warpedBuffer, warpKey } from "../warpRender";
 import { nativeBridge, type NativeStatus } from "./bridge";
 import { describeSong, SUB_TABLE, type NativeAudioIds, type NativeSession } from "./describe";
+import { decodeEffectFileAudio } from "../../effects/effectFiles";
 import { loadDrumSample } from "../../instruments/drum-rack/drumRack";
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from "../../instruments/piano/piano";
 import { synthBend, tableFor, tableKey } from "../../instruments/synth/synth";
@@ -144,6 +146,7 @@ class NativeEngine {
       drumSample: (fileId) => `${rate}:drum:${fileId}`,
       pianoSample: (name) => `${rate}:piano:${name}`,
       wavetable: (key) => `${rate}:wavetable:${key}`,
+      effectFile: (fileId) => `${rate}:file:${fileId}`,
     };
   }
 
@@ -163,6 +166,14 @@ class NativeEngine {
         const channels = await loadDrumSample(drum, rate);
         if (!channels) throw new Error(`The sample ${drum} couldn't be read.`);
         return channels;
+      };
+    }
+    const effectFile = id.startsWith(`${rate}:file:`) ? id.slice(`${rate}:file:`.length) : null;
+    if (effectFile) {
+      return async () => {
+        const buffer = await decodeEffectFileAudio(effectFile, rate);
+        if (!buffer) throw new Error(`The file ${effectFile} couldn't be read.`);
+        return Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
       };
     }
     const piano = id.startsWith(`${rate}:piano:`) ? id.slice(`${rate}:piano:`.length) : null;

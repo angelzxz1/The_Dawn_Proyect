@@ -270,25 +270,37 @@ impl Song {
         })
     }
 
+    /// The effect with this id in any chain.
+    pub fn effect(&self, id: &str) -> Option<&EffectSpec> {
+        (0..self.host_count()).find_map(|h| self.host_effects(h).iter().find(|e| e.id == id))
+    }
+
+    /// Works out what its effects need at `sample_rate` before they play
+    /// (`EffectSettings::prepare`), keeping what the same effects in
+    /// `previous` have made. `prepare` does it; doing it first, on a song
+    /// kept to follow, lets the next version keep the impulses made.
+    pub fn prepare_effects(&mut self, previous: Option<&Song>, sample_rate: f64) {
+        let before = |id: &str| previous.and_then(|p| p.effect(id)).map(|e| &e.settings);
+        let chains = self
+            .tracks
+            .iter_mut()
+            .map(|t| &mut t.effects)
+            .chain(self.buses.iter_mut().map(|b| &mut b.effects))
+            .chain([&mut self.master_effects]);
+        for chain in chains {
+            for e in chain.iter_mut() {
+                e.settings.prepare(sample_rate, before(&e.id));
+            }
+        }
+    }
+
     /// The song ready for the audio thread, at `sample_rate`. Its levels
     /// start at those of the tracks with the same ids in `previous` (the
     /// song playing now), so a change glides; a track whose instrument
     /// `previous` already had is played by the one playing it (none is
     /// made for it here), and so is an effect `previous` already had.
     pub fn prepare(mut self, previous: Option<&Song>, sample_rate: f64) -> Prepared {
-        for t in &mut self.tracks {
-            t.effects
-                .iter_mut()
-                .for_each(|e| e.settings.prepare(sample_rate));
-        }
-        for b in &mut self.buses {
-            b.effects
-                .iter_mut()
-                .for_each(|e| e.settings.prepare(sample_rate));
-        }
-        for e in &mut self.master_effects {
-            e.settings.prepare(sample_rate);
-        }
+        self.prepare_effects(previous, sample_rate);
         let n = self.tracks.len();
         // A destination that isn't a track, or would make a loop, is the
         // master. (The studio never sends one; this keeps a bad one safe.)

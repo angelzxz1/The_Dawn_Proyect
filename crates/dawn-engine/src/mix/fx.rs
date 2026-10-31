@@ -7,6 +7,9 @@
 //! what's routed into it, ahead of its fader; a bus's on its sends, ahead
 //! of its fader; the master's after its fader, ahead of the limiter.
 
+use std::sync::Arc;
+
+use super::clip::AudioData;
 use super::song::MAX_BLOCK;
 use crate::effects::amp::{self, AmpEffect, AmpSettings};
 use crate::effects::chorus::{ChorusKernel, ChorusSettings};
@@ -17,11 +20,13 @@ use crate::effects::filter::{FilterKernel, FilterSettings};
 use crate::effects::gate::{GateKernel, GateSettings};
 use crate::effects::glue::OS_LATENCY;
 use crate::effects::glue::{GlueKernel, GlueSettings};
+use crate::effects::ir_loader::{IrLoaderKernel, IrLoaderSettings};
 use crate::effects::limiter::{Limiter, LimiterSettings, lookahead_frames};
 use crate::effects::mb_dynamics::{MbDynamicsKernel, MbDynamicsSettings};
 use crate::effects::multiband::{MultibandKernel, MultibandSettings};
 use crate::effects::param_eq::{ParamEqKernel, ParamEqSettings};
 use crate::effects::pitch_shift::{PitchShiftSettings, PitchShifter};
+use crate::effects::reverb::{ReverbKernel, ReverbSettings};
 use crate::effects::saturator::{SaturatorKernel, SaturatorSettings};
 use crate::effects::utility::{UtilityKernel, UtilitySettings};
 use crate::params::ParamSource;
@@ -37,11 +42,13 @@ pub enum EffectSettings {
     Filter(FilterSettings),
     Gate(GateSettings),
     Glue(GlueSettings),
+    IrLoader(Box<IrLoaderSettings>),
     Limiter(LimiterSettings),
     MbDynamics(Box<MbDynamicsSettings>),
     Multiband(Box<MultibandSettings>),
     ParamEq(Box<ParamEqSettings>),
     PitchShift(PitchShiftSettings),
+    Reverb(Box<ReverbSettings>),
     Saturator(Box<SaturatorSettings>),
     Utility(UtilitySettings),
 }
@@ -56,11 +63,13 @@ pub enum EffectKind {
     Filter,
     Gate,
     Glue,
+    IrLoader,
     Limiter,
     MbDynamics,
     Multiband,
     ParamEq,
     PitchShift,
+    Reverb,
     Saturator,
     Utility,
 }
@@ -82,6 +91,7 @@ impl EffectSettings {
             "tubeAmp" => Self::Amp(Box::new(AmpSettings::from_params(params))),
             "gate" => Self::Gate(GateSettings::from_params(params, false)),
             "glue" => Self::Glue(GlueSettings::from_params(params, false)),
+            "irLoader" => Self::IrLoader(Box::new(IrLoaderSettings::from_params(params))),
             "limiter" => Self::Limiter(LimiterSettings::from_params(params)),
             "mbDynamics" => {
                 Self::MbDynamics(Box::new(MbDynamicsSettings::from_params(params, false)))
@@ -89,6 +99,7 @@ impl EffectSettings {
             "multiband" => Self::Multiband(Box::new(MultibandSettings::from_params(params, false))),
             "paramEq" => Self::ParamEq(Box::new(ParamEqSettings::from_params(params))),
             "pitchShift" => Self::PitchShift(PitchShiftSettings::from_params(params)),
+            "reverb" => Self::Reverb(Box::new(ReverbSettings::from_params(params))),
             "utility" => Self::Utility(UtilitySettings::from_params(params)),
             _ => return None,
         })
@@ -107,12 +118,40 @@ impl EffectSettings {
         }
     }
 
+    /// Whether it plays a file the studio sends (the IR Loader's impulse
+    /// response).
+    pub fn takes_file(&self) -> bool {
+        matches!(self, Self::IrLoader(_))
+    }
+
+    /// Gives it its file (decoded at the engine's rate), or none.
+    pub fn set_file(&mut self, file: Option<Arc<AudioData>>) {
+        if let Self::IrLoader(s) = self {
+            s.file = file;
+        }
+    }
+
+    /// The file it plays, if it has one.
+    pub fn file(&self) -> Option<&Arc<AudioData>> {
+        match self {
+            Self::IrLoader(s) => s.file.as_ref(),
+            _ => None,
+        }
+    }
+
     /// Works out, off the audio thread, what its kernel needs at
-    /// `sample_rate` that would take too long on it (the Chorus's LFO
-    /// tables).
-    pub fn prepare(&mut self, sample_rate: f64) {
-        if let Self::Chorus(s) = self {
-            s.prepare(sample_rate);
+    /// `sample_rate` that would take too long on it: the Chorus's LFO
+    /// tables, the Reverb's and the IR Loader's impulses. `previous` is the
+    /// same effect's settings in the song playing, whose impulse it keeps
+    /// if it's the same.
+    pub fn prepare(&mut self, sample_rate: f64, previous: Option<&Self>) {
+        match (self, previous) {
+            (Self::Chorus(s), _) => s.prepare(sample_rate),
+            (Self::Reverb(s), Some(Self::Reverb(p))) => s.prepare(sample_rate, Some(p)),
+            (Self::Reverb(s), _) => s.prepare(sample_rate, None),
+            (Self::IrLoader(s), Some(Self::IrLoader(p))) => s.prepare(sample_rate, Some(p)),
+            (Self::IrLoader(s), _) => s.prepare(sample_rate, None),
+            _ => {}
         }
     }
 
@@ -126,11 +165,13 @@ impl EffectSettings {
             Self::Filter(_) => EffectKind::Filter,
             Self::Gate(_) => EffectKind::Gate,
             Self::Glue(_) => EffectKind::Glue,
+            Self::IrLoader(_) => EffectKind::IrLoader,
             Self::Limiter(_) => EffectKind::Limiter,
             Self::MbDynamics(_) => EffectKind::MbDynamics,
             Self::Multiband(_) => EffectKind::Multiband,
             Self::ParamEq(_) => EffectKind::ParamEq,
             Self::PitchShift(_) => EffectKind::PitchShift,
+            Self::Reverb(_) => EffectKind::Reverb,
             Self::Saturator(_) => EffectKind::Saturator,
             Self::Utility(_) => EffectKind::Utility,
         }
@@ -166,12 +207,14 @@ enum Kernel {
     Filter(Box<FilterKernel>),
     Gate(Box<GateKernel>),
     Glue(Box<GlueKernel>),
+    IrLoader(Box<IrLoaderKernel>),
     /// With a copy of its input, as it doesn't work in place.
     Limiter(Box<Limiter>, Box<[f32]>, Box<[f32]>),
     MbDynamics(Box<MbDynamicsKernel>),
     Multiband(Box<MultibandKernel>),
     ParamEq(Box<ParamEqKernel>),
     PitchShift(Box<PitchShifter>),
+    Reverb(Box<ReverbKernel>),
     Saturator(Box<SaturatorKernel>),
     Utility(Box<UtilityKernel>),
 }
@@ -200,6 +243,9 @@ impl Effect {
             }
             EffectSettings::Gate(s) => Kernel::Gate(Box::new(GateKernel::new(sample_rate, s))),
             EffectSettings::Glue(s) => Kernel::Glue(Box::new(GlueKernel::new(sample_rate, s))),
+            EffectSettings::IrLoader(s) => {
+                Kernel::IrLoader(Box::new(IrLoaderKernel::new(sample_rate, s)))
+            }
             EffectSettings::Limiter(s) => Kernel::Limiter(
                 Box::new(Limiter::new(sample_rate, *s)),
                 vec![0.0; MAX_BLOCK].into(),
@@ -216,6 +262,9 @@ impl Effect {
             }
             EffectSettings::PitchShift(s) => {
                 Kernel::PitchShift(Box::new(PitchShifter::new(sample_rate, s)))
+            }
+            EffectSettings::Reverb(s) => {
+                Kernel::Reverb(Box::new(ReverbKernel::new(sample_rate, s)))
             }
             EffectSettings::Saturator(s) => {
                 Kernel::Saturator(Box::new(SaturatorKernel::new(sample_rate, s)))
@@ -237,11 +286,13 @@ impl Effect {
             Kernel::Filter(_) => EffectKind::Filter,
             Kernel::Gate(_) => EffectKind::Gate,
             Kernel::Glue(_) => EffectKind::Glue,
+            Kernel::IrLoader(_) => EffectKind::IrLoader,
             Kernel::Limiter(..) => EffectKind::Limiter,
             Kernel::MbDynamics(_) => EffectKind::MbDynamics,
             Kernel::Multiband(_) => EffectKind::Multiband,
             Kernel::ParamEq(_) => EffectKind::ParamEq,
             Kernel::PitchShift(_) => EffectKind::PitchShift,
+            Kernel::Reverb(_) => EffectKind::Reverb,
             Kernel::Saturator(_) => EffectKind::Saturator,
             Kernel::Utility(_) => EffectKind::Utility,
         }
@@ -259,11 +310,13 @@ impl Effect {
             (Kernel::Filter(k), EffectSettings::Filter(s)) => k.set(s),
             (Kernel::Gate(k), EffectSettings::Gate(s)) => k.set(s),
             (Kernel::Glue(k), EffectSettings::Glue(s)) => k.set(s),
+            (Kernel::IrLoader(k), EffectSettings::IrLoader(s)) => k.set(s),
             (Kernel::Limiter(k, ..), EffectSettings::Limiter(s)) => k.set(*s),
             (Kernel::MbDynamics(k), EffectSettings::MbDynamics(s)) => k.set(s),
             (Kernel::Multiband(k), EffectSettings::Multiband(s)) => k.set(s),
             (Kernel::ParamEq(k), EffectSettings::ParamEq(s)) => k.set(s),
             (Kernel::PitchShift(k), EffectSettings::PitchShift(s)) => k.set(s),
+            (Kernel::Reverb(k), EffectSettings::Reverb(s)) => k.set(s),
             (Kernel::Saturator(k), EffectSettings::Saturator(s)) => k.set(s),
             (Kernel::Utility(k), EffectSettings::Utility(s)) => k.set(s),
             _ => {}
@@ -284,6 +337,7 @@ impl Effect {
                 k.process_in_place(&mut l[..n], &mut r[..n]);
             }
             Kernel::Glue(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
+            Kernel::IrLoader(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Limiter(k, in_l, in_r) => {
                 in_l[..n].copy_from_slice(&l[..n]);
                 in_r[..n].copy_from_slice(&r[..n]);
@@ -293,6 +347,7 @@ impl Effect {
             Kernel::Multiband(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::ParamEq(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::PitchShift(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
+            Kernel::Reverb(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Saturator(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Utility(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
         }

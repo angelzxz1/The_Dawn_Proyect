@@ -150,6 +150,74 @@ fn an_effect_carries_on_through_a_new_version_of_the_song() {
     assert!(close(out[LAG + 10], 0.25), "{}", out[LAG + 10]);
 }
 
+/// A track playing a short burst, for a tail to follow.
+fn burst(id: &str, effects: Vec<EffectSpec>) -> Track {
+    let clip = Clip::new(
+        dc(0.5, 0.02),
+        SR,
+        ClipTiming {
+            offset: 0.0,
+            length: 0.02,
+            ..Default::default()
+        },
+    );
+    Track {
+        clips: vec![clip],
+        effects,
+        ..Track::new(id)
+    }
+}
+
+#[test]
+fn a_reverb_rings_on_through_new_versions_of_the_song() {
+    let reverb = |decay: f64| effect("r", "reverb", &[("decay", decay), ("wet", 1.0)]);
+    // Prepared first, as the desktop app does, so the song it keeps to
+    // follow holds the impulse and the next version can keep it.
+    let mut first = song(vec![burst("a", vec![reverb(1.0)])]);
+    first.prepare_effects(None, SR);
+    let left = |e: &mut Engine, seconds: f64| render_stereo(e, seconds).0;
+    let mut alone = engine(&first);
+    let whole = left(&mut alone, 0.6);
+    // Another change (the track's level): the tail carries on as it was.
+    let mut e = engine(&first);
+    let mut out = left(&mut e, 0.3);
+    let mut second = first.clone();
+    second.tracks[0].volume = 0.999_999;
+    second.prepare_effects(Some(&first), SR);
+    drop(e.set_song(Box::new(second.clone().prepare(Some(&first), SR))));
+    out.extend(left(&mut e, 0.3));
+    let worst = whole
+        .iter()
+        .zip(&out)
+        .fold(0.0f32, |m, (a, b)| m.max((a - b).abs()));
+    assert!(worst < 1e-5, "{worst}");
+    // A new impulse: the old tail rings on (no input comes after the
+    // burst, so it's all the old one's), rather than stopping.
+    let mut third = second.clone();
+    third.tracks[0].effects[0] = reverb(3.0);
+    third.prepare_effects(Some(&second), SR);
+    drop(e.set_song(Box::new(third.prepare(Some(&second), SR))));
+    let after = left(&mut e, 0.3);
+    let tail = |v: &[f32]| v.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+    assert!(tail(&after[..4800]) > 0.1 * tail(&out[out.len() - 4800..]));
+}
+
+#[test]
+fn an_ir_loader_plays_its_file() {
+    // A delta 100 frames in: the IR Loader delays by 100 frames, at the
+    // level Normalize sets (unit energy: the delta at 1).
+    let mut ir = vec![0.0f32; 200];
+    ir[100] = 0.25;
+    let file = Arc::new(AudioData { channels: vec![ir] });
+    let mut spec = effect("ir", "irLoader", &[]);
+    assert!(spec.settings.takes_file());
+    spec.settings.set_file(Some(file));
+    let out = render(&mut engine(&song(vec![track("a", 0.5, vec![spec])])), 0.1);
+    assert!(close(out[LAG + 50], 0.0), "{}", out[LAG + 50]);
+    // The low cut's Off is a 5 Hz high pass, so the level sags slowly.
+    assert!((out[LAG + 150] - 0.5).abs() < 0.05, "{}", out[LAG + 150]);
+}
+
 #[test]
 fn a_version_counting_on_an_effect_that_isnt_playing_says_so() {
     let s = song(vec![track("a", 0.25, vec![gain("u", -6.0)])]);
@@ -181,7 +249,7 @@ fn a_compressor_turns_a_loud_track_down() {
 
 #[test]
 fn a_type_the_engine_hasnt_got_has_no_settings() {
-    assert!(EffectSettings::from_params("reverb", &[("decay", 2.0)]).is_none());
+    assert!(EffectSettings::from_params("tuner", &[]).is_none());
 }
 
 #[test]

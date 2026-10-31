@@ -16,15 +16,17 @@ It's early. Today:
   interface's own driver - Core Audio on macOS, WASAPI on Windows (ASIO once
   its licence is signed, below). So far it plays the audio clips and every
   instrument through the mix (volume, pan, mute, solo, groups, sends), the
-  dynamics and EQ effects, the Filter, the Chorus, the Delay, the
-  Saturator, the Pitch Shift and the Furnace amp, with delay compensation, the master limiter and the metronome. The other effects,
-  sidechains, automation and recording still need the browser's engine: the
+  dynamics and EQ effects, the Filter, the Chorus, the Delay, the Reverb,
+  the Saturator, the Pitch Shift, the Furnace amp and the IR Loader, with
+  delay compensation, the master limiter and the metronome. The NAM Amp
+  and the Tuner, sidechains, automation and recording still need the
+  browser's engine: the
   panel says what of the project it doesn't play yet, and Record asks to
   turn it off.
 - **The DSP is moving over**: `crates/dawn-engine` holds the kernels ported
   to Rust so far - the instruments, the dynamics and EQ effects, the
-  Filter, the Chorus, the Delay, the Saturator, the Pitch Shift, the
-  Furnace amp, the metronome and clip
+  Filter, the Chorus, the Delay, the Reverb, the Saturator, the Pitch
+  Shift, the Furnace amp, the IR Loader, the metronome and clip
   playback - each tested against the JavaScript's own output, or for the
   effects built from Web Audio nodes, Chromium's (below).
 
@@ -155,10 +157,11 @@ and MIDI devices through the engine, files through native dialogs.
   arithmetic in the same order. So far the Compressor, the Glue Compressor,
   the Noise Gate, the Limiter, the Multiband Compressor, Multiband Dynamics,
   the Parametric EQ, the Pitch Shift, the Furnace amp and the Utility. The
-  Filter, the EQ Three, the Chorus, the Delay and the Saturator are built
-  from the browser's nodes (BiquadFilter, Delay, WaveShaper, and Tone.js's
-  LFO), so they're ports of Chromium's (`biquad_node.rs`, `delay_node.rs`,
-  `wave_shaper.rs`, `tone_lfo.rs`)
+  Filter, the EQ Three, the Chorus, the Delay, the Reverb, the Saturator
+  and the IR Loader are built from the browser's nodes (BiquadFilter,
+  Delay, WaveShaper, Convolver, and Tone.js's LFO), so they're ports of
+  Chromium's (`biquad_node.rs`, `delay_node.rs`, `wave_shaper.rs`,
+  `convolver.rs`, `tone_lfo.rs`)
   and the studio's wiring of them, down to how Chromium runs a feedback
   loop a block at a time. They
   run in the tracks', buses' and master's chains where the browser's do
@@ -245,7 +248,7 @@ Both sides build the test signal themselves, from the same steps
 the fixture keeps its hash to catch the two drifting apart.
 
 The effects built from Web Audio nodes (the Filter, the EQ Three, the
-Chorus, the Delay, the Saturator) have no
+Chorus, the Delay, the Reverb, the Saturator, the IR Loader) have no
 kernel of ours to run in Node, so their fixtures are rendered in Chromium
 instead (`src/test/webAudioParity.ts`): an OfflineAudioContext plays the
 test signal through the same nodes the studio builds, and a midway change
@@ -256,7 +259,7 @@ a fixture with
 The ports follow Chromium's code (`biquad.cc`, `biquad_filter_handler.cc`,
 `delay.cc`, `oscillator_handler.cc`, `periodic_wave_handler.cc`,
 `wave_shaper_handler.cc`, `up_sampler.cc`, `down_sampler.cc`), and match
-it to the last bit or within a float32 rounding, with two exceptions:
+it to the last bit or within a float32 rounding, with these exceptions:
 
 - Where an LFO sweeps something: Chromium makes the LFO's wave tables with
   its FFT and the port sums them, so they differ in the last bit. That's a
@@ -269,6 +272,31 @@ it to the last bit or within a float32 rounding, with two exceptions:
   after it (a float32 10 Hz high pass, its poles right by DC) turns roundings
   into a slow drift, in Chromium too: a few ten-thousandths, up to two
   thousandths after a +12 dB Output. Without oversampling it's exact.
+- The convolutions (the Reverb, the IR Loader). Chromium convolves in
+  partitions through float32 FFTs; `convolver.rs` works out the same
+  convolution, with no latency, its own way: the first 128 taps directly,
+  then FFT partitions of 128 and of 1024, the long ones' work spread over
+  a block's quanta. The sums differ in their last bit. That's all the
+  Reverb shows (its cuts come before the convolver), but the IR Loader's
+  low cut comes after it, a float32 high pass that turns last bits into
+  drift as the Saturator's DC blocker does: a few hundred-thousandths at
+  50 Hz, a few thousandths at Off (5 Hz).
+
+The IR Loader's fixture loads test impulses made from the same arithmetic
+on both sides (`parityImpulse`, and `impulse` in `ir_loader_parity.rs`).
+It has no case that swaps an IR in, or takes a mono one out: Chromium
+renders those differently from run to run (the cuts after a new
+ConvolverNode, or after one whose output turns mono, sometimes start
+afresh). The port carries the cuts on, which is one of the ways Chromium
+renders it; its unit tests cover the swap.
+
+A new impulse (the Reverb's shape knobs, another IR file, Normalize) is
+made off the audio thread when the song is prepared, and kept from one
+version to the next while it's the same (the app prepares the effects on
+the song it keeps to follow, `Song::prepare_effects`). The audio thread
+takes it from an `ImpulseSlot`, and the convolver it replaces rings out
+its tail with no more input, as the studio's does; those done ringing go
+back with the song, to be freed off the audio thread.
 
 ### Porting the next kernel
 
@@ -347,9 +375,10 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
 1. **Recording through the engine**: the interface's inputs, monitoring
    with low latency, takes written to disk, latency compensation.
 2. **Effects in the engine** (every instrument plays already, and every
-   effect with its own DSP kernel): what's built from Web Audio nodes today
-   (reverb, the IR loader, tuner; the EQ Three, the Filter, the Chorus,
-   the Delay and the Saturator are done). NAM's engine is C++ (NeuralAmpModelerCore) and can be built into
+   effect with its own DSP kernel): the Tuner, the last built from Web
+   Audio nodes (the EQ Three, the Filter, the Chorus, the Delay, the
+   Reverb, the Saturator and the IR Loader are done), which passes its
+   input through but has to report its pitch back. NAM's engine is C++ (NeuralAmpModelerCore) and can be built into
    the engine as is. Then sidechains and automation.
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in

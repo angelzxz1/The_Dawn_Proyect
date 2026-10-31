@@ -59,7 +59,7 @@ describe("the native engine section", () => {
     projectStore.set("channelEffects", {
       v: [
         { id: "fx", type: "compressor", params: {}, sidechain: { on: true, source: "k", tap: "postFx" } },
-        { id: "fx2", type: "reverb", params: {} },
+        { id: "fx2", type: "tuner", params: {} },
       ],
     });
     projectStore.set("channels", [
@@ -68,7 +68,7 @@ describe("the native engine section", () => {
       ),
     ]);
     const { screen } = renderSection({ nativeEngine: true });
-    await expect.element(screen.getByText("Played without: Compressor on Vox (sidechained), Reverb on Vox.")).toBeVisible();
+    await expect.element(screen.getByText("Played without: Compressor on Vox (sidechained), Tuner on Vox.")).toBeVisible();
     await expect.element(screen.getByText("Without their automation: Keys.")).toBeVisible();
     // The synth plays.
     expect(screen.container.textContent).not.toContain("Silent here");

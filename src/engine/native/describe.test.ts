@@ -76,6 +76,7 @@ const idOf = {
   drumSample: (fileId: string) => `drum:${fileId}`,
   pianoSample: (name: string) => `piano:${name}`,
   wavetable: (key: string) => `wavetable:${key}`,
+  effectFile: (fileId: string) => `file:${fileId}`,
 };
 
 describe("the song for the native engine", () => {
@@ -183,15 +184,21 @@ describe("the song for the native engine", () => {
     const p = project();
     const comp = { id: "c", type: "compressor" as const, params: { threshold: -20 } };
     p.channelEffects = {
-      drums: [comp, { id: "r", type: "reverb", params: {} }, { id: "u", type: "utility", params: { gain: -3 }, bypass: true }],
+      drums: [comp, { id: "t", type: "tuner", params: {} }, { id: "u", type: "utility", params: { gain: -3 }, bypass: true }],
+      gtr: [{ id: "ir", type: "irLoader", params: { wet: 1 }, file: { id: "file-1", name: "cab.wav" } }, { id: "ir2", type: "irLoader", params: {} }],
     };
     p.busEffects = { verb: [{ id: "l", type: "limiter", params: {} }] };
     p.masterEffects = [{ id: "m", type: "tuner", params: {} }, { id: "u2", type: "utility", params: {} }];
     const song = describeSong(p, session, idOf);
-    // The reverb isn't in the engine yet: the chain plays without it.
+    // The tuner isn't in the engine yet: the chain plays without it.
     expect(song.tracks[0].effects).toEqual([
       { id: "c", type: "compressor", params: { threshold: -20 }, bypass: false },
       { id: "u", type: "utility", params: { gain: -3 }, bypass: true },
+    ]);
+    // An IR Loader names its file, sent like a clip's.
+    expect(song.tracks[2].effects).toEqual([
+      { id: "ir", type: "irLoader", params: { wet: 1 }, bypass: false, file: "file:file-1" },
+      { id: "ir2", type: "irLoader", params: {}, bypass: false },
     ]);
     expect(song.tracks[1].effects).toEqual([]);
     expect(song.buses).toEqual([{ id: "verb", effects: [{ id: "l", type: "limiter", params: {}, bypass: false }] }]);
@@ -234,7 +241,7 @@ describe("what the native engine doesn't play yet", () => {
     p.channelEffects = {
       drums: [
         { id: "fx1", type: "compressor", params: {} },
-        { id: "fx4", type: "reverb", params: {} },
+        { id: "fx4", type: "namAmp", params: {} },
       ],
       gtr: [{ id: "fx2", type: "tuner", params: {}, bypass: true }],
       // Ducked by the drums: the engine has no sidechains yet, so it's left
@@ -248,7 +255,7 @@ describe("what the native engine doesn't play yet", () => {
       c.id === "gtr" ? { ...c, automationLanes: [{ id: "l", target: { kind: "volume" }, points: [{ id: "p", time: 0, value: 0 }] }] } : c
     );
     // Every instrument plays, and the compressors without sidechains do.
-    expect(unsupported(p)).toEqual({ instruments: [], effects: ["Reverb on drums", "Compressor on keys (sidechained)", "Tuner on Master"], automation: ["gtr"] });
+    expect(unsupported(p)).toEqual({ instruments: [], effects: ["NAM Amp on drums", "Compressor on keys (sidechained)", "Tuner on Master"], automation: ["gtr"] });
     expect(describeSong(p, session, idOf).tracks.find((t) => t.id === "keys")?.effects).toEqual([]);
     expect(describeSong(p, session, idOf).tracks.find((t) => t.id === "pad")?.effects.map((e) => e.id)).toEqual(["fx6"]);
   });

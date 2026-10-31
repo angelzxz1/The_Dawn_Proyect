@@ -31,8 +31,9 @@ The Dawn Project is a browser DAW, also built as a desktop app.
   continues. The stages:
   1. Playback through the device. Done.
   2. Instruments. Done (PRs #7, #8).
-  3. Effects. Every effect with its own DSP kernel is done (PRs #9–#13).
-     The Web Audio-node effects remain (below).
+  3. Effects. Every effect with its own DSP kernel is done (PRs #9–#13),
+     and of those built from Web Audio nodes all but the Tuner (below).
+     NAM remains.
   4. Sidechains and automation. Delay compensation was planned here and
      was brought forward into stage 3 (PR #11).
   5. Live input and recording.
@@ -300,15 +301,15 @@ Temporary, never committed:
   - every instrument (piano, Drum Rack, synth), from clips and live keys;
   - the mix: volume, pan, mute, solo, groups, sends, buses;
   - effects `PORTED` = chorus, compressor, delay, distortion (the
-    Saturator), eq3, filter, gate, glue, limiter, mbDynamics, multiband,
-    paramEq, pitchShift, tubeAmp, utility;
+    Saturator), eq3, filter, gate, glue, irLoader, limiter, mbDynamics,
+    multiband, paramEq, pitchShift, reverb, tubeAmp, utility;
   - delay compensation, the master limiter and the metronome.
 - **The panel lists what it doesn't play:**
   - instruments it lacks;
   - effects: those not ported, plus sidechained ones;
   - tracks with automation.
-- **Not yet in the engine:** the Web Audio-node effects, NAM, sidechains,
-  automation, recording.
+- **Not yet in the engine:** the Tuner, NAM, sidechains, automation,
+  recording.
 
 ## Next steps
 
@@ -324,6 +325,49 @@ Temporary, never committed:
      AudioToGain's WaveShaper, Scale). The Filter's LFO uses it too.
    - The Saturator: WaveShaperNode with its 2x/4x oversampling
      (`effects/wave_shaper.rs`, Blink's `UpSampler`/`DownSampler`).
+   - The Reverb and the IR Loader: ConvolverNode (`effects/convolver.rs`),
+     done 2026-10-30. Chromium's is the plain convolution with no latency
+     (probed: a mono impulse convolves each side; four channels mix
+     L←L·h0+R·h2, R←L·h1+R·h3; a mono input acts as stereo). The port
+     works it out its own way: the first 128 taps directly, then FFT
+     partitions of 128 (to tap 2048), 1024 (to 16384) and 8192, the longer
+     two starting two blocks in so their work (FFT steps and products, as
+     jobs) spreads over a block's quanta. A 10 s Reverb takes about 3% of
+     a core in release, a 20 s true-stereo IR about 5%; the worst
+     256-frame block about 1 ms.
+     - The Reverb's impulse is `renderImpulse` ported step for step
+       (`reverb.rs`). It matches Chromium to 1e-7 in every case, swaps
+       included.
+     - A new impulse is made when the song is prepared, off the audio
+       thread (`EffectSettings::prepare`, now given the same effect's
+       settings in the previous song, so an unchanged impulse is kept).
+       The app prepares effects on the song it keeps to follow
+       (`Song::prepare_effects` in `engine_set_song`), or every song would
+       re-render it. An `ImpulseSlot` carries the impulse and a convolver
+       made for it; the audio thread takes it (`Convolution::take`, a
+       `try_lock`), and the replaced one rings out (up to 2 at once);
+       those rung out go back into the slot, to be freed off the audio
+       thread.
+     - The IR Loader's file is sent like a clip's (`${rate}:file:<id>`,
+       `NativeAudioIds.effectFile`, decoded by `decodeEffectFileAudio`);
+       while a new one is on its way the effect keeps the one it had, as
+       the browser does.
+     - Chromium quirk ported: a ConvolverNode whose input is gone works on
+       a mono input, so a mono impulse rings out mono (the left tail on
+       both sides).
+     - Chromium races, not ported and kept out of the fixture: after a new
+       ConvolverNode is connected (an IR swapped in), or one turns mono
+       (a mono IR taken out), the BiquadFilters after it sometimes start
+       afresh and sometimes not, run to run (their channel count changes
+       for a quantum or not). The port carries the filters on.
+     - The IR Loader's low cut comes after the convolver, and Off is a
+       5 Hz high pass, which turns last-bit differences into drift:
+       `ir_loader_parity.rs` holds cases with the cut on to 5e-5 and those
+       at Off to 5e-3.
+     - The parity harness (`webAudioParity.ts`) now takes files
+       (`WebAudioFiles`, a case's `file`), and waits 150 ms at a change
+       before resuming, so the Reverb's 40 ms rebuild lands on the
+       change's frame.
 
    They match Chromium to the last bit or a float32 rounding, except where
    an LFO sweeps: Chromium's wave tables come from its FFT, ours are
@@ -356,12 +400,9 @@ Temporary, never committed:
 
    | Key          | Folder       | Label     | Notes                                                 |
    | ------------ | ------------ | --------- | ----------------------------------------------------- |
-   | `reverb`     | `reverb/`    | Reverb    |                                                       |
-   | `irLoader`   | `ir-loader/` | IR Loader | convolution; needs its IR files sent like other audio |
    | `tuner`      | `tuner/`     | Tuner     | passes audio through, but the studio reads its pitch  |
 
-   Each needs its Web Audio node semantics reimplemented (the Convolver,
-   for the Reverb and the IR Loader).
+   The Tuner is the last: the engine has to report its pitch back.
 
 2. **NAM** (`namAmp`, `nam-amp/`). Its engine is C++
    (NeuralAmpModelerCore) and can be built into the engine as is, with
@@ -390,7 +431,8 @@ Temporary, never committed:
   - The project document now has `markers` (in beats). The native engine
     ignores them; they only move the playhead and the loop.
 - **The order of what's left** is in `nextSteps.md`, which is kept
-  locally (it's in `.gitignore`). Phase 1 (housekeeping) was done on
-  2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  locally (it's in `.gitignore`). Phase 2's first step (the Convolver:
+  the Reverb and the IR Loader) was done on 2026-10-30; next is the
+  Tuner. Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
   double-click test clicks twice in one go, and the JS multiband kernels
   read the band count and their key per sample, as the Rust ports do.

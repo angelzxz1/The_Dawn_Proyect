@@ -8,7 +8,8 @@
 // up itself, from its effects' latencies). Pure.
 //
 // So far the native engine plays audio clips, every instrument's notes (the
-// piano, the Drum Rack, the synth) and some of the effects (NATIVE_EFFECTS)
+// piano, the Drum Rack, the synth) and most of the effects (NATIVE_EFFECTS,
+// an IR Loader with its file)
 // through the mix; a chain plays without the others and without effects
 // keyed by another track (sidechains aren't in it yet: keyed by their own
 // input instead, a ducking compressor would squash what it ducks), and
@@ -35,7 +36,7 @@ export const NATIVE_INSTRUMENTS: readonly InstrumentType[] = ["piano", "drums", 
 export const SUB_TABLE = "sub";
 
 /** The effects the native engine plays; a chain plays without the others. */
-export const NATIVE_EFFECTS: readonly EffectType[] = ["chorus", "compressor", "delay", "distortion", "eq3", "filter", "gate", "glue", "limiter", "mbDynamics", "multiband", "paramEq", "pitchShift", "tubeAmp", "utility"];
+export const NATIVE_EFFECTS: readonly EffectType[] = ["chorus", "compressor", "delay", "distortion", "eq3", "filter", "gate", "glue", "irLoader", "limiter", "mbDynamics", "multiband", "paramEq", "pitchShift", "reverb", "tubeAmp", "utility"];
 
 /** The shortest a note plays (as the browser's engine, audioEngine.ts). */
 const MIN_NOTE_DURATION = 0.05;
@@ -73,6 +74,9 @@ export interface NativeEffect {
   params: Record<string, number>;
   /** Skipped, as if unplugged (it keeps its place, and its state). */
   bypass: boolean;
+  /** The file it plays (an IR Loader's impulse response), sent to the
+   * engine under this id; left out when it has none. */
+  file?: string;
 }
 
 export interface NativeTrack {
@@ -95,12 +99,13 @@ export interface NativeTrack {
 
 /** The ids the engine knows what's played by: a clip's file (or its
  * rendering), a sample pad's file, one of the piano's samples, a synth's
- * wavetable (by its tableKey, or SUB_TABLE). */
+ * wavetable (by its tableKey, or SUB_TABLE), an effect's file (an IR). */
 export interface NativeAudioIds {
   clip(clip: AudioClipInstance): string;
   drumSample(fileId: string): string;
   pianoSample(name: string): string;
   wavetable(key: string): string;
+  effectFile(fileId: string): string;
 }
 
 export interface NativeSong {
@@ -175,8 +180,14 @@ const sidechained = (fx: EffectInstance) => !!(fx.sidechain?.on && fx.sidechain.
 const plays = (fx: EffectInstance) => NATIVE_EFFECTS.includes(fx.type) && !sidechained(fx);
 
 /** A chain's effects the engine plays, in order. */
-function nativeEffects(chain: EffectInstance[] | undefined): NativeEffect[] {
-  return (chain ?? []).filter(plays).map((fx) => ({ id: fx.id, type: fx.type, params: fx.params, bypass: !!fx.bypass }));
+function nativeEffects(chain: EffectInstance[] | undefined, ids: NativeAudioIds): NativeEffect[] {
+  return (chain ?? []).filter(plays).map((fx) => ({
+    id: fx.id,
+    type: fx.type,
+    params: fx.params,
+    bypass: !!fx.bypass,
+    ...(fx.file ? { file: ids.effectFile(fx.file.id) } : {}),
+  }));
 }
 
 /** A MIDI track's notes on the timeline: each clip's, clamped or tiled
@@ -213,11 +224,11 @@ export function describeSong(doc: ProjectState, session: NativeSession, ids: Nat
       clips: (doc.clipsByChannel[c.id] ?? []).flatMap((clip) => (clip.kind === "audio" ? [nativeClip(clip, ids.clip(clip))] : [])),
       instrument: nativeInstrument(c, ids),
       notes: nativeNotes(doc, c),
-      effects: nativeEffects(doc.channelEffects[c.id]),
+      effects: nativeEffects(doc.channelEffects[c.id], ids),
     })),
-    buses: doc.buses.map((b) => ({ id: b.id, effects: nativeEffects(doc.busEffects[b.id]) })),
+    buses: doc.buses.map((b) => ({ id: b.id, effects: nativeEffects(doc.busEffects[b.id], ids) })),
     master: { volumeDb: doc.masterVolume, pan: doc.masterPan, limiterDb: session.limiterDb },
-    masterEffects: nativeEffects(doc.masterEffects),
+    masterEffects: nativeEffects(doc.masterEffects, ids),
     tempo: makeTempoMap(doc.bpm, doc.tempoChanges).segments.map((s) => ({ beat: s.beat, seconds: s.seconds, bpm: s.bpm })),
     beatsPerBar: session.beatsPerBar,
     compensation: session.compensation,

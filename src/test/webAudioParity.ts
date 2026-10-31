@@ -27,16 +27,30 @@ export interface WebAudioCase {
   /** Its parameters; the rest are at their defaults. */
   params: Record<string, number>;
   /** All the parameters from this frame on (a block start); those left
-   * out go back to their defaults. */
-  change?: { at: number; params: Record<string, number> };
+   * out go back to their defaults. `file` loads another file then. */
+  change?: { at: number; params: Record<string, number>; file?: string };
+  /** For an effect that plays a file (the IR Loader's impulse): which of
+   * the test's files it starts with (see WebAudioFiles). */
+  file?: string;
 }
+
+/** How an effect that plays a file is given one of the test's files, by
+ * name (the Rust side makes the same files from the same names). */
+export interface WebAudioFiles {
+  load(node: unknown, file: string, context: BaseAudioContext): void;
+}
+
+/** A change waits this long (ms) before the render carries on, so a node
+ * that rebuilds a moment after a change (the Reverb's impulse) has done so
+ * by the change's frame, as it does live. */
+const SETTLE_MS = 150;
 
 const withDefaults = (effect: EffectDefinition, params: Record<string, number>) =>
   Object.fromEntries(effect.params.map((p) => [p.key, params[p.key] ?? p.default]));
 
 /** One case through the effect's node, as the studio builds it and changes
  * its parameters (one set() a parameter). */
-async function renderCase(effect: EffectDefinition, audio: EffectAudio, c: WebAudioCase, sig: ParitySignal) {
+async function renderCase(effect: EffectDefinition, audio: EffectAudio, c: WebAudioCase, sig: ParitySignal, files?: WebAudioFiles) {
   const raw = new OfflineAudioContext(2, PARITY_FRAMES, PARITY_SAMPLE_RATE);
   const context = new Tone.Context({ context: raw as unknown as Tone.BaseContext["rawContext"], lookAhead: 0 });
   const previous = Tone.getContext();
@@ -44,12 +58,16 @@ async function renderCase(effect: EffectDefinition, audio: EffectAudio, c: WebAu
   try {
     const params = withDefaults(effect, c.params);
     const node = audio.create(params);
+    if (files && c.file) files.load(node, c.file, raw);
     if (c.change) {
-      const next = withDefaults(effect, c.change.params);
+      const change = c.change;
+      const next = withDefaults(effect, change.params);
       // The new values are set at the suspension's time, so they start at
       // that frame.
-      raw.suspend(c.change.at / PARITY_SAMPLE_RATE).then(() => {
+      raw.suspend(change.at / PARITY_SAMPLE_RATE).then(async () => {
         for (const p of effect.params) if (next[p.key] !== params[p.key]) audio.set(node, p.key, next[p.key]);
+        if (files && change.file) files.load(node, change.file, raw);
+        await new Promise((done) => setTimeout(done, SETTLE_MS));
         return raw.resume();
       });
     }
@@ -71,30 +89,36 @@ async function renderCase(effect: EffectDefinition, audio: EffectAudio, c: WebAu
 
 const rustParams = (p: Record<string, number>) => `&[${Object.entries(p).map(([k, v]) => `("${k}", ${rustF64(v)})`).join(", ")}]`;
 
-function rustCase(c: WebAudioCase): string {
+/** A case as Rust; with files, each case names its file, and a change
+ * the file it loads (None to keep the one it has). */
+function rustCase(c: WebAudioCase, files: boolean): string {
+  const fileChange = (f?: string) => (files ? `, ${f ? `Some("${f}")` : "None"}` : "");
   return [
     "    Case {",
     `        name: "${c.name}",`,
     `        params: ${rustParams(c.params)},`,
-    `        change: ${c.change ? `Some((${c.change.at}, ${rustParams(c.change.params)}))` : "None"},`,
+    ...(files ? [`        file: "${c.file ?? "none"}",`] : []),
+    `        change: ${c.change ? `Some((${c.change.at}, ${rustParams(c.change.params)}${fileChange(c.change.file)}))` : "None"},`,
     "    },",
   ].join("\n");
 }
 
 /** The fixture as Chromium renders it now: the Rust file's text, and the
  * data (per case, the kept left and right samples). `source` names the
- * effect's node file and `testName` its parity test, for the header. */
+ * effect's node file and `testName` its parity test, for the header;
+ * `files` loads the cases' files, for an effect that plays one. */
 export async function renderWebAudioParity(
   effect: EffectDefinition,
   audio: EffectAudio,
   cases: WebAudioCase[],
   source: string,
-  testName: string
+  testName: string,
+  files?: WebAudioFiles
 ): Promise<{ rust: string; data: FixtureData }> {
   const sig = paritySignal();
   const data = new FixtureData();
   for (const c of cases) {
-    const { outL, outR } = await renderCase(effect, audio, c, sig);
+    const { outL, outR } = await renderCase(effect, audio, c, sig, files);
     for (const out of [outL, outR]) data.f32(out.filter((_, i) => i % PARITY_STRIDE === 0));
   }
   const rust = [
@@ -108,7 +132,7 @@ export async function renderWebAudioParity(
     `const SIGNAL_HASH: u32 = ${rustHex(fnv1a([sig.inL, sig.inR, sig.keyL, sig.keyR]))};`,
     "",
     "const CASES: &[Case] = &[",
-    ...cases.map(rustCase),
+    ...cases.map((c) => rustCase(c, !!files)),
     "];",
     "",
   ].join("\n");

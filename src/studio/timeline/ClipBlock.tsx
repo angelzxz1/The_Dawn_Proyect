@@ -9,6 +9,7 @@ import { WaveformCanvas, useWaveform } from "./WaveformCanvas";
 import { TOOL_CURSORS, type ClipTool } from "./clipTools";
 import { MAX_CLIP_NAME } from "@/project/clipEdits";
 import { formatBpm, NO_GRID, type Grid } from "@/project/tempoMap";
+import { EDGE_SNAP_PX, snapEdges, snapEnd, snapMove, type ClipSpan } from "./clipSnap";
 import type { WarpView } from "@/project/warp";
 
 /** What the slip tool changes: where an audio clip's content starts in its
@@ -47,8 +48,14 @@ interface ClipBlockProps {
   length: number;
   pxPerSecond: number;
   /** The grid drags snap to (tempoMap.ts); none means free - drag
-   * position follows the pointer exactly. */
+   * position follows the pointer exactly. Alt drags free of it. */
   grid?: Grid;
+  /** Every clip on every lane: with the grid on, a moved or resized
+   * clip's edges snap to theirs when they come close (clipSnap.ts). */
+  snapSpans?: readonly ClipSpan[];
+  /** The selected clips (by id): dragging a selected one moves them all,
+   * so their edges aren't snapped to. */
+  selection?: ReadonlySet<string>;
   selected: boolean;
   /** `additive` is true for a Ctrl/Cmd-click, which should toggle this
    * clip's membership in the current selection instead of replacing it. */
@@ -104,11 +111,13 @@ const DRAG_THRESHOLD_PX = 3;
 const MIN_RESIZE_SECONDS = 0.15;
 const FADE_HANDLE_PX = 10;
 const GAIN_DRAG_RANGE_PX = 100; // vertical pixels for a full +/-24dB sweep
+const NO_SPANS: readonly ClipSpan[] = [];
+const NO_SELECTION: ReadonlySet<string> = new Set();
 
 /** A clip's tooltip with each tool. */
 const TOOL_TITLES: Record<ClipTool, string> = {
-  pointer: "Drag to move · drag right edge to resize · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options",
-  draw: "Drag to move · drag right edge to resize · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options",
+  pointer: "Drag to move · drag right edge to resize (both snap to the grid and to other clips' edges; Alt: free) · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options",
+  draw: "Drag to move · drag right edge to resize (both snap to the grid and to other clips' edges; Alt: free) · click twice to edit · Ctrl/Cmd-click to multi-select · right-click for options",
   split: "Click to split the clip here",
   erase: "Click to delete the clip, or drag across clips to delete them all",
   slip: "Drag to slide what's in the clip; the clip stays where it is",
@@ -146,6 +155,8 @@ export function ClipBlock({
   length,
   pxPerSecond,
   grid = NO_GRID,
+  snapSpans = NO_SPANS,
+  selection = NO_SELECTION,
   selected,
   onSelect,
   onEdit,
@@ -175,6 +186,10 @@ export function ClipBlock({
 
   const snap = grid.snap;
   const minLength = grid.stepAt(offset) || MIN_RESIZE_SECONDS;
+  /** The other clips' edges a drag snaps to, when the grid's on: not those
+   * moving with it (the selection, when it's in it). */
+  const edgesFor = (moving: ReadonlySet<string>) => (grid.stepBeats > 0 ? snapEdges(snapSpans, moving) : []);
+  const reach = EDGE_SNAP_PX / pxPerSecond;
   /** A distance on the grid: whole grid steps (from the grid line nearest
    * where it starts). */
   const snapDistance = (from: number, distance: number) => {
@@ -243,6 +258,7 @@ export function ClipBlock({
     const startOffset = offset;
     let moved = false;
     let finalOffset = offset;
+    const edges = edgesFor(clipId && selection.size > 1 && selection.has(clipId) ? selection : new Set(clipId ? [clipId] : []));
 
     const onMoveEvt = (ev: PointerEvent) => {
       const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
@@ -251,7 +267,8 @@ export function ClipBlock({
         moved = true;
       }
       if (!moved) return;
-      finalOffset = Math.max(0, snap(startOffset + deltaSeconds));
+      const exact = startOffset + deltaSeconds;
+      finalOffset = ev.altKey ? Math.max(0, exact) : snapMove(exact, length, edges, reach, snap);
       onMove(finalOffset);
     };
     const onUp = (ev: PointerEvent) => {
@@ -283,6 +300,7 @@ export function ClipBlock({
     const startClientX = e.clientX;
     const startLength = length;
     let started = false;
+    const edges = edgesFor(new Set(clipId ? [clipId] : []));
 
     const onMoveEvt = (ev: PointerEvent) => {
       if (!started) {
@@ -290,8 +308,10 @@ export function ClipBlock({
         onDragStart?.();
       }
       const deltaSeconds = (ev.clientX - startClientX) / pxPerSecond;
-      const newLength = Math.max(minLength, snapDistance(offset, startLength + deltaSeconds));
-      onResize(newLength);
+      const exact = startLength + deltaSeconds;
+      if (ev.altKey) return onResize(Math.max(MIN_RESIZE_SECONDS, exact));
+      const end = snapEnd(offset + exact, edges, reach, offset + minLength, (e) => offset + snapDistance(offset, e - offset));
+      onResize(Math.max(minLength, end - offset));
     };
     const onUp = () => {
       target.releasePointerCapture(e.pointerId);

@@ -36,6 +36,7 @@ import { TrackLane, type TrackLaneActions } from "@/studio/tracks/TrackLane";
 import { useStableActions } from "@/ui/useStableActions";
 import { TimelineScrollbar } from "@/studio/timeline/TimelineScrollbar";
 import { clampZoom, fitSpan, scrollKeeping, wheelZoomFactor, ZOOM_STEP } from "@/studio/timeline/zoom";
+import type { ClipSpan } from "@/studio/timeline/clipSnap";
 import { TimelineRuler } from "@/studio/timeline/TimelineRuler";
 import { Playhead } from "@/studio/timeline/Playhead";
 import { TransportBar } from "@/studio/transport/TransportBar";
@@ -363,8 +364,15 @@ export function Daw() {
   );
   // The snap grid, and bars (for what lands on a bar: imports, pastes,
   // grooves); both follow the tempo map.
-  const grid = useMemo(() => makeGrid(tempo, snapBeatsForResolution(snapResolution, beatsPerBar)), [tempo, snapResolution, beatsPerBar]);
+  // Adaptive: the finest grid line the zoom shows, as the ruler snaps.
+  const zoomUnit = snapUnitFor(tempo, pxPerSecond, beatsPerBar);
+  const grid = useMemo(() => makeGrid(tempo, snapBeatsForResolution(snapResolution, beatsPerBar, zoomUnit)), [tempo, snapResolution, beatsPerBar, zoomUnit]);
   const barGrid = useMemo(() => makeGrid(tempo, beatsPerBar), [tempo, beatsPerBar]);
+  /** Every clip's place, for a dragged one to snap to (clipSnap.ts). */
+  const clipSpans = useMemo<ClipSpan[]>(
+    () => Object.values(clipsByChannel).flatMap((clips) => clips.map((c) => ({ id: c.id, start: c.offset, end: c.offset + c.length }))),
+    [clipsByChannel]
+  );
   /** The loop on the timeline (s). */
   const loopStartSeconds = secondsAtBeat(tempo, loop.start);
   const loopEndSeconds = secondsAtBeat(tempo, loop.end);
@@ -2315,7 +2323,7 @@ export function Daw() {
               );
             })}
           </div>
-          <label className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5" title="What clips snap to as you drag them, besides other clips' edges. Adaptive follows the zoom. Hold Alt to drag freely.">
             Snap
             <select
               value={snapResolution}
@@ -2580,6 +2588,7 @@ export function Daw() {
                   totalSeconds={totalSeconds}
                   pxPerSecond={pxPerSecond}
                   grid={grid}
+                  snapSpans={clipSpans}
                   selected={channel.id === selectedChannelId}
                   armed={channel.id === armedChannelId}
                   recording={transportState === "recording" && channel.id === recordingChannelId}

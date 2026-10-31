@@ -424,11 +424,14 @@ Temporary, never committed:
    architectures register from static initializers, so a static library
    of it must be linked whole-archive.
 
-   **Open question for the user:** that wasm build normalizes a model's
-   loudness to -18 dB itself, and the studio's NAM Amp (`namAmp.ts`
-   `applyOutput`) does it again when Normalize is on. So a model that
-   reports its loudness is corrected twice, and Normalize Off still
-   normalizes. Asked on 2026-10-31; not changed yet.
+   **Fixed 2026-10-31 (the user asked):** that wasm build normalizes a
+   model's loudness to -18 dB itself (within ±12 dB), and the studio's NAM
+   Amp did it again with Normalize on, so a model that reports its
+   loudness was corrected twice, and Normalize Off still normalized. The
+   amp now takes the engine's own gain back off (`namModel.ts`
+   `engineNormalizationDb`, `namOutputGainDb`): Normalize On normalizes
+   once, unclamped as the official plugin does, and Off doesn't. Models
+   that report their loudness sound different from before.
 3. **Sidechains:** keys routed from other tracks, with the browser's tap
    points and latency alignment (`mixGraph.ts` `resolveSidechains`,
    `keyDelay`). Then **automation**.
@@ -443,19 +446,22 @@ Temporary, never committed:
 - **IMPROVEMENTS.md** (checked against the code on 2026-10-29). It has
   checkboxes, and each finished item names the commit that did it.
   - Part 1 (code) is all done.
-  - Part 2 (UX) items 1–7 are done. Item 7, section markers, was added
+  - Part 2 (UX) items 1–8 are done. Item 8 (2026-10-31): an Adaptive
+    snap setting that follows the zoom, and clips snapping to other
+    clips' edges (`clipSnap.ts`; Alt drags free). Item 7, section markers, was added
     on 2026-10-30 (`src/project/markers.ts`, `src/state/markerActions.ts`,
     `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`), in
     `23dbe29`. The next release's "What's new" (`src/content/whatsNew.ts`)
     should mention it.
-  - Items 8–28 are open; 8, 12, 16, 20, 21 and 25 are partly there. Next
-    up is 8, snap that adapts to zoom and snaps to clip edges.
+  - Items 9–28 are open; 12, 16, 20, 21 and 25 are partly there. Next
+    up is 9, velocity and automation drawing tools.
   - The project document now has `markers` (in beats). The native engine
     ignores them; they only move the playhead and the loop.
 - **The order of what's left** is in `nextSteps.md`, which is kept
   locally (it's in `.gitignore`). Phase 2's first two steps (the Convolver:
   the Reverb and the IR Loader, 2026-10-30; the Tuner, 2026-10-31) are
-  done, and NAM was dropped from it (above), so Phase 2 is done; next is
-  Phase 3 (editing), starting with IMPROVEMENTS Part 2 #8. Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  done, and NAM was dropped from it (above), so Phase 2 is done. Phase 3
+  (editing) has begun: step 7 (Part 2 #8, snapping) was done on
+  2026-10-31; next is step 8 (Part 2 #9). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
   double-click test clicks twice in one go, and the JS multiband kernels
   read the band count and their key per sample, as the Rust ports do.

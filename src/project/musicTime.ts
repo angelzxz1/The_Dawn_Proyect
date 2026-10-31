@@ -7,14 +7,17 @@ export function quarterNotesPerBar(numerator: number, denominator: number): numb
   return (numerator * 4) / denominator;
 }
 
-/** User-facing grid resolution for dragging/placing clips - independent of
- * zoom, unlike `snapUnitFor`. "off" means free positioning (no snapping). */
-export type SnapResolution = "off" | "bar" | "1/2" | "1/4" | "1/8" | "1/16";
+/** User-facing grid resolution for dragging/placing clips. "auto" follows
+ * the zoom (the finest grid line drawn, `snapUnitFor`, as the ruler and the
+ * loop snap); the others are fixed. "off" means free positioning (no
+ * snapping). */
+export type SnapResolution = "off" | "auto" | "bar" | "1/2" | "1/4" | "1/8" | "1/16";
 
-export const SNAP_RESOLUTIONS: SnapResolution[] = ["off", "bar", "1/2", "1/4", "1/8", "1/16"];
+export const SNAP_RESOLUTIONS: SnapResolution[] = ["off", "auto", "bar", "1/2", "1/4", "1/8", "1/16"];
 
 export const SNAP_RESOLUTION_LABELS: Record<SnapResolution, string> = {
   off: "Off",
+  auto: "Adaptive",
   bar: "1 Bar",
   "1/2": "1/2",
   "1/4": "1/4",
@@ -23,12 +26,15 @@ export const SNAP_RESOLUTION_LABELS: Record<SnapResolution, string> = {
 };
 
 /** Grid size in beats (quarter notes) for a snap resolution - 0 means
- * "off" (free); "bar" is the bar for the current signature. With a tempo
- * map (tempoMap.ts makeGrid) the grid follows the tempo changes. */
-export function snapBeatsForResolution(resolution: SnapResolution, beatsPerBar: number): number {
+ * "off" (free); "bar" is the bar for the current signature; "auto" is
+ * `adaptiveBeats` (what the zoom shows). With a tempo map (tempoMap.ts
+ * makeGrid) the grid follows the tempo changes. */
+export function snapBeatsForResolution(resolution: SnapResolution, beatsPerBar: number, adaptiveBeats = beatsPerBar): number {
   switch (resolution) {
     case "off":
       return 0;
+    case "auto":
+      return adaptiveBeats;
     case "bar":
       return beatsPerBar;
     case "1/2":

@@ -77,6 +77,56 @@ test("erase: the pointer going down on the clip starts erasing it", async () => 
   expect(onSelect).not.toHaveBeenCalled();
 });
 
+describe("moving and resizing", () => {
+  // Another clip from 7.23 s: the dragged clip (2-6 s) snaps to its start
+  // when one of its edges comes within 8 px (0.08 s).
+  const other = { id: "o", start: 7.23, end: 9 };
+
+  test("a moved clip's end snaps to another clip's start within reach", () => {
+    const { clip, onMove } = renderClip({ snapSpans: [other] });
+    const from = pointIn(clip, 100, 50);
+    // 1.2 s right: its end at 7.2 s, 0.03 s from the other's start.
+    drag(clip, from, { x: from.x + 120, y: from.y });
+    expect(onMove.mock.lastCall?.[0]).toBeCloseTo(3.23, 9);
+    // 0.7 s right: nothing near, so the grid's 2.5 s.
+    drag(clip, from, { x: from.x + 70, y: from.y });
+    expect(onMove).toHaveBeenLastCalledWith(2.5);
+  });
+
+  test("Alt drags it free of the grid and the edges", () => {
+    const { clip, onMove } = renderClip({ snapSpans: [other] });
+    const from = pointIn(clip, 100, 50);
+    drag(clip, from, { x: from.x + 120, y: from.y }, { altKey: true });
+    expect(onMove.mock.lastCall?.[0]).toBeCloseTo(3.2, 6);
+  });
+
+  test("a clip moving with the selection isn't snapped to", () => {
+    const { clip, onMove } = renderClip({ snapSpans: [other], selected: true, selection: new Set(["c1", "o"]) });
+    const from = pointIn(clip, 100, 50);
+    drag(clip, from, { x: from.x + 120, y: from.y });
+    expect(onMove).toHaveBeenLastCalledWith(3);
+  });
+
+  test("with the grid off, nothing snaps", () => {
+    const { clip, onMove } = renderClip({ snapSpans: [other], grid: fixedGrid(0) });
+    const from = pointIn(clip, 100, 50);
+    drag(clip, from, { x: from.x + 120, y: from.y });
+    expect(onMove.mock.lastCall?.[0]).toBeCloseTo(3.2, 6);
+  });
+
+  test("a resized clip's end snaps to another clip's start within reach", async () => {
+    const { screen, onResize } = renderClip({ snapSpans: [other] });
+    const handle = screen.getByTitle("Drag to resize the clip length").element();
+    const from = pointIn(handle, 2, 20);
+    // To 7.2 s: onto the other's start.
+    drag(handle, from, { x: from.x + 120, y: from.y });
+    expect(onResize.mock.lastCall?.[0]).toBeCloseTo(5.23, 6);
+    // To 6.7 s: the grid's 6.5 s.
+    drag(handle, from, { x: from.x + 70, y: from.y });
+    expect(onResize.mock.lastCall?.[0]).toBeCloseTo(4.5, 6);
+  });
+});
+
 describe("slip", () => {
   test("dragging an audio clip slides its audio, on the grid, the clip staying put", () => {
     const { clip, onSlip, onDragStart, onMove } = renderClip({ tool: "slip", ...audio });

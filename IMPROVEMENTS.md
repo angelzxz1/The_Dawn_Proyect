@@ -1,11 +1,11 @@
 # Improvements
 
-Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30.
+Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, item 8 on 2026-10-31.
 
 - `[x]` is done; the commit that did it is in brackets.
 - `[ ]` is still open; "Partly" says what already exists.
 
-**Summary:** Part 1 is all done. In Part 2, items 1–7 are done and items 8–28 are open; six of the open items (8, 12, 16, 20, 21, 25) are partly there.
+**Summary:** Part 1 is all done. In Part 2, items 1–8 are done and items 9–28 are open; five of the open items (12, 16, 20, 21, 25) are partly there.
 
 ## Part 1: Code improvements
 
@@ -68,8 +68,9 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
   - A Sections lane under the tempo lane. Double-click it to add a marker on the nearest bar, named after a common song form (Intro, Verse, Chorus…). Click a marker to jump there, drag it to move it, double-click it to rename it. Right-click it to loop its section (to the next marker, or the song's end), pick a name or remove it.
   - Shift+M adds a marker on the bar nearest the playhead; Shift+←/→ jump to the previous or next one.
   - Kept in beats (`src/project/markers.ts`), saved with the project, and undoable. Time edits (insert silence, delete time) don't move them, as they don't move the tempo changes or the loop.
-- [ ] **8. Snap that adapts to zoom,** plus snapping to other clips' edges.
-  - Partly: clicking the ruler snaps to a unit that follows the zoom (`snapUnitFor`). Clips still snap to the grid setting, and there is no snapping to clip edges.
+- [x] **8. Snap that adapts to zoom,** plus snapping to other clips' edges. (commit to come)
+  - The Snap menu has **Adaptive**: the grid clips snap to follows the zoom, the finest line drawn (`snapUnitFor`), as the ruler, the loop and the markers already did. The fixed sizes stay; new projects still start on 1 Bar.
+  - With the grid on, a moved clip's start or end, or a resized clip's end, snaps to another clip's edge on any track once it comes within 8 px, before the grid (`src/studio/timeline/clipSnap.ts`). Clips moving with the selection aren't snapped to. Alt drags free of both, as on the loop, marker and tempo lanes.
 - [ ] **9. Velocity and automation drawing tools:** curves, ramps and line tools, as in FL and Ableton.
 
 ### Mixing

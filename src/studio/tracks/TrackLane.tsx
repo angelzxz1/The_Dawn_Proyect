@@ -3,6 +3,7 @@
 import { memo, useState } from "react";
 import { ClipBlock, type SlipChange } from "@/studio/timeline/ClipBlock";
 import { RecordingClip } from "@/studio/timeline/RecordingClip";
+import type { ClipSpan } from "@/studio/timeline/clipSnap";
 import { TOOL_CURSORS, type ClipTool } from "@/studio/timeline/clipTools";
 import type { ClipInstance } from "@/project/types";
 import type { TimeRange } from "@/project/timeRange";
@@ -62,6 +63,8 @@ interface TrackLaneProps {
   pxPerSecond: number;
   /** The grid clip drags and drawing snap to. */
   grid: Grid;
+  /** Every clip on every lane, whose edges a dragged clip snaps to. */
+  snapSpans?: readonly ClipSpan[];
   /** Whether this track is the clicked/focused one - tints the whole lane. */
   selected: boolean;
   /** Whether this track is record-armed - shows a small indicator dot. */
@@ -117,6 +120,7 @@ export const TrackLane = memo(function TrackLane({
   totalSeconds,
   pxPerSecond,
   grid,
+  snapSpans,
   selected,
   armed,
   recording = false,
@@ -338,6 +342,8 @@ export const TrackLane = memo(function TrackLane({
           length={clip.length}
           pxPerSecond={pxPerSecond}
           grid={grid}
+          snapSpans={snapSpans}
+          selection={selectedClipIds}
           selected={selectedClipIds.has(clip.id)}
           onSelect={(additive) => onSelectClip(clip.id, additive)}
           onEdit={() => onEditClip(clip.id)}

@@ -15,7 +15,7 @@ export function pointIn(element: Element, x: number, y: number): Point {
   return { x: box.left + x, y: box.top + y };
 }
 
-export function drag(target: Element, from: Point, to: Point, { steps = 5, shiftKey = false } = {}): void {
+export function drag(target: Element, from: Point, to: Point, { steps = 5, shiftKey = false, altKey = false } = {}): void {
   const send = (type: "down" | "move" | "up", at: Point) => {
     const init: PointerEventInit = {
       bubbles: true,
@@ -29,6 +29,7 @@ export function drag(target: Element, from: Point, to: Point, { steps = 5, shift
       pointerType: "mouse",
       isPrimary: true,
       shiftKey,
+      altKey,
     };
     target.dispatchEvent(new PointerEvent(`pointer${type}`, init));
     target.dispatchEvent(new MouseEvent(`mouse${type}`, { ...init, button: Math.max(0, init.button ?? 0) }));

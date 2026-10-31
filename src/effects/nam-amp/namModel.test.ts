@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { NAM_TARGET_LOUDNESS_DB, namSlimSize, normalizationDb, parseNamFile, toneStack } from "./namModel";
+import { NAM_TARGET_LOUDNESS_DB, engineNormalizationDb, namOutputGainDb, namSlimSize, normalizationDb, parseNamFile, toneStack } from "./namModel";
 
 const lstm = readFileSync(join(__dirname, "__fixtures__", "nam", "lstm.nam"), "utf8");
 
@@ -59,6 +59,25 @@ describe("output normalization", () => {
   it("does nothing when off or when the model has no loudness", () => {
     expect(normalizationDb(false, -26.4)).toBe(0);
     expect(normalizationDb(true, null)).toBe(0);
+  });
+
+  it("takes the engine's own normalizing back off, so Normalize alone decides", () => {
+    // What the engine does by itself: to -18 dB, within +/-12 dB, for a
+    // plausible loudness.
+    expect(engineNormalizationDb(-26.4)).toBeCloseTo(8.4, 6);
+    expect(engineNormalizationDb(-40)).toBe(12);
+    expect(engineNormalizationDb(-3)).toBe(-12);
+    expect(engineNormalizationDb(null)).toBe(0);
+    expect(engineNormalizationDb(-120)).toBe(0);
+    expect(engineNormalizationDb(2)).toBe(0);
+    // With the engine's gain and the amp's after it: once (unclamped, as
+    // the plugin does) with Normalize on, not at all with it off.
+    const heard = (on: boolean, loudness: number | null, outputDb = 0) => engineNormalizationDb(loudness) + namOutputGainDb(outputDb, on, loudness);
+    expect(heard(true, -40)).toBeCloseTo(22, 6);
+    expect(heard(false, -40)).toBeCloseTo(0, 6);
+    expect(heard(true, -26.4, -3)).toBeCloseTo(5.4, 6);
+    expect(heard(false, -26.4, -3)).toBeCloseTo(-3, 6);
+    expect(heard(true, null, 2)).toBe(2);
   });
 });
 

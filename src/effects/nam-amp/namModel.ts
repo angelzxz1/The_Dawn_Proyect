@@ -74,6 +74,23 @@ export function normalizationDb(normalize: boolean, loudness: number | null): nu
   return normalize && loudness !== null ? NAM_TARGET_LOUDNESS_DB - loudness : 0;
 }
 
+/** The engine's own normalizing: neural-amp-modeler-wasm (public/nam)
+ * brings a model that reports a plausible loudness (above -100 dB, at most
+ * 0) to -18 dB by itself, within +/-12 dB. The NAM Amp takes it back off,
+ * so Normalize alone decides (`normalizationDb`). */
+const ENGINE_MAX_NORMALIZE_DB = 12;
+
+export function engineNormalizationDb(loudness: number | null): number {
+  if (loudness === null || !Number.isFinite(loudness) || loudness <= -100 || loudness > 0) return 0;
+  return Math.min(ENGINE_MAX_NORMALIZE_DB, Math.max(-ENGINE_MAX_NORMALIZE_DB, NAM_TARGET_LOUDNESS_DB - loudness));
+}
+
+/** The NAM Amp's gain after the engine (dB): Output, and the plugin's
+ * normalizing with Normalize on, less what the engine did on its own. */
+export function namOutputGainDb(outputDb: number, normalize: boolean, loudness: number | null): number {
+  return outputDb + normalizationDb(normalize, loudness) - engineNormalizationDb(loudness);
+}
+
 /** The plugin's tone stack: a 150 Hz low shelf (+/-20 dB), a 425 Hz peak
  * (+/-15 dB, wider when cutting), and a 1.8 kHz high shelf (+/-10 dB), on
  * 0-10 knobs where 5 is flat. */

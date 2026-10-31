@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { NamInstance, type NamModelInfo } from "./namEngine";
-import { namSlimSize, normalizationDb, toneStack } from "./namModel";
+import { namOutputGainDb, namSlimSize, toneStack } from "./namModel";
 import { noteIssue } from "../../services/issues";
 
 // Loading a model parses it on the audio thread, which stalls all audio
@@ -173,7 +173,9 @@ export class NamAmpChain extends Tone.ToneAudioNode {
 
   private applyOutput(): void {
     const loudness = this.info?.hasLoudness ? this.info.loudness : null;
-    this.outputGain.gain.value = Tone.dbToGain(this.outputDb + normalizationDb(this.normalize, loudness));
+    // The engine normalizes on its own; that's taken back off, so the
+    // model is normalized once with Normalize on and not at all with it off.
+    this.outputGain.gain.value = Tone.dbToGain(namOutputGainDb(this.outputDb, this.normalize, loudness));
   }
 
   setInput(db: number): void {

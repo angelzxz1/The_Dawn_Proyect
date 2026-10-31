@@ -280,10 +280,11 @@ class MbdKernel {
       }
     }
     const kf = this.key;
-    const keyed = this.external || kf.active;
-    const count = this.names.length;
     const smooth = this.smooth;
     for (let i = 0; i < n; i++) {
+      // Read each sample: a band switch can land mid-block (apply, below).
+      const keyed = this.external || kf.active;
+      const count = this.names.length;
       const l = inL ? inL[i] : 0;
       const r = inR ? inR[i] : l;
       this.split(l, 0, this.bL);

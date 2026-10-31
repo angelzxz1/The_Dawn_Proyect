@@ -132,3 +132,25 @@ describe("multiband dynamics: timing and sidechain", () => {
     expect(peakDb(run({ ...p, scMix: 0 }, quiet, loud, true))).toBeCloseTo(-30, 1);
   });
 });
+
+describe("multiband dynamics: switching bands", () => {
+  it("two switches in back-to-back blocks: the block the second lands in plays on", () => {
+    const k = new Mbd(SR);
+    const params = (lowOn: number, highOn: number) => mbdSettingsFromParams({ ...defaultParams("mbDynamics"), lowOn, highOn });
+    const input = sine(1000, -12, 0.1);
+    const out = new Float32Array(input.length);
+    const block = (i: number) => k.process(input.subarray(i * 128, i * 128 + 128), null, null, null, out.subarray(i * 128, i * 128 + 128), null, 128);
+    k.set(params(0, 0));
+    block(0);
+    // One band to three: it fades out over this block and switches at its end.
+    k.set(params(1, 1));
+    block(1);
+    // Straight back to one, while it fades in: it switches at the start of
+    // the next block, which still began with three bands.
+    k.set(params(0, 0));
+    expect(() => block(2)).not.toThrow();
+    for (let i = 3; i < 12; i++) block(i);
+    expect(out.every(Number.isFinite)).toBe(true);
+    expect(k.takeMeters()).toEqual({ m: expect.anything() });
+  });
+});

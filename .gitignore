@@ -50,3 +50,5 @@ next-env.d.ts
 /public/sw.js
 
 graphify-out
+# The working order of what is left (kept locally)
+/nextSteps.md

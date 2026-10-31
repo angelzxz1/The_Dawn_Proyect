@@ -118,7 +118,8 @@ describe("wavetables", () => {
     expect(low.sin[3]).toBeCloseTo(0.5, 6);
   });
 
-  it("builds every factory table, peak-normalized and band-limited per level", () => {
+  // Slow (it builds every table), and slower on a busy machine.
+  it("builds every factory table, peak-normalized and band-limited per level", { timeout: 30_000 }, () => {
     for (const id of WAVETABLE_IDS) {
       const t = factoryWavetable(id);
       expect(t.frames).toBeGreaterThan(1);
@@ -317,7 +318,8 @@ describe("synth kernel", () => {
     });
   });
 
-  it("runs every warp without trouble, and FM changes the sound", () => {
+  // Slow (it renders every warp), and slower on a busy machine.
+  it("runs every warp without trouble, and FM changes the sound", { timeout: 30_000 }, () => {
     const out: Record<string, number> = {};
     WARP_MODES.forEach((warp) => {
       const { k } = make((p) => {
@@ -418,7 +420,8 @@ describe("synth kernel", () => {
 });
 
 describe("synth presets", () => {
-  it("every factory preset is valid, plays, and survives a save/load round trip", async () => {
+  // Slow (it plays every preset), and slower on a busy machine.
+  it("every factory preset is valid, plays, and survives a save/load round trip", { timeout: 30_000 }, async () => {
     const { FACTORY_SYNTH_PRESETS } = await import("./synthPresets");
     const names = new Set<string>();
     for (const preset of FACTORY_SYNTH_PRESETS) {

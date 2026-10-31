@@ -30,6 +30,9 @@ export default defineConfig({
         test: {
           name: "components",
           include: ["src/**/*.test.tsx"],
+          // Every click and check is a round trip to Chromium, so a test
+          // that takes a second alone can take several on a busy machine.
+          testTimeout: 30_000,
           setupFiles: ["src/test/componentSetup.ts"],
           browser: {
             enabled: true,

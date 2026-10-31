@@ -38,15 +38,20 @@ The Dawn Project is a browser DAW, also built as a desktop app.
   5. Live input and recording.
   6. Then the plugins: P2 CLAP effects, P3 VST3 effects, P4 plugin
      instruments, P5 Audio Units.
-- **ASIO: undecided.** The user said "Tell me more first", and I
-  explained the options:
+- **ASIO: decided later.** The options:
   - Steinberg's ASIO licence agreement, signed by the owner (my
-    recommendation).
-  - The GPLv3 ASIO SDK, which would make Dawn GPLv3.
+    recommendation, since `LICENSE.md` keeps Dawn proprietary). It's
+    free; once both sides sign, the About window and the site's download
+    and legal pages must carry "ASIO is a trademark of Steinberg Media
+    Technologies GmbH, registered in Europe and other countries" (with
+    the ASIO compatible logo on the site), and the SDK must never go in
+    the repository.
+  - The GPLv3 ASIO SDK, which would make every build with ASIO GPLv3.
   - Staying on WASAPI.
 
-  Keep ASIO off (cargo feature `asio`) until the user confirms the
-  licence is signed.
+  On 2026-10-30 the user said they'll take this up once they consider
+  the DAW finished. Keep ASIO off (cargo feature `asio`) until they
+  confirm Steinberg has signed.
 
 - **Standing constraint (the user's words):** "Remove any github links or
   sponsors or any link related to github as well any message saying
@@ -86,8 +91,9 @@ angelzxz1
 - `cargo test --workspace`
 - `npx tsc --noEmit`
 - `npm run lint`
-- `npx vitest run` (619 unit and component tests on 2026-10-30; under
-  load, add `--testTimeout 60000`, see "Flaky synth preset test" below)
+- `npx vitest run` (620 unit and component tests on 2026-10-30). The
+  component tests have a 30 s limit (`vitest.config.ts`), and the slow
+  unit tests their own; no `--testTimeout` needed.
 - `npx playwright test` (149 tests, 1 skipped). It serves `out/`, so run
   `npm run build` first or it tests the last build. On Windows on 2026-10-30,
   four site page tests failed on 404s for resources `serve` didn't find
@@ -371,30 +377,20 @@ Temporary, never committed:
 
 **Smaller items:**
 
-- **Flaky synth preset test.**
-  `src/instruments/synth/synth.test.ts`, "every factory preset is valid,
-  plays, and survives a save/load round trip". It takes about 0.9 s
-  alone, but failed once in a full parallel `vitest` run, probably
-  hitting the 5 s default timeout. Still open on 2026-10-29: under heavy
-  CPU load, other slow tests (ClipBlock, drum kits, wavetables, damaged
-  saved data) time out the same way, and all pass with
-  `--testTimeout 60000`. Give the slow tests a longer limit.
 - **IMPROVEMENTS.md** (checked against the code on 2026-10-29). It has
   checkboxes, and each finished item names the commit that did it.
   - Part 1 (code) is all done.
   - Part 2 (UX) items 1–7 are done. Item 7, section markers, was added
     on 2026-10-30 (`src/project/markers.ts`, `src/state/markerActions.ts`,
-    `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`); its
-    entry names the commit by its title, so put the hash in once it's
-    committed. The next release's "What's new" (`src/content/whatsNew.ts`)
+    `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`), in
+    `23dbe29`. The next release's "What's new" (`src/content/whatsNew.ts`)
     should mention it.
   - Items 8–28 are open; 8, 12, 16, 20, 21 and 25 are partly there. Next
     up is 8, snap that adapts to zoom and snaps to clip edges.
   - The project document now has `markers` (in beats). The native engine
     ignores them; they only move the playhead and the loop.
-- **A latent bug in the JS multiband kernels** (`mbDynamicsModel.ts`, and
-  the same pattern in `multibandModel.ts`). `process()` reads the band
-  count and `keyed` once per block. A pending band switch that lands
-  mid-block (two switches in back-to-back quanta) would read
-  `this.coef[b]` past its end. The Rust ports read them per sample.
-  Unlikely in practice; worth a small fix.
+- **The order of what's left** is in `nextSteps.md`, which is kept
+  locally (it's in `.gitignore`). Phase 1 (housekeeping) was done on
+  2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  double-click test clicks twice in one go, and the JS multiband kernels
+  read the band count and their key per sample, as the Rust ports do.

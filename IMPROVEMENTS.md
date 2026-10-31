@@ -64,7 +64,7 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
 - [x] **4. Comping:** loop-record several takes and pick the best parts. (`a247a97`)
 - [x] **5. Timing and tempo:** warp/time-stretch audio, a tempo map with tempo changes, and quantizing audio. (`527f033`, `72b0bdb`, `7acccc6`)
 - [x] **6. Zoom like other DAWs:** Ctrl+wheel and pinch to zoom, zoom-to-fit and zoom-to-selection, and resizable track heights. (`47c7c5b`)
-- [x] **7. Markers and song sections** (Intro, Verse, Chorus) that you can jump to and loop, like Logic's arrangement markers. (the "Add section markers" commit)
+- [x] **7. Markers and song sections** (Intro, Verse, Chorus) that you can jump to and loop, like Logic's arrangement markers. (`23dbe29`)
   - A Sections lane under the tempo lane. Double-click it to add a marker on the nearest bar, named after a common song form (Intro, Verse, Chorus…). Click a marker to jump there, drag it to move it, double-click it to rename it. Right-click it to loop its section (to the next marker, or the song's end), pick a name or remove it.
   - Shift+M adds a marker on the bar nearest the playhead; Shift+←/→ jump to the previous or next one.
   - Kept in beats (`src/project/markers.ts`), saved with the project, and undoable. Time edits (insert silence, delete time) don't move them, as they don't move the tempo changes or the loop.

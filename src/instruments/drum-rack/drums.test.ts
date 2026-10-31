@@ -216,7 +216,8 @@ describe("drum kits", () => {
 });
 
 describe("factory kits", () => {
-  it("every kit is valid and every pad plays at a sane level", async () => {
+  // Slow (it plays every pad of every kit), and slower on a busy machine.
+  it("every kit is valid and every pad plays at a sane level", { timeout: 30_000 }, async () => {
     const { FACTORY_KITS } = await import("./drumKits");
     const names = new Set<string>();
     for (const preset of FACTORY_KITS) {

@@ -250,7 +250,8 @@ describe("damaged saved data", () => {
     expect(amp.params).toMatchObject({ input: 20, size: 0, bass: 5, normalize: 1 });
   });
 
-  it("never throws on randomly damaged versions of the fixtures", () => {
+  // Slow (many damaged copies of every fixture), and slower on a busy machine.
+  it("never throws on randomly damaged versions of the fixtures", { timeout: 30_000 }, () => {
     // Deterministic PRNG (mulberry32) so a failure is reproducible.
     let seed = 0x5eed;
     const rand = () => {

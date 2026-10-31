@@ -125,8 +125,9 @@ test("a Ctrl/Cmd-click right after a click picks the clip too; it isn't a double
   await userEvent.click(body, { position: { x: 50, y: 60 }, modifiers: ["ControlOrMeta"] });
   expect(onSelect.mock.calls).toEqual([[false], [true]]);
   expect(onEdit).not.toHaveBeenCalled();
-  await userEvent.click(body, { position: { x: 50, y: 60 } });
-  await userEvent.click(body, { position: { x: 50, y: 60 } });
+  // Both clicks in one go: two separate ones can land too far apart on a
+  // busy machine to count as a double-click.
+  await userEvent.dblClick(body, { position: { x: 50, y: 60 } });
   expect(onEdit).toHaveBeenCalledOnce();
 });
 

@@ -280,13 +280,14 @@ class MultibandKernel {
     const bL = this.bandL;
     const bR = this.bandR;
     const kf = this.key;
-    // A separate split for the detectors only when they hear something
-    // other than the input itself.
-    const keyed = this.external || kf.active;
-    const kL = keyed ? this.keyL : bL;
-    const kR = keyed ? this.keyR : bR;
-    const keyGain = keyed ? 1 : kf.gain;
     for (let i = 0; i < n; i++) {
+      // A separate split for the detectors only when they hear something
+      // other than the input itself. Read each sample: a band switch can
+      // land mid-block (apply, below).
+      const keyed = this.external || kf.active;
+      const kL = keyed ? this.keyL : bL;
+      const kR = keyed ? this.keyR : bR;
+      const keyGain = keyed ? 1 : kf.gain;
       const l = inL ? inL[i] : 0;
       const r = inR ? inR[i] : l;
       this.split(l, 0, bL);

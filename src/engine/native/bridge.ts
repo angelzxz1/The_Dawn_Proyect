@@ -81,6 +81,9 @@ export const nativeBridge = {
   /** A track's mod wheel, 0..1. */
   modWheel: (track: string, value: number) => invoke<void>("engine_mod_wheel", { track, value }),
   status: () => invoke<NativeStatus>("engine_status"),
+  /** What's gone into a Tuner lately (its last 4096 samples, as f32s);
+   * empty when there's no such Tuner playing. */
+  tuner: (effect: string) => invoke<ArrayBuffer>("engine_tuner", { effect }),
 };
 
 // --- The VST3 and CLAP plugins on this computer (src-tauri/src/plugins.rs) ---

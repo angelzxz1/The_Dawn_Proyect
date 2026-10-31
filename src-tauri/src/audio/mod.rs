@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use dawn_engine::mix::{AudioData, Song, track_key};
 use serde::Serialize;
 use tauri::State;
-use tauri::ipc::{InvokeBody, Request};
+use tauri::ipc::{InvokeBody, Request, Response};
 
 use song::{LoadedAudio, SongSpec};
 use stream::{Command, Running};
@@ -287,6 +287,29 @@ pub struct EngineStatus {
     load: f32,
     /// Dropouts and stream errors since the device opened.
     errors: u32,
+}
+
+/// What's gone into a Tuner (by its effect id) lately, for the studio to
+/// find its pitch in: the last 4096 samples, oldest first, as little-endian
+/// f32s. Nothing when the song has no such Tuner, or it's bypassed (the
+/// engine skips it, so it hears nothing, as the browser's unplugged one).
+#[tauri::command]
+pub fn engine_tuner(state: State<'_, AudioState>, effect: String) -> Response {
+    let inner = state.lock();
+    let samples = inner
+        .song
+        .as_ref()
+        .and_then(|s| s.effect(&effect))
+        .filter(|e| !e.bypass)
+        .and_then(|e| e.settings.tuner_tap())
+        .map(|tap| tap.waveform())
+        .unwrap_or_default();
+    Response::new(
+        samples
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    )
 }
 
 #[tauri::command]

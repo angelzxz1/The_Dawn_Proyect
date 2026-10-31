@@ -857,7 +857,7 @@ mod tests {
                 { "id": "v", "volumeDb": 0, "pan": 0, "audible": true, "output": null, "sends": [], "clips": [],
                   "effects": [
                       { "id": "c", "type": "compressor", "params": { "threshold": -30, "ratio": 6 } },
-                      { "id": "r", "type": "tuner", "params": {} },
+                      { "id": "r", "type": "namAmp", "params": {} },
                       { "id": "u", "type": "utility", "params": { "gain": null, "width": 0 }, "bypass": true }
                   ] }
             ],
@@ -870,7 +870,7 @@ mod tests {
         let spec: SongSpec = serde_json::from_str(json).unwrap();
         let (song, missing) = build(&spec, None, &HashMap::new(), 48000.0);
         assert!(missing.is_empty());
-        // The tuner isn't in the engine yet: the chain plays without it.
+        // NAM isn't in the engine yet: the chain plays without it.
         let fx = &song.tracks[0].effects;
         assert_eq!(
             fx.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),

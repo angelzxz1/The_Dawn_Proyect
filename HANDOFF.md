@@ -32,8 +32,8 @@ The Dawn Project is a browser DAW, also built as a desktop app.
   1. Playback through the device. Done.
   2. Instruments. Done (PRs #7, #8).
   3. Effects. Every effect with its own DSP kernel is done (PRs #9–#13),
-     and of those built from Web Audio nodes all but the Tuner (below).
-     NAM remains.
+     and every one built from Web Audio nodes. The NAM Amp stays out
+     (below).
   4. Sidechains and automation. Delay compensation was planned here and
      was brought forward into stage 3 (PR #11).
   5. Live input and recording.
@@ -302,14 +302,14 @@ Temporary, never committed:
   - the mix: volume, pan, mute, solo, groups, sends, buses;
   - effects `PORTED` = chorus, compressor, delay, distortion (the
     Saturator), eq3, filter, gate, glue, irLoader, limiter, mbDynamics,
-    multiband, paramEq, pitchShift, reverb, tubeAmp, utility;
+    multiband, paramEq, pitchShift, reverb, tubeAmp, tuner, utility;
   - delay compensation, the master limiter and the metronome.
 - **The panel lists what it doesn't play:**
   - instruments it lacks;
   - effects: those not ported, plus sidechained ones;
   - tracks with automation.
-- **Not yet in the engine:** the Tuner, NAM, sidechains, automation,
-  recording.
+- **Not yet in the engine:** sidechains, automation, recording. The NAM
+  Amp won't be (below).
 
 ## Next steps
 
@@ -396,17 +396,39 @@ Temporary, never committed:
      changes, even while running. After a Spread or waveform change, that
      offset stays added to the wave (`initial_value` in `tone_lfo.rs`).
 
-   The rest:
+   - The Tuner (`effects/tuner.rs`), done 2026-10-31. It passes its input
+     through; Mute fades over 10 ms (Tone's linear `rampTo`; a Tuner made
+     muted fades out from its start), matching Chromium to 2e-7. It keeps
+     the last 4096 samples of the left side (a one-channel Tone.Analyser
+     goes through a ChannelSplitterNode, whose "discrete" mix keeps only
+     the first channel) in a `TunerTap` (atomics, no locks), which the
+     settings carry and `prepare` keeps from one version to the next. The
+     app's `engine_tuner` command reads it from the song it keeps (raw
+     f32 bytes; nothing for a bypassed Tuner, which the engine skips), and
+     `useTuner` reads from it while the native engine is on
+     (`nativeEngine.tunerInput`).
 
-   | Key          | Folder       | Label     | Notes                                                 |
-   | ------------ | ------------ | --------- | ----------------------------------------------------- |
-   | `tuner`      | `tuner/`     | Tuner     | passes audio through, but the studio reads its pitch  |
+   That's every effect built from Web Audio nodes.
 
-   The Tuner is the last: the engine has to report its pitch back.
+2. **NAM: not in the native engine (the user's decision, 2026-10-31).**
+   NAM has its own plugin, and the desktop app will host VST3 plugins, so
+   desktop users will play NAM models through it; the built-in NAM Amp
+   stays a browser effect. The native panel lists it as played without,
+   as now. Building NeuralAmpModelerCore v0.5.4 (with Eigen and
+   nlohmann/json) into the engine was tried and worked with MSVC, then
+   dropped. If it's ever wanted again, the browser's build is TONE3000's
+   `neural-amp-modeler-wasm` 2.0.1, and its `wasm/nam-engine.cpp` does
+   more than run the model: fast tanh on, a prewarm on load, loudness
+   normalized to -18 dB (within ±12 dB, smoothed), a 10 Hz DC blocker,
+   and the worklet fades a new model in over 1024 frames. The core's
+   architectures register from static initializers, so a static library
+   of it must be linked whole-archive.
 
-2. **NAM** (`namAmp`, `nam-amp/`). Its engine is C++
-   (NeuralAmpModelerCore) and can be built into the engine as is, with
-   the model files sent over.
+   **Open question for the user:** that wasm build normalizes a model's
+   loudness to -18 dB itself, and the studio's NAM Amp (`namAmp.ts`
+   `applyOutput`) does it again when Normalize is on. So a model that
+   reports its loudness is corrected twice, and Normalize Off still
+   normalizes. Asked on 2026-10-31; not changed yet.
 3. **Sidechains:** keys routed from other tracks, with the browser's tap
    points and latency alignment (`mixGraph.ts` `resolveSidechains`,
    `keyDelay`). Then **automation**.
@@ -431,8 +453,9 @@ Temporary, never committed:
   - The project document now has `markers` (in beats). The native engine
     ignores them; they only move the playhead and the loop.
 - **The order of what's left** is in `nextSteps.md`, which is kept
-  locally (it's in `.gitignore`). Phase 2's first step (the Convolver:
-  the Reverb and the IR Loader) was done on 2026-10-30; next is the
-  Tuner. Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  locally (it's in `.gitignore`). Phase 2's first two steps (the Convolver:
+  the Reverb and the IR Loader, 2026-10-30; the Tuner, 2026-10-31) are
+  done, and NAM was dropped from it (above), so Phase 2 is done; next is
+  Phase 3 (editing), starting with IMPROVEMENTS Part 2 #8. Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
   double-click test clicks twice in one go, and the JS multiband kernels
   read the band count and their key per sample, as the Rust ports do.

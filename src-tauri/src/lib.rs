@@ -87,6 +87,7 @@ pub fn run() {
             audio::engine_loop,
             audio::engine_metronome,
             audio::engine_status,
+            audio::engine_tuner,
             plugins::plugins_list,
             plugins::plugins_scan,
             plugins::plugins_add_folder,

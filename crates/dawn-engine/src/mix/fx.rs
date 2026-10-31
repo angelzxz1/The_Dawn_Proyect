@@ -28,6 +28,7 @@ use crate::effects::param_eq::{ParamEqKernel, ParamEqSettings};
 use crate::effects::pitch_shift::{PitchShiftSettings, PitchShifter};
 use crate::effects::reverb::{ReverbKernel, ReverbSettings};
 use crate::effects::saturator::{SaturatorKernel, SaturatorSettings};
+use crate::effects::tuner::{TunerKernel, TunerSettings, TunerTap};
 use crate::effects::utility::{UtilityKernel, UtilitySettings};
 use crate::params::ParamSource;
 
@@ -50,6 +51,7 @@ pub enum EffectSettings {
     PitchShift(PitchShiftSettings),
     Reverb(Box<ReverbSettings>),
     Saturator(Box<SaturatorSettings>),
+    Tuner(TunerSettings),
     Utility(UtilitySettings),
 }
 
@@ -71,6 +73,7 @@ pub enum EffectKind {
     PitchShift,
     Reverb,
     Saturator,
+    Tuner,
     Utility,
 }
 
@@ -100,6 +103,7 @@ impl EffectSettings {
             "paramEq" => Self::ParamEq(Box::new(ParamEqSettings::from_params(params))),
             "pitchShift" => Self::PitchShift(PitchShiftSettings::from_params(params)),
             "reverb" => Self::Reverb(Box::new(ReverbSettings::from_params(params))),
+            "tuner" => Self::Tuner(TunerSettings::from_params(params)),
             "utility" => Self::Utility(UtilitySettings::from_params(params)),
             _ => return None,
         })
@@ -139,11 +143,20 @@ impl EffectSettings {
         }
     }
 
+    /// Where a Tuner's kernel keeps what comes in, for the studio to read
+    /// its pitch from.
+    pub fn tuner_tap(&self) -> Option<&Arc<TunerTap>> {
+        match self {
+            Self::Tuner(s) => Some(&s.tap),
+            _ => None,
+        }
+    }
+
     /// Works out, off the audio thread, what its kernel needs at
     /// `sample_rate` that would take too long on it: the Chorus's LFO
     /// tables, the Reverb's and the IR Loader's impulses. `previous` is the
     /// same effect's settings in the song playing, whose impulse it keeps
-    /// if it's the same.
+    /// if it's the same (and a Tuner its tap).
     pub fn prepare(&mut self, sample_rate: f64, previous: Option<&Self>) {
         match (self, previous) {
             (Self::Chorus(s), _) => s.prepare(sample_rate),
@@ -151,6 +164,7 @@ impl EffectSettings {
             (Self::Reverb(s), _) => s.prepare(sample_rate, None),
             (Self::IrLoader(s), Some(Self::IrLoader(p))) => s.prepare(sample_rate, Some(p)),
             (Self::IrLoader(s), _) => s.prepare(sample_rate, None),
+            (Self::Tuner(s), Some(Self::Tuner(p))) => s.prepare(Some(p)),
             _ => {}
         }
     }
@@ -173,6 +187,7 @@ impl EffectSettings {
             Self::PitchShift(_) => EffectKind::PitchShift,
             Self::Reverb(_) => EffectKind::Reverb,
             Self::Saturator(_) => EffectKind::Saturator,
+            Self::Tuner(_) => EffectKind::Tuner,
             Self::Utility(_) => EffectKind::Utility,
         }
     }
@@ -216,6 +231,7 @@ enum Kernel {
     PitchShift(Box<PitchShifter>),
     Reverb(Box<ReverbKernel>),
     Saturator(Box<SaturatorKernel>),
+    Tuner(Box<TunerKernel>),
     Utility(Box<UtilityKernel>),
 }
 
@@ -269,6 +285,7 @@ impl Effect {
             EffectSettings::Saturator(s) => {
                 Kernel::Saturator(Box::new(SaturatorKernel::new(sample_rate, s)))
             }
+            EffectSettings::Tuner(s) => Kernel::Tuner(Box::new(TunerKernel::new(sample_rate, s))),
             EffectSettings::Utility(s) => {
                 Kernel::Utility(Box::new(UtilityKernel::new(sample_rate, s)))
             }
@@ -294,6 +311,7 @@ impl Effect {
             Kernel::PitchShift(_) => EffectKind::PitchShift,
             Kernel::Reverb(_) => EffectKind::Reverb,
             Kernel::Saturator(_) => EffectKind::Saturator,
+            Kernel::Tuner(_) => EffectKind::Tuner,
             Kernel::Utility(_) => EffectKind::Utility,
         }
     }
@@ -318,6 +336,7 @@ impl Effect {
             (Kernel::PitchShift(k), EffectSettings::PitchShift(s)) => k.set(s),
             (Kernel::Reverb(k), EffectSettings::Reverb(s)) => k.set(s),
             (Kernel::Saturator(k), EffectSettings::Saturator(s)) => k.set(s),
+            (Kernel::Tuner(k), EffectSettings::Tuner(s)) => k.set(s),
             (Kernel::Utility(k), EffectSettings::Utility(s)) => k.set(s),
             _ => {}
         }
@@ -349,6 +368,7 @@ impl Effect {
             Kernel::PitchShift(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Reverb(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Saturator(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
+            Kernel::Tuner(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
             Kernel::Utility(k) => k.process_in_place(&mut l[..n], &mut r[..n]),
         }
     }

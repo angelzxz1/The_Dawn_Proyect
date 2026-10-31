@@ -252,6 +252,14 @@ class NativeEngine {
     return job;
   }
 
+  /** What's gone into a Tuner the engine plays lately (as its node in the
+   * browser keeps it, tuner.ts), or null when it's not playing one. */
+  async tunerInput(effectId: string): Promise<Float32Array | null> {
+    if (!this.state.active) return null;
+    const bytes = await nativeBridge.tuner(effectId);
+    return bytes.byteLength > 0 ? new Float32Array(bytes) : null;
+  }
+
   // --- The status: the position and meters, as often as the screen redraws ---
 
   private poll(): void {

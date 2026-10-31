@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { audioEngine } from "@/engine/audioEngine";
+import { nativeEngine } from "@/engine/native/nativeEngine";
 import { detectPitch, noteFor, type NoteReading } from "./tunerModel";
 
 /** Readings per second. */
@@ -24,6 +25,14 @@ export function tuneColor(cents: number): string {
   return a <= 3 ? "#6BD68B" : a <= 15 ? "#E6AD5E" : "#FF6B6B";
 }
 
+/** The latest audio into one Tuner and its rate: from the native engine
+ * while it plays the song, otherwise from the browser's node. */
+async function tunerInput(hostId: string, effectId: string): Promise<{ data: Float32Array | null; sampleRate: number }> {
+  const native = nativeEngine.current;
+  if (native.active) return { data: await nativeEngine.tunerInput(effectId), sampleRate: native.sampleRate };
+  return { data: audioEngine.getTunerWaveform(hostId, effectId), sampleRate: audioEngine.sampleRate };
+}
+
 /** Detects the pitch going into one Tuner, ~20 times a second, while this
  * is mounted. Readings are steadied with a median of the last few. */
 export function useTuner(hostId: string | undefined, effectId: string, reference: number, flats: boolean): TunerState {
@@ -37,9 +46,23 @@ export function useTuner(hostId: string | undefined, effectId: string, reference
 
   useEffect(() => {
     if (!hostId) return;
-    const timer = setInterval(() => {
-      const data = audioEngine.getTunerWaveform(hostId, effectId);
-      const reading = data ? detectPitch(data, audioEngine.sampleRate) : null;
+    let waiting = false;
+    let live = true;
+    const read = async () => {
+      // A reading still on its way (from the native engine) is let finish.
+      if (waiting) return;
+      waiting = true;
+      let input: Awaited<ReturnType<typeof tunerInput>>;
+      try {
+        input = await tunerInput(hostId, effectId);
+      } catch {
+        input = { data: null, sampleRate: 0 };
+      } finally {
+        waiting = false;
+      }
+      if (!live) return;
+      const { data, sampleRate } = input;
+      const reading = data ? detectPitch(data, sampleRate) : null;
       const now = performance.now();
       if (reading) {
         // A jump of more than a semitone restarts the smoothing.
@@ -59,8 +82,12 @@ export function useTuner(hostId: string | undefined, effectId: string, reference
         note,
         history: [...prev.history.slice(-(TUNER_HISTORY - 1)), reading && note ? note.cents : null],
       }));
-    }, 1000 / RATE);
-    return () => clearInterval(timer);
+    };
+    const timer = setInterval(() => void read(), 1000 / RATE);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
   }, [hostId, effectId]);
 
   return state;

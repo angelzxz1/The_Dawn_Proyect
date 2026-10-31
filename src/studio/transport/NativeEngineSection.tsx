@@ -179,8 +179,9 @@ export function NativeEngineSection({ prefs, update }: { prefs: AudioPrefs; upda
             So far it plays audio clips and every instrument (the piano, the Drum Rack and the synth, from clips and the keys you
             play) through the mix (volume, pan, mute, solo, groups, sends), the dynamics and EQ effects (Compressor, Glue
             Compressor, Noise Gate, Limiter, the multiband effects, Parametric EQ, EQ Three, Utility), the Filter, the Chorus, the Delay, the Reverb, the Saturator, the Pitch Shift,
-            the Furnace amp and the IR Loader, with delay compensation, the master limiter and the metronome. The NAM Amp and the Tuner, sidechains, automation and
-            recording come next: until then, turn it off for those.
+            the Furnace amp, the IR Loader and the Tuner, with delay compensation, the master limiter and the metronome. Sidechains, automation and
+            recording come next: until then, turn it off for those. The NAM Amp plays only in the browser's engine; here, NAM models will play
+            through NAM's own plugin.
           </p>
           {(missing.instruments.length > 0 || missing.effects.length > 0 || missing.automation.length > 0) && (
             <ul className="rounded border border-[#E6AD5E]/40 bg-[#E6AD5E]/10 px-2 py-1.5 text-[11px] leading-snug text-[#E6AD5E]">

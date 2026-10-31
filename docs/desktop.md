@@ -17,16 +17,18 @@ It's early. Today:
   its licence is signed, below). So far it plays the audio clips and every
   instrument through the mix (volume, pan, mute, solo, groups, sends), the
   dynamics and EQ effects, the Filter, the Chorus, the Delay, the Reverb,
-  the Saturator, the Pitch Shift, the Furnace amp and the IR Loader, with
-  delay compensation, the master limiter and the metronome. The NAM Amp
-  and the Tuner, sidechains, automation and recording still need the
-  browser's engine: the
+  the Saturator, the Pitch Shift, the Furnace amp, the IR Loader and the
+  Tuner, with delay compensation, the master limiter and the metronome.
+  Sidechains, automation and recording still need the browser's engine,
+  and the NAM Amp stays a browser effect (on the desktop, NAM models are
+  meant to play through NAM's own plugin, once plugins run in the
+  engine): the
   panel says what of the project it doesn't play yet, and Record asks to
   turn it off.
 - **The DSP is moving over**: `crates/dawn-engine` holds the kernels ported
   to Rust so far - the instruments, the dynamics and EQ effects, the
   Filter, the Chorus, the Delay, the Reverb, the Saturator, the Pitch
-  Shift, the Furnace amp, the IR Loader, the metronome and clip
+  Shift, the Furnace amp, the IR Loader, the Tuner, the metronome and clip
   playback - each tested against the JavaScript's own output, or for the
   effects built from Web Audio nodes, Chromium's (below).
 
@@ -290,6 +292,13 @@ ConvolverNode, or after one whose output turns mono, sometimes start
 afresh). The port carries the cuts on, which is one of the ways Chromium
 renders it; its unit tests cover the swap.
 
+The Tuner passes its input through (Mute fades it, as its Gain's
+`rampTo` does) and keeps the last 4096 samples of the left side, as its
+one-channel Analyser does, in a `TunerTap` the settings carry. The app
+keeps the song, so `engine_tuner` reads the tap from there, off the audio
+thread, and the Tuner's window finds the pitch in it while the native
+engine plays (`useTuner`, `nativeEngine.tunerInput`).
+
 A new impulse (the Reverb's shape knobs, another IR file, Normalize) is
 made off the audio thread when the song is prepared, and kept from one
 version to the next while it's the same (the app prepares the effects on
@@ -374,16 +383,15 @@ crash and hang on purpose. CI runs it on Windows, macOS and Linux
 
 1. **Recording through the engine**: the interface's inputs, monitoring
    with low latency, takes written to disk, latency compensation.
-2. **Effects in the engine** (every instrument plays already, and every
-   effect with its own DSP kernel): the Tuner, the last built from Web
-   Audio nodes (the EQ Three, the Filter, the Chorus, the Delay, the
-   Reverb, the Saturator and the IR Loader are done), which passes its
-   input through but has to report its pitch back. NAM's engine is C++ (NeuralAmpModelerCore) and can be built into
-   the engine as is. Then sidechains and automation.
+2. **Sidechains and automation in the engine.** Every instrument and
+   effect plays already, bar the NAM Amp, which stays in the browser (on
+   the desktop, NAM's own plugin plays NAM models).
 3. **Plugins**: finding them is done (above). Next, CLAP effects running in
    the engine on tracks, with their own windows and their state saved in
    the project; then VST3 effects the same way; then plugin instruments on
    MIDI tracks, played from clips and live; then Audio Units on macOS.
+   NAM's plugin is the first VST3 to try: it's how the desktop app plays
+   NAM models.
 4. **Export through the engine**, native file dialogs, signed installers.
 
 ## Checks

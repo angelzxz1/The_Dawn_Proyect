@@ -219,6 +219,33 @@ fn an_ir_loader_plays_its_file() {
 }
 
 #[test]
+fn a_tuner_lets_the_app_read_what_it_hears() {
+    // As the app does: it keeps the song it built (prepared first), and
+    // reads the Tuner's tap from it while the engine plays a copy.
+    let mut kept = song(vec![track("a", 0.25, vec![effect("t", "tuner", &[])])]);
+    kept.prepare_effects(None, SR);
+    let mut e = engine(&kept);
+    let out = render(&mut e, 0.2);
+    assert!(close(out[LAG + 100], 0.25), "it passes through");
+    let tap = |s: &Song| {
+        s.effect("t")
+            .and_then(|e| e.settings.tuner_tap())
+            .cloned()
+            .unwrap()
+    };
+    assert!(tap(&kept).waveform().iter().all(|v| close(*v, 0.25)));
+    // Muted in the next version: the same tap, still hearing it.
+    let mut next = kept.clone();
+    next.tracks[0].effects[0] = effect("t", "tuner", &[("mute", 1.0)]);
+    next.prepare_effects(Some(&kept), SR);
+    assert!(Arc::ptr_eq(&tap(&kept), &tap(&next)));
+    drop(e.set_song(Box::new(next.clone().prepare(Some(&kept), SR))));
+    let out = render(&mut e, 0.2);
+    assert!(out[out.len() - 1].abs() < 1e-6, "muted");
+    assert!(tap(&next).waveform().iter().all(|v| close(*v, 0.25)));
+}
+
+#[test]
 fn a_version_counting_on_an_effect_that_isnt_playing_says_so() {
     let s = song(vec![track("a", 0.25, vec![gain("u", -6.0)])]);
     let mut e = Engine::new(SR);
@@ -249,7 +276,7 @@ fn a_compressor_turns_a_loud_track_down() {
 
 #[test]
 fn a_type_the_engine_hasnt_got_has_no_settings() {
-    assert!(EffectSettings::from_params("tuner", &[]).is_none());
+    assert!(EffectSettings::from_params("namAmp", &[]).is_none());
 }
 
 #[test]

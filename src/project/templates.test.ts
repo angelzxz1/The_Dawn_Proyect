@@ -39,6 +39,26 @@ describe("project templates", () => {
     }
   });
 
+  it("podcast: two mics in a Voices group, music ducking under it, no click", () => {
+    const p = PROJECT_TEMPLATES.find((t) => t.id === "podcast")!.build();
+    const named = (name: string) => p.channels.find((c) => c.name === name)!;
+    const voices = named("Voices");
+    expect(voices.type).toBe("group");
+    // The mics play through the group (its members come right after it).
+    expect(p.channels.map((c) => c.name)).toEqual(["Voices", "Host", "Guest", "Music"]);
+    for (const mic of [named("Host"), named("Guest")]) {
+      expect(mic.type).toBe("audio");
+      expect(mic.groupId).toBe(voices.id);
+      expect(p.channelEffects[mic.id].map((fx) => fx.type)).toEqual(["gate", "compressor", "paramEq"]);
+    }
+    expect(named("Host").armed).toBe(true);
+    expect(p.channelEffects[voices.id].map((fx) => fx.type)).toEqual(["glue", "mbDynamics"]);
+    const duck = p.channelEffects[named("Music").id].find((fx) => fx.type === "compressor")!;
+    expect(duck.sidechain).toEqual({ on: true, source: voices.id, tap: "postFx" });
+    expect(p.metronomeEnabled).toBe(false);
+    expect(p.markers.map((m) => m.name)).toEqual(["Intro", "Interview", "Outro"]);
+  });
+
   it("guitar demo: drums arranged over 20 bars, guitar armed with a cabinet", () => {
     const p = PROJECT_TEMPLATES.find((t) => t.id === "guitar-demo")!.build();
     const drums = p.channels.find((c) => c.instrument === "drums")!;

@@ -1,11 +1,11 @@
 # Improvements
 
-Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, items 8, 9, 16 and 22 on 2026-10-31.
+Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, items 8, 9, 16, 21 and 22 on 2026-10-31.
 
 - `[x]` is done; the commit that did it is in brackets.
 - `[ ]` is still open; "Partly" says what already exists.
 
-**Summary:** Part 1 is all done. In Part 2, items 1–9, 16 and 22 are done and the rest of 10–28 are open; four of the open items (12, 20, 21, 25) are partly there.
+**Summary:** Part 1 is all done. In Part 2, items 1–9, 16, 21 and 22 are done and the rest of 10–28 are open; three of the open items (12, 20, 25) are partly there.
 
 ## Part 1: Code improvements
 
@@ -99,8 +99,8 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
 - [ ] **19. More right-click menus,** covering everything you can do on a track, clip or effect, plus tooltips with the shortcut on every button.
 - [ ] **20. A browser with previews:** hear grooves, samples, presets and amp models before dropping them in, with favorites and recent items.
   - Partly: grooves can be previewed. Samples, presets and amp models can't, and there are no favorites or recent items.
-- [ ] **21. More templates:** guitar recording, podcast and beat-making setups with the routing already wired.
-  - Partly: Guitar Demo, Beat and Voice + Guitar exist. There's no podcast template.
+- [x] **21. More templates:** guitar recording, podcast and beat-making setups with the routing already wired. (commit to come)
+  - Guitar Demo, Beat and Voice + Guitar were there; Podcast is new: Host (armed) and Guest mic tracks with the vocal chain, in a Voices group that glues and de-esses them, and a Music track whose compressor ducks it under the Voices group (a sidechain). No metronome or count-in, snap off, and Intro, Interview and Outro sections.
 - [x] **22. Clear warnings for silent states:** "track muted by solo", "monitoring is on but no input", "this effect is bypassed". (commit to come)
   - A track that can't be heard for a reason other than its own Mute says why beside its name (`src/project/silentStates.ts`): another track is soloed, it plays into a muted group or track, its fader is all the way down, or it's a MIDI track with no instrument. The chip's tooltip tells the whole story.
   - A track monitoring the audio interface says "No input" once nothing has come in for 3 seconds (`useNoInputSignal.ts`), and stops when a signal arrives.

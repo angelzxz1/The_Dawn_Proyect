@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { test, expect } from "./fixtures";
 import { templateTracks, type TemplateName } from "./studio";
 
-const TEMPLATES: TemplateName[] = ["Guitar Demo", "Beat", "Voice + Guitar", "Empty Project"];
+const TEMPLATES: TemplateName[] = ["Guitar Demo", "Beat", "Voice + Guitar", "Podcast", "Empty Project"];
 
 for (const template of TEMPLATES) {
   test(`the ${template} template opens with its tracks`, async ({ studio }) => {

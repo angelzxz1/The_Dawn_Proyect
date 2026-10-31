@@ -14,7 +14,7 @@ import { normalizeProject, type SerializedProject } from "./projectSchema";
 import { FACTORY_SYNTH_PRESETS } from "../instruments/synth/synthPresets";
 import type { ChannelConfig, NoteEvent } from "./types";
 
-export type TemplateId = "guitar-demo" | "beat" | "voice-guitar" | "empty";
+export type TemplateId = "guitar-demo" | "beat" | "voice-guitar" | "podcast" | "empty";
 
 export interface ProjectTemplate {
   id: TemplateId;
@@ -67,7 +67,7 @@ class Builder {
       .map((s) => ({ ...this.fx(s.type, s.preset, s.params), ...(s.file ? { file: s.file } : {}) }));
   }
 
-  track(name: string, type: "midi" | "audio", extra: Partial<ChannelConfig> = {}, effects: EffectInstance[] = []): string {
+  track(name: string, type: "midi" | "audio" | "group", extra: Partial<ChannelConfig> = {}, effects: EffectInstance[] = []): string {
     const id = `ch-${this.channels.length + 1}`;
     this.channels.push({ id, name, volume: 0, pan: 0, colorIndex: this.channels.length, type, instrument: null, muted: false, solo: false, armed: false, ...extra });
     this.channelEffects[id] = effects;
@@ -202,6 +202,31 @@ function voiceGuitar(): SerializedProject {
   return b.project({ metronomeEnabled: true, countInBars: 1 });
 }
 
+/** Two mics into a Voices group that glues and de-esses them, and a music
+ * track that ducks under the voices. No metronome; sections to start
+ * from. */
+function podcast(): SerializedProject {
+  const b = new Builder(120);
+  const voices = b.track("Voices", "group", {}, [b.fx("glue", "factory:glue:vocal-glue"), b.fx("mbDynamics", "factory:mbDynamics:de-esser")]);
+  // Each mic on its own input (pick it in the track's Input menu).
+  b.track("Host", "audio", { groupId: voices, armed: true }, b.chain("vocal", ["reverb"]));
+  b.track("Guest", "audio", { groupId: voices }, b.chain("vocal", ["reverb"]));
+  // Intro and break music, ducking about 10 dB while anyone speaks.
+  const duck = b.fx("compressor", undefined, { threshold: -40, ratio: 6, attack: 0.01, release: 0.4, knee: 6, makeupAuto: 0, makeup: 0 });
+  duck.sidechain = { on: true, source: voices, tap: "postFx" };
+  b.track("Music", "audio", { volume: -10 }, [duck]);
+  return b.project({
+    metronomeEnabled: false,
+    countInBars: 0,
+    snapResolution: "off",
+    markers: [
+      { id: "mark-1", beat: 0, name: "Intro" },
+      { id: "mark-2", beat: 16, name: "Interview" },
+      { id: "mark-3", beat: 240, name: "Outro" },
+    ],
+  });
+}
+
 function empty(): SerializedProject {
   const b = new Builder(120);
   b.track("MIDI 1", "midi");
@@ -231,6 +256,13 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     description: "Sing and play: two tracks with vocal and acoustic chains.",
     contents: ["Vocal track, armed: gate, compressor, EQ", "Acoustic guitar track", "Plate reverb bus · metronome · count-in"],
     build: voiceGuitar,
+  },
+  {
+    id: "podcast",
+    name: "Podcast",
+    description: "Two mics and music that ducks when anyone talks.",
+    contents: ["Host (armed) and Guest mic tracks, each with a voice chain", "A Voices group that glues and de-esses them", "Music ducking under the voices (sidechain)", "Intro, Interview and Outro sections · no metronome"],
+    build: podcast,
   },
   {
     id: "empty",

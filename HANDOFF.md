@@ -469,8 +469,22 @@ Temporary, never committed:
     `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`), in
     `23dbe29`. The next release's "What's new" (`src/content/whatsNew.ts`)
     should mention it.
-  - Items 10–15, 17–21 and 23–28 are open; 12, 20, 21 and 25 are partly
-    there. Next in `nextSteps.md` is 21 (a podcast template).
+  - Item 21 (2026-10-31): a Podcast template (`templates.ts` `podcast`).
+  - Items 10–15, 17–20 and 23–28 are open; 12, 20 and 25 are partly
+    there. Next in `nextSteps.md` is Phase 4 (19, menus and tooltips).
+  - Fixed 2026-10-31 (the user found it): changing one audio track's
+    Input changed every audio track's, as the studio kept one device for
+    all and the engine one stream. Each audio track now keeps its own
+    (`ChannelConfig.inputDevice`, saved with the project; a device that
+    isn't there reads "Not connected" and records from the default), and
+    `InputManager` opens a stream per device in use (`setTrackDevices`,
+    `inputSource(channelId)`, `getInputPeak(channelId)`), closing those no
+    track uses. Measuring the latency listens on the armed track's
+    device.
+  - The user's last step (`nextSteps.md` 38, after Steinberg's email
+    makes ASIO possible): the desktop app picks a driver type, then a
+    device, and each track's Input lists only that device's inputs, as
+    Ableton does. The browser keeps listing every input.
   - On 2026-10-31 the user asked for one loop switch: the arrangement
     toolbar's "Loop" stays; the transport bar's and the small one above
     the tempo lane are gone. The automation lane's row is now as wide as
@@ -484,8 +498,9 @@ Temporary, never committed:
   locally (it's in `.gitignore`). Phase 2's first two steps (the Convolver:
   the Reverb and the IR Loader, 2026-10-30; the Tuner, 2026-10-31) are
   done, and NAM was dropped from it (above), so Phase 2 is done. Phase 3
-  (editing) has begun: steps 7-10 (Part 2 #8, snapping; #9,
-  drawing tools; #22, silent states; #16, the count-in and click sounds)
-  were done on 2026-10-31; next is step 11 (Part 2 #21). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  (editing) has begun: steps 7-11 (Part 2 #8, snapping; #9,
+  drawing tools; #22, silent states; #16, the count-in and click sounds;
+  #21, the podcast template) were done on 2026-10-31, so Phase 3 is done;
+  next is Phase 4, step 12 (Part 2 #19). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
   double-click test clicks twice in one go, and the JS multiband kernels
   read the band count and their key per sample, as the Rust ports do.

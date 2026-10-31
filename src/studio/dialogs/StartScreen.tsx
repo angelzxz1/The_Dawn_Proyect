@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent, useState } from "react";
-import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mic2, Play, X } from "lucide-react";
+import { AudioLines, BookOpen, Clock, FilePlus2, FolderOpen, Guitar, Loader2, Mic2, Play, Podcast, X } from "lucide-react";
 import { demoSongAvailable } from "@/project/demoSong";
 import type { RecentProject } from "@/project/projectFiles";
 import { PROJECT_TEMPLATES, type ProjectTemplate, type TemplateId } from "@/project/templates";
@@ -11,6 +11,7 @@ const ICONS: Record<TemplateId, typeof Guitar> = {
   "guitar-demo": Guitar,
   beat: AudioLines,
   "voice-guitar": Mic2,
+  podcast: Podcast,
   empty: FilePlus2,
 };
 

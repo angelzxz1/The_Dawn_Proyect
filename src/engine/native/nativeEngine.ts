@@ -293,7 +293,7 @@ class NativeEngine {
     stop: () => this.run("stop", nativeBridge.stop()),
     seek: (seconds) => this.run("seek", nativeBridge.seek(seconds)),
     loop: (range) => this.run("loop", nativeBridge.loop(range)),
-    metronome: (enabled, levelDb) => this.run("metronome", nativeBridge.metronome(enabled, levelDb)),
+    metronome: (enabled, levelDb, sound) => this.run("metronome", nativeBridge.metronome(enabled, levelDb, sound)),
     limiter: (db) => {
       this.session = { ...this.session, limiterDb: db };
       this.queueSong();

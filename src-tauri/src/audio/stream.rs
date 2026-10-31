@@ -35,6 +35,9 @@ pub enum Command {
     Loop(Option<(f64, f64)>),
     Metronome(bool),
     MetronomeLevel(f64),
+    /// One of `metronome::CLICK_SOUNDS` (static, so nothing is freed on
+    /// the audio thread).
+    MetronomeSound(&'static str),
     /// A key pressed (with its velocity) or let go live, on the track
     /// `track_key` names.
     Key {
@@ -216,6 +219,7 @@ impl Callback {
                 Command::Loop(l) => self.engine.set_loop(l),
                 Command::Metronome(on) => self.engine.set_metronome(on),
                 Command::MetronomeLevel(db) => self.engine.set_metronome_level(db),
+                Command::MetronomeSound(sound) => self.engine.set_metronome_sound(sound),
                 Command::Key {
                     track,
                     key,

@@ -4,6 +4,8 @@
 // it everything the transport does, and takes its position for the
 // playhead.
 
+import type { ClickSound } from "./clickSounds";
+
 export interface EngineFollower {
   /** Playing from `from` (s). */
   play(from: number): void;
@@ -11,7 +13,7 @@ export interface EngineFollower {
   stop(): void;
   seek(seconds: number): void;
   loop(range: { start: number; end: number } | null): void;
-  metronome(enabled: boolean, levelDb: number): void;
+  metronome(enabled: boolean, levelDb: number, sound: ClickSound): void;
   /** The master limiter's ceiling (dB). */
   limiter(db: number): void;
   beatsPerBar(beats: number): void;

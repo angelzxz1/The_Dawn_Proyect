@@ -85,8 +85,12 @@ test("an audio track's input list fills with the inputs when opened", async ({ s
   await expect.poll(() => inputs.locator("option").count()).toBeGreaterThan(1);
 });
 
-test("show and hide a track's automation lane", async ({ studio }) => {
+test("show and hide a track's automation lane", async ({ page, studio }) => {
   await studio.header("Bass").getByTitle("Show automation lane").click();
+  // As wide as the tracks' lanes, so it doesn't stop partway once scrolled.
+  const row = page.locator("[data-automation-lane]").locator("..");
+  const width = async (l: typeof row) => (await l.boundingBox())!.width;
+  expect(await width(row)).toBeCloseTo(await width(studio.lane("Bass")), 0);
   await studio.header("Bass").getByTitle("Hide automation lane").click();
   await expect(studio.header("Bass").getByTitle("Show automation lane")).toBeVisible();
 });

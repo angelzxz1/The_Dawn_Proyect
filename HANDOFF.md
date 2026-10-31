@@ -459,21 +459,33 @@ Temporary, never committed:
     (`project/silentStates.ts`: solo elsewhere, a muted group or track it
     plays into, its fader down, no instrument), "No input" while
     monitoring silence (`useNoInputSignal.ts`), and bypassed effects are
-    labelled in the rack and counted on the FX button. Item 7, section markers, was added
+    labelled in the rack and counted on the FX button. Item 16
+    (2026-10-31): the count-in shows in the transport (`CountIn.tsx`), and
+    the click has four sounds (`metronomeKernel.ts` `makeClick`, ported
+    in `mix/metronome.rs` with every set made up front; the parity
+    session switches between them; `engine_metronome` takes `sound`, sent
+    to the audio thread as a `&'static str`). Item 7, section markers, was added
     on 2026-10-30 (`src/project/markers.ts`, `src/state/markerActions.ts`,
     `src/studio/transport/MarkerLane.tsx`, `e2e/markers.spec.ts`), in
     `23dbe29`. The next release's "What's new" (`src/content/whatsNew.ts`)
     should mention it.
-  - Items 10–21 and 23–28 are open; 12, 16, 20, 21 and 25 are partly
-    there. Next in `nextSteps.md` is 16 (the count-in).
+  - Items 10–15, 17–21 and 23–28 are open; 12, 20, 21 and 25 are partly
+    there. Next in `nextSteps.md` is 21 (a podcast template).
+  - On 2026-10-31 the user asked for one loop switch: the arrangement
+    toolbar's "Loop" stays; the transport bar's and the small one above
+    the tempo lane are gone. The automation lane's row is now as wide as
+    the song (it stopped at the view's width once scrolled).
+  - `e2e/recording.spec.ts` failed now and then with several workers on
+    2026-10-31 (each test's time swinging 14-36 s); with one worker, and
+    in most runs, it passes.
   - The project document now has `markers` (in beats). The native engine
     ignores them; they only move the playhead and the loop.
 - **The order of what's left** is in `nextSteps.md`, which is kept
   locally (it's in `.gitignore`). Phase 2's first two steps (the Convolver:
   the Reverb and the IR Loader, 2026-10-30; the Tuner, 2026-10-31) are
   done, and NAM was dropped from it (above), so Phase 2 is done. Phase 3
-  (editing) has begun: steps 7, 8 and 9 (Part 2 #8, snapping; #9,
-  drawing tools; #22, silent states) were done on 2026-10-31; next is
-  step 10 (Part 2 #16). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
+  (editing) has begun: steps 7-10 (Part 2 #8, snapping; #9,
+  drawing tools; #22, silent states; #16, the count-in and click sounds)
+  were done on 2026-10-31; next is step 11 (Part 2 #21). Phase 1 (housekeeping) was done on 2026-10-30: the slow tests got longer limits, a flaky ClipBlock
   double-click test clicks twice in one go, and the JS multiband kernels
   read the band count and their key per sample, as the Rust ports do.

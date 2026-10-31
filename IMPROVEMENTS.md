@@ -1,11 +1,11 @@
 # Improvements
 
-Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, items 8, 9 and 22 on 2026-10-31.
+Checked against the code and the commit history on 2026-10-29; item 7 of Part 2 was added on 2026-10-30, items 8, 9, 16 and 22 on 2026-10-31.
 
 - `[x]` is done; the commit that did it is in brackets.
 - `[ ]` is still open; "Partly" says what already exists.
 
-**Summary:** Part 1 is all done. In Part 2, items 1–9 and 22 are done and the rest of 10–28 are open; five of the open items (12, 16, 20, 21, 25) are partly there.
+**Summary:** Part 1 is all done. In Part 2, items 1–9, 16 and 22 are done and the rest of 10–28 are open; four of the open items (12, 20, 21, 25) are partly there.
 
 ## Part 1: Code improvements
 
@@ -88,8 +88,9 @@ That is already ahead of most browser DAWs, such as BandLab or Soundtrap.
 
 - [ ] **14. Monitoring modes per track:** In / Auto / Off, as in Ableton, instead of one toggle.
 - [ ] **15. Punch-in/out recording** within the loop region.
-- [ ] **16. A visible count-in** in the transport, and a click-volume control with click sound choices.
-  - Partly: the transport sets the count-in length, and there is a click level (`e60d46c`). There's no on-screen count-in display and no choice of click sounds.
+- [x] **16. A visible count-in** in the transport, and a click-volume control with click sound choices. (commit to come)
+  - The transport shows the count-in as it goes, the beats left (4, 3, 2, 1), the bar's first beat brighter (`CountIn.tsx`, `Transport.countInLeft`).
+  - Four click sounds, next to the click level: Classic (the one there was), Beep, Wood block and Cowbell (`metronomeKernel.ts` `makeClick`, and the native engine's port in `metronome.rs`). Like the level, it's a setting of this computer (`audioPrefs.ts`).
 - [ ] **17. Choosing input channels on multi-input interfaces,** for example a mono guitar on input 2.
 
 ### Finding things and learning the app

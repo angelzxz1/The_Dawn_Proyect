@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Circle, Layers, Pause, Play, Repeat, Square, Volume1, Volume2 } from "lucide-react";
+import { Circle, Layers, Pause, Play, Square, Volume1, Volume2 } from "lucide-react";
 import { TransportClock } from "./TransportClock";
 import type { TimeSignature } from "@/project/types";
 import { ClickLevel } from "./ClickLevel";
+import { CountIn } from "./CountIn";
 
 const DENOMINATORS = [1, 2, 4, 8, 16, 32];
 const COUNT_IN_OPTIONS = [0, 1, 2, 4];
@@ -28,8 +29,6 @@ interface TransportBarProps {
   recordingMode?: "midi" | "audio";
   /** Name of the record-armed channel, or null if none is armed. */
   armedChannelName: string | null;
-  loopEnabled: boolean;
-  onToggleLoop: () => void;
   /** Bars of audible pre-roll clicks played before recording actually
    * starts - 0 disables count-in. */
   countInBars: number;
@@ -59,8 +58,6 @@ export function TransportBar({
   canRecord,
   recordingMode = "midi",
   armedChannelName,
-  loopEnabled,
-  onToggleLoop,
   countInBars,
   onCountInChange,
   midiOverdub = false,
@@ -148,19 +145,6 @@ export function TransportBar({
         >
           {metronomeEnabled ? <Volume2 size={15} /> : <Volume1 size={15} />}
         </button>
-        <button
-          type="button"
-          onClick={onToggleLoop}
-          aria-pressed={loopEnabled}
-          title="Toggle looping the region set by shift-dragging the ruler"
-          className={`flex h-9 w-9 items-center justify-center rounded-full border transition-colors ${
-            loopEnabled
-              ? "border-accent bg-accent/20 text-accent"
-              : "border-border text-muted hover:bg-surface-raised"
-          }`}
-        >
-          <Repeat size={15} />
-        </button>
         {onToggleMidiOverdub && (
           <button
             type="button"
@@ -182,6 +166,7 @@ export function TransportBar({
       </div>
 
       <TransportClock />
+      <CountIn beatsPerBar={timeSignature.numerator * (4 / timeSignature.denominator)} />
 
       <label className="flex items-center gap-2 text-xs text-muted">
         BPM

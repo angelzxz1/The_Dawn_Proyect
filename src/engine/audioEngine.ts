@@ -32,6 +32,7 @@ import type { SidechainRouting } from "../effects/sidechain/sidechainModel";
 import { canKeyFrom, tapLatency, type RoutingSnapshot } from "../effects/sidechain/sidechainRouting";
 import type { RouteNode } from "./routing";
 import { planMix, type MixGraph, type MixHost, type MixInput, type MixTrack } from "./mixGraph";
+import type { ClickSound } from "./clickSounds";
 import { interpolateAutomation } from "./automation";
 import { InputManager } from "./inputs";
 import { MidiTake } from "./midiTake";
@@ -95,6 +96,7 @@ class AudioEngine {
     loop: null as { start: number; end: number } | null,
     metronome: false,
     metronomeDb: 0,
+    metronomeSound: "classic" as ClickSound,
     limiterDb: -1,
     beatsPerBar: 4,
   };
@@ -1486,7 +1488,7 @@ class AudioEngine {
     if (!follower) return;
     const f = this.followed;
     follower.loop(f.loop);
-    follower.metronome(f.metronome, f.metronomeDb);
+    follower.metronome(f.metronome, f.metronomeDb, f.metronomeSound);
     follower.limiter(f.limiterDb);
     follower.beatsPerBar(f.beatsPerBar);
     follower.compensation(this.delayCompensation, [...this.compensation.live]);
@@ -1751,6 +1753,12 @@ class AudioEngine {
     return this.follower?.position() ?? this.transport.seconds;
   }
 
+  /** During a recording's count-in, the beats of it left (counting the one
+   * sounding); otherwise null. */
+  getCountInLeft(): number | null {
+    return this.transport.countInLeft();
+  }
+
   /** Sets (or clears) the transport's loop region. When enabled, playback
    * that reaches `endSeconds` jumps back to `startSeconds` and keeps going
    * instead of running off the end of the loop. */
@@ -1767,7 +1775,7 @@ class AudioEngine {
   setMetronome(enabled: boolean): void {
     this.transport.setMetronome(enabled);
     this.followed.metronome = enabled;
-    this.follower?.metronome(enabled, this.followed.metronomeDb);
+    this.follower?.metronome(enabled, this.followed.metronomeDb, this.followed.metronomeSound);
   }
 
   /** The metronome's and count-in's level, in dB from their standard
@@ -1775,7 +1783,15 @@ class AudioEngine {
   setMetronomeLevel(db: number): void {
     this.transport.setMetronomeLevel(db);
     this.followed.metronomeDb = db;
-    this.follower?.metronome(this.followed.metronome, db);
+    this.follower?.metronome(this.followed.metronome, db, this.followed.metronomeSound);
+  }
+
+  /** The sound the metronome and the count-in make (a setting of this
+   * computer, audioPrefs.ts). */
+  setMetronomeSound(sound: ClickSound): void {
+    this.transport.setMetronomeSound(sound);
+    this.followed.metronomeSound = sound;
+    this.follower?.metronome(this.followed.metronome, this.followed.metronomeDb, sound);
   }
 }
 

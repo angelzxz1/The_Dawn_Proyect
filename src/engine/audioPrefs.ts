@@ -1,10 +1,12 @@
 // Audio settings that belong to this computer rather than to a project
 // (like a DAW's preferences): delay compensation, the recording latency
-// correction for this browser's audio devices, the click's level, and in
+// correction for this browser's audio devices, the click's level and sound, and in
 // the desktop app the native engine and its device. Kept
 // in localStorage; any failure to read or write just falls back to
 // defaults. One copy is shared by everything that shows or changes them
 // (getAudioPrefs, updateAudioPrefs, subscribeAudioPrefs).
+
+import { CLICK_SOUNDS, type ClickSound } from "./clickSounds";
 
 export interface AudioPrefs {
   /** Plugin delay compensation (see latency.ts). */
@@ -19,6 +21,8 @@ export interface AudioPrefs {
   /** The metronome's and count-in's level, in dB from their standard
    * level. */
   metronomeDb: number;
+  /** The sound the metronome and the count-in make. */
+  metronomeSound: ClickSound;
   /** "Don't show again" on the note that offers to measure the latency
    * after a take. */
   latencyHintDismissed: boolean;
@@ -43,6 +47,7 @@ export const DEFAULT_AUDIO_PREFS: AudioPrefs = {
   recordingOffsetMs: 0,
   measuredRoundTrip: null,
   metronomeDb: 0,
+  metronomeSound: "classic",
   latencyHintDismissed: false,
   nativeEngine: false,
   nativeDevice: null,
@@ -69,6 +74,7 @@ export function parseAudioPrefs(raw: unknown): AudioPrefs {
     recordingOffsetMs: clamp(num(r.recordingOffsetMs) ?? 0, -500, 500),
     measuredRoundTrip: roundTrip !== null && roundTrip > 0 && roundTrip < 2 ? roundTrip : null,
     metronomeDb: clamp(num(r.metronomeDb) ?? 0, METRONOME_DB_RANGE.min, METRONOME_DB_RANGE.max),
+    metronomeSound: (CLICK_SOUNDS as readonly unknown[]).includes(r.metronomeSound) ? (r.metronomeSound as ClickSound) : "classic",
     latencyHintDismissed: bool(r.latencyHintDismissed, false),
     nativeEngine: bool(r.nativeEngine, false),
     nativeDevice: typeof r.nativeDevice === "string" && r.nativeDevice ? r.nativeDevice : null,

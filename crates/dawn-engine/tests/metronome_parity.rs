@@ -27,6 +27,7 @@ enum Command {
     Tempo(&'static [TempoSegment]),
     Meter(f64),
     Loop(Option<Loop>),
+    Sound(&'static str),
 }
 
 include!("fixtures/metronome.rs");
@@ -53,6 +54,7 @@ fn render() -> Vec<f32> {
                 }
                 Command::Meter(beats) => m.set_beats_per_bar(*beats),
                 Command::Loop(l) => m.set_loop(*l),
+                Command::Sound(name) => m.set_sound(name),
             }
             next += 1;
         }

@@ -152,7 +152,7 @@ test("Ctrl+L loops the selection", async ({ page, studio }) => {
   const g = await grid(studio);
   await selectTime(page, studio, g, ["Bass", 2], ["Bass", 4]);
   await page.keyboard.press("ControlOrMeta+l");
-  await expect(page.getByTitle("Loop on (Ctrl+L)")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTitle("Loop the arrangement between the loop brace's ends (Ctrl+L)")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("Start", { exact: true })).toHaveValue("2.1.1");
   await expect(page.getByLabel("Length", { exact: true })).toHaveValue("2.0.0");
 });

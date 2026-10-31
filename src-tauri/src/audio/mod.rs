@@ -13,6 +13,7 @@ pub mod stream;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use dawn_engine::mix::metronome::CLICK_SOUNDS;
 use dawn_engine::mix::{AudioData, Song, track_key};
 use serde::Serialize;
 use tauri::State;
@@ -264,10 +265,15 @@ pub fn engine_metronome(
     state: State<'_, AudioState>,
     enabled: bool,
     level_db: f64,
+    sound: Option<String>,
 ) -> Result<(), String> {
     let mut inner = state.lock();
     inner.send(Command::Metronome(enabled))?;
-    inner.send(Command::MetronomeLevel(level_db))
+    inner.send(Command::MetronomeLevel(level_db))?;
+    match sound.and_then(|s| CLICK_SOUNDS.iter().find(|c| **c == s)) {
+        Some(sound) => inner.send(Command::MetronomeSound(sound)),
+        None => Ok(()),
+    }
 }
 
 #[derive(Serialize)]

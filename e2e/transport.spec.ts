@@ -48,7 +48,7 @@ test("Space plays and Stop goes back to where playing started", async ({ page })
 });
 
 test("Ctrl+L and the loop button switch the loop", async ({ page }) => {
-  const loop = page.getByTitle("Toggle looping the region set by shift-dragging the ruler");
+  const loop = page.getByTitle("Loop the arrangement between the loop brace's ends (Ctrl+L)");
   await expect(loop).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Control+l");
   await expect(loop).toHaveAttribute("aria-pressed", "false");

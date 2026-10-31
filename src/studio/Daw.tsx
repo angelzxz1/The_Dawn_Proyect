@@ -2240,8 +2240,6 @@ export function Daw() {
           canRecord={transportState === "recording" || !!armedChannelId}
           recordingMode={armedChannel?.type === "audio" ? "audio" : "midi"}
           armedChannelName={armedChannel?.name ?? null}
-          loopEnabled={loopEnabled}
-          onToggleLoop={toggleLoop}
           countInBars={countInBars}
           onCountInChange={setCountInBars}
           midiOverdub={midiOverdub}
@@ -2409,15 +2407,6 @@ export function Daw() {
               className={`flex items-center gap-1 rounded px-1 text-[9px] font-semibold uppercase tracking-wider ${allFolded ? "text-accent" : "text-muted hover:text-foreground"}`}
             >
               <ChevronsDownUp size={9} /> {allFolded ? "Unfold" : "Fold"}
-            </button>
-            <button
-              type="button"
-              onClick={toggleLoop}
-              aria-pressed={loop.on}
-              title={`Loop ${loop.on ? "on" : "off"} (Ctrl+L)`}
-              className={`flex items-center gap-1 rounded px-1 text-[9px] font-semibold uppercase tracking-wider ${loop.on ? "text-accent" : "text-muted hover:text-foreground"}`}
-            >
-              <Repeat size={9} /> Loop
             </button>
             </div>
             <div
@@ -2627,7 +2616,9 @@ export function Daw() {
                   />
                 ))}
                 {automationChannelId === channel.id && (
-                  <div className="border-b border-border bg-surface-raised/30">
+                  // As wide as the song, as the lanes are (a block would stop
+                  // at the view's width once it's scrolled).
+                  <div className="border-b border-border bg-surface-raised/30" style={{ width: totalSeconds * pxPerSecond }}>
                     <AutomationLaneEditor
                       points={
                         (channel.automationLanes ?? []).find(

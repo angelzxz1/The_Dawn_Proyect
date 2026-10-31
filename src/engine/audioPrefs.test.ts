@@ -22,6 +22,12 @@ describe("parseAudioPrefs", () => {
     expect(parseAudioPrefs({ measuredRoundTrip: 0.042, latencyHintDismissed: true })).toMatchObject({ measuredRoundTrip: 0.042, latencyHintDismissed: true });
   });
 
+  it("keeps the click sound if it's one there is", () => {
+    expect(parseAudioPrefs({ metronomeSound: "wood" }).metronomeSound).toBe("wood");
+    expect(parseAudioPrefs({ metronomeSound: "kazoo" }).metronomeSound).toBe("classic");
+    expect(parseAudioPrefs({}).metronomeSound).toBe("classic");
+  });
+
   it("keeps the native engine's device settings sensible", () => {
     expect(parseAudioPrefs({ nativeEngine: true, nativeDevice: "asio:Focusrite USB ASIO", nativeSampleRate: 48000, nativeBufferSize: 128 })).toMatchObject({
       nativeEngine: true,

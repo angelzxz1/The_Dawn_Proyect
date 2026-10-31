@@ -4,6 +4,7 @@
 
 import * as Tone from "tone";
 import { Metronome, type ClickTempo } from "./metronome";
+import type { ClickSound } from "./clickSounds";
 
 /** How far ahead of the audio clock (s) Play and Record start the
  * transport: past the scheduling window (context.ts), with room for the
@@ -11,10 +12,21 @@ import { Metronome, type ClickTempo } from "./metronome";
  * queued in time like every other. */
 const START_LEAD = 0.13;
 
+/** The beats of a count-in left at context time `now`, counting the one
+ * sounding, when the transport starts at `startTime` at `bpm`; null once
+ * it's over. */
+export function countInBeatsLeft(startTime: number, bpm: number, now: number): number | null {
+  const left = ((startTime - now) * bpm) / 60;
+  return left > 0 ? Math.ceil(left - 1e-9) : null;
+}
+
 export class Transport {
   private readonly metronome: Metronome;
   /** The tempo map (setTempoMap); none set yet: Tone's tempo throughout. */
   private segments: ClickTempo[] = [];
+  /** The count-in going on: when (context time) the transport starts after
+   * it, and its tempo. */
+  private countIn: { startTime: number; bpm: number } | null = null;
 
   /** `clickOutput`: where the metronome and count-in go. */
   constructor(clickOutput: () => Tone.InputNode) {
@@ -55,6 +67,7 @@ export class Transport {
     const time = Tone.immediate() + START_LEAD;
     this.tone.start(time);
     this.metronome.start(time, pos);
+    this.countIn = null;
   }
 
   /** Starts at `fromSeconds` after `countInBeats` beats of count-in (which
@@ -73,20 +86,34 @@ export class Transport {
     const pos = this.position;
     // The count-in is at the tempo where recording starts (as the
     // metronome counts it).
-    const startTime = Tone.immediate() + START_LEAD + countInBeats * (60 / this.bpmAt(pos));
+    const bpm = this.bpmAt(pos);
+    const startTime = Tone.immediate() + START_LEAD + countInBeats * (60 / bpm);
     this.tone.start(startTime);
     this.metronome.start(startTime, pos, countInBeats);
+    this.countIn = countInBeats > 0 ? { startTime, bpm } : null;
     return startTime;
+  }
+
+  /** During a count-in, the beats of it left to hear, counting the one
+   * sounding (4, 3, 2, 1 over a bar of four); otherwise null. */
+  countInLeft(now = Tone.immediate()): number | null {
+    const c = this.countIn;
+    if (!c) return null;
+    const left = countInBeatsLeft(c.startTime, c.bpm, now);
+    if (left === null) this.countIn = null;
+    return left;
   }
 
   pause(): void {
     this.tone.pause();
     this.metronome.stop();
+    this.countIn = null;
   }
 
   stop(): void {
     this.tone.stop();
     this.metronome.stop();
+    this.countIn = null;
   }
 
   /** Moves the playhead, whether playing, paused or stopped. */
@@ -152,5 +179,9 @@ export class Transport {
   /** The click's level, in dB from its standard level. */
   setMetronomeLevel(db: number): void {
     this.metronome.setLevel(db);
+  }
+
+  setMetronomeSound(sound: ClickSound): void {
+    this.metronome.setSound(sound);
   }
 }

@@ -91,7 +91,7 @@ test.describe("audio", () => {
     await page.getByLabel("Length", { exact: true }).fill("1.0.0");
     await page.getByLabel("Length", { exact: true }).press("Enter");
     await page.keyboard.press("ControlOrMeta+l");
-    await expect(page.getByTitle("Loop on (Ctrl+L)")).toBeVisible();
+    await expect(page.getByTitle("Loop the arrangement between the loop brace's ends (Ctrl+L)")).toHaveAttribute("aria-pressed", "true");
     await record(page, studio, 5000);
 
     // A take for each time round: the first two, and the third if it ran

@@ -1,6 +1,7 @@
 import * as Tone from "tone";
 import { loadWorklet } from "./workletLoader";
 import { METRONOME_KERNEL_SOURCE } from "./metronomeKernel";
+import type { ClickSound } from "./clickSounds";
 
 // The metronome and the count-in, made on the audio thread.
 //
@@ -53,7 +54,9 @@ type Command =
   | { type: "enabled"; enabled: boolean }
   | { type: "tempo"; segments: ClickTempo[] }
   | { type: "meter"; beatsPerBar: number }
-  | { type: "loop"; loop: ClickLoop | null };
+  | { type: "loop"; loop: ClickLoop | null }
+  | { type: "sound"; sound: ClickSound };
+
 
 export class Metronome {
   private node: AudioWorkletNode | null = null;
@@ -133,6 +136,11 @@ export class Metronome {
   setLevel(db: number): void {
     this.levelDb = db;
     this.level?.gain.rampTo(Tone.dbToGain(db), 0.02);
+  }
+
+  /** Which sound the clicks and the count-in make. */
+  setSound(sound: ClickSound): void {
+    this.send({ type: "sound", sound });
   }
 
   /** Clicks after the count-in sound only while it's on. */

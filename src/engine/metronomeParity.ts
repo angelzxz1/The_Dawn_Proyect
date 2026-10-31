@@ -26,7 +26,8 @@ type Command =
   | { type: "enabled"; enabled: boolean }
   | { type: "tempo"; segments: Segment[] }
   | { type: "meter"; beatsPerBar: number }
-  | { type: "loop"; loop: { start: number; end: number } | null };
+  | { type: "loop"; loop: { start: number; end: number } | null }
+  | { type: "sound"; sound: string };
 
 /** 6 s. */
 export const METRONOME_PARITY_FRAMES = 6 * PARITY_SAMPLE_RATE;
@@ -52,17 +53,22 @@ export const METRONOME_SESSION: { at: number; command: Command }[] = [
   { at: 0, command: { type: "enabled", enabled: true } },
   { at: 0, command: { type: "loop", loop: { start: 4.5, end: 5.25 } } },
   { at: 0, command: { type: "start", time: 1.2, pos: 3, countInBeats: 2 } },
+  // Each of the other sounds for a while, then back (see below).
+  { at: at(1.5), command: { type: "sound", sound: "beep" } },
   { at: at(2), command: { type: "enabled", enabled: false } },
   { at: at(2.6), command: { type: "enabled", enabled: true } },
   // A jump back to 1 s.
+  { at: at(2.8), command: { type: "sound", sound: "wood" } },
   { at: at(3), command: { type: "resync", time: 3, pos: 1 } },
   // No loop, and one tempo (100 BPM) from 2 s on the transport.
   { at: at(4), command: { type: "loop", loop: null } },
   { at: at(4), command: { type: "tempo", segments: [{ beat: 0, seconds: 0, bpm: 100 }] } },
   { at: at(4), command: { type: "resync", time: 4, pos: 2 } },
+  { at: at(4.2), command: { type: "sound", sound: "cowbell" } },
   { at: at(4.5), command: { type: "meter", beatsPerBar: 4 } },
   { at: at(5), command: { type: "stop" } },
   // Playing again from half a second in, straight away.
+  { at: at(5.2), command: { type: "sound", sound: "classic" } },
   { at: at(5.2), command: { type: "start", time: 5.3, pos: 0.5, countInBeats: 0 } },
 ];
 
@@ -97,6 +103,8 @@ function rustCommand(c: Command): string {
       return `Command::Meter(${rustF64(c.beatsPerBar)})`;
     case "loop":
       return `Command::Loop(${c.loop ? `Some(Loop { start: ${rustF64(c.loop.start)}, end: ${rustF64(c.loop.end)} })` : "None"})`;
+    case "sound":
+      return `Command::Sound("${c.sound}")`;
   }
 }
 

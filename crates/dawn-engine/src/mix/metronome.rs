@@ -1,5 +1,6 @@
 //! The metronome: where the clicks fall (the beat grid, the tempo map, the
-//! loop, the count-in, the accents) and the click sounds themselves.
+//! loop, the count-in, the accents) and the click sounds themselves (four
+//! to choose from: `CLICK_SOUNDS`).
 //!
 //! Port of `MetronomeKernel` in `src/engine/metronomeKernel.ts`, step for
 //! step; `tests/metronome_parity.rs` holds the port to what the JavaScript
@@ -104,7 +105,47 @@ pub fn click_sound(sample_rate: f64, frequency: f64, gain_db: f64) -> Vec<f32> {
         .collect()
 }
 
-/// Which of the four sounds a click plays.
+/// The sounds to choose from, in order (`CLICK_SOUNDS` in the kernel).
+pub const CLICK_SOUNDS: [&str; 4] = ["classic", "beep", "wood", "cowbell"];
+
+/// One of a sound's clicks (`makeClick`): classic is the blip above; beep a
+/// sine; wood two short inharmonic partials; cowbell two longer ones.
+fn make_click(sample_rate: f64, sound: &str, accent: bool, gain_db: f64) -> Vec<f32> {
+    if sound == "classic" {
+        return click_sound(sample_rate, if accent { 1046.5 } else { 523.25 }, gain_db);
+    }
+    let length = js_round(0.07 * sample_rate) as usize;
+    let gain = 10f64.powf(gain_db / 20.0);
+    (0..length)
+        .map(|i| {
+            let t = i as f64 / sample_rate;
+            let (wave, env) = match sound {
+                "beep" => {
+                    let f = if accent { 1760.0 } else { 880.0 };
+                    let wave = (2.0 * PI * f * t).sin();
+                    (wave, (t / 0.001).min(1.0) * (-t / 0.02).exp())
+                }
+                "wood" => {
+                    let f = if accent { 2093.0 } else { 1568.0 };
+                    let wave =
+                        0.8 * ((2.0 * PI * f * t).sin() + 0.4 * (2.0 * PI * 2.76 * f * t).sin());
+                    (wave, (t / 0.0005).min(1.0) * (-t / 0.006).exp())
+                }
+                _ => {
+                    let f = if accent { 800.0 } else { 587.0 };
+                    let wave = 0.6 * ((2.0 * PI * f * t).sin() + (2.0 * PI * 1.48 * f * t).sin());
+                    (wave, (t / 0.001).min(1.0) * (-t / 0.03).exp())
+                }
+            };
+            (wave * env * gain) as f32
+        })
+        .collect()
+}
+
+/// A sound's four clicks: accent, beat, the count-in's accent and beat.
+type ClickSet = [Vec<f32>; 4];
+
+/// Which of a set's four clicks a click plays.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Sound {
     Accent,
@@ -117,6 +158,8 @@ enum Sound {
 /// starts, and when (engine time) it started.
 #[derive(Clone, Copy, Debug)]
 struct Voice {
+    /// The set it's from (a change of sound lets it finish).
+    set: usize,
     sound: Sound,
     index: usize,
     offset: usize,
@@ -153,10 +196,10 @@ pub struct Metronome {
     start_pos: f64,
     count_in: [TempoSegment; 1],
     voices: [Option<Voice>; MAX_VOICES],
-    accent: Vec<f32>,
-    beat: Vec<f32>,
-    count_accent: Vec<f32>,
-    count_beat: Vec<f32>,
+    /// Every sound's clicks, made up front so a change doesn't make them on
+    /// the audio thread, and the one playing.
+    sets: Box<[ClickSet]>,
+    set: usize,
 }
 
 impl Metronome {
@@ -174,19 +217,30 @@ impl Metronome {
             voices: [None; MAX_VOICES],
             // Loud enough to cut through a mix with drums; the count-in a
             // little louder still.
-            accent: click_sound(sample_rate, 1046.5, -6.0),
-            beat: click_sound(sample_rate, 523.25, -6.0),
-            count_accent: click_sound(sample_rate, 1046.5, -3.0),
-            count_beat: click_sound(sample_rate, 523.25, -3.0),
+            sets: CLICK_SOUNDS
+                .iter()
+                .map(|s| {
+                    [
+                        make_click(sample_rate, s, true, -6.0),
+                        make_click(sample_rate, s, false, -6.0),
+                        make_click(sample_rate, s, true, -3.0),
+                        make_click(sample_rate, s, false, -3.0),
+                    ]
+                })
+                .collect(),
+            set: 0,
         }
     }
 
-    fn sound(&self, sound: Sound) -> &[f32] {
-        match sound {
-            Sound::Accent => &self.accent,
-            Sound::Beat => &self.beat,
-            Sound::CountAccent => &self.count_accent,
-            Sound::CountBeat => &self.count_beat,
+    fn sound(&self, set: usize, sound: Sound) -> &[f32] {
+        &self.sets[set][sound as usize]
+    }
+
+    /// Which sound the clicks make, by its name in `CLICK_SOUNDS` (another
+    /// name changes nothing). Clicks already sounding finish as they were.
+    pub fn set_sound(&mut self, sound: &str) {
+        if let Some(i) = CLICK_SOUNDS.iter().position(|s| *s == sound) {
+            self.set = i;
         }
     }
 
@@ -314,6 +368,7 @@ impl Metronome {
                 };
                 let offset = js_round((t - time) * self.sample_rate).max(0.0) as usize;
                 self.add_voice(Voice {
+                    set: self.set,
                     sound,
                     index: 0,
                     offset,
@@ -367,10 +422,10 @@ impl Metronome {
                 self.voices[i] = Some(v);
                 continue;
             }
-            let len = self.sound(v.sound).len();
+            let len = self.sound(v.set, v.sound).len();
             let mut k = v.offset;
             while k < n && v.index < len {
-                out[k] += self.sound(v.sound)[v.index];
+                out[k] += self.sound(v.set, v.sound)[v.index];
                 v.index += 1;
                 k += 1;
             }

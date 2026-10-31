@@ -134,7 +134,7 @@ describe("the native engine from the studio", () => {
     audioEngine.setLoop(true, 2, 6);
     expect(bridge.loop).toHaveBeenLastCalledWith({ start: 2, end: 6 });
     audioEngine.setMetronome(true);
-    expect(bridge.metronome).toHaveBeenLastCalledWith(true, expect.any(Number));
+    expect(bridge.metronome).toHaveBeenLastCalledWith(true, expect.any(Number), "classic");
     audioEngine.stopAll();
     expect(bridge.stop).toHaveBeenCalled();
     await vi.waitFor(() => expect(audioEngine.getTransportSeconds()).toBe(12.5));

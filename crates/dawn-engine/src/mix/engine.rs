@@ -306,6 +306,11 @@ impl Engine {
         self.metronome.set_enabled(enabled);
     }
 
+    /// Which sound the clicks make (a name in `metronome::CLICK_SOUNDS`).
+    pub fn set_metronome_sound(&mut self, sound: &str) {
+        self.metronome.set_sound(sound);
+    }
+
     /// The click's level, in dB from its standard level.
     pub fn set_metronome_level(&mut self, db: f64) {
         self.click_level = 10f64.powf(db / 20.0) as f32;

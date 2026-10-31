@@ -1,6 +1,6 @@
 // The metronome's kernel: where the clicks fall (the beat grid, the tempo
 // map, the loop, the count-in, the accents) and the click sounds
-// themselves. It runs on the audio thread, in an AudioWorklet
+// themselves (four to choose from: CLICK_SOUNDS). It runs on the audio thread, in an AudioWorklet
 // (metronome.ts), and places every click at its exact sample - so nothing
 // the page does can delay or drop one. Kept as source text like the
 // effects' kernels; the tests run the same text. The desktop app's native
@@ -86,6 +86,40 @@ function clickSound(sampleRate, frequency, gainDb) {
   return data;
 }
 
+// The sounds to choose from, in order. Each makes an accent (a bar's
+// first beat, higher) and a beat.
+const CLICK_SOUNDS = ["classic", "beep", "wood", "cowbell"];
+
+// One of a sound's clicks: classic is the square-ish blip above; beep a
+// sine; wood two short inharmonic partials, like a wood block; cowbell two
+// longer ones, like a cowbell.
+function makeClick(sampleRate, sound, accent, gainDb) {
+  if (sound === "classic") return clickSound(sampleRate, accent ? 1046.5 : 523.25, gainDb);
+  const length = Math.round(0.07 * sampleRate);
+  const data = new Float32Array(length);
+  const gain = Math.pow(10, gainDb / 20);
+  for (let i = 0; i < length; i++) {
+    const t = i / sampleRate;
+    let wave;
+    let env;
+    if (sound === "beep") {
+      const f = accent ? 1760 : 880;
+      wave = Math.sin(2 * Math.PI * f * t);
+      env = Math.min(1, t / 0.001) * Math.exp(-t / 0.02);
+    } else if (sound === "wood") {
+      const f = accent ? 2093 : 1568;
+      wave = 0.8 * (Math.sin(2 * Math.PI * f * t) + 0.4 * Math.sin(2 * Math.PI * 2.76 * f * t));
+      env = Math.min(1, t / 0.0005) * Math.exp(-t / 0.006);
+    } else {
+      const f = accent ? 800 : 587;
+      wave = 0.6 * (Math.sin(2 * Math.PI * f * t) + Math.sin(2 * Math.PI * 1.48 * f * t));
+      env = Math.min(1, t / 0.001) * Math.exp(-t / 0.03);
+    }
+    data[i] = wave * env * gain;
+  }
+  return data;
+}
+
 class MetronomeKernel {
   constructor(sampleRate) {
     this.sampleRate = sampleRate;
@@ -107,14 +141,16 @@ class MetronomeKernel {
     this.countIn = this.segments;
     // Clicks sounding: their samples, how far in, and when they started.
     this.voices = [];
-    // Loud enough to cut through a mix with drums (the level setting moves
-    // them both); the count-in a little louder still.
-    this.sounds = {
-      accent: clickSound(sampleRate, 1046.5, -6),
-      beat: clickSound(sampleRate, 523.25, -6),
-      countAccent: clickSound(sampleRate, 1046.5, -3),
-      countBeat: clickSound(sampleRate, 523.25, -3),
-    };
+    // Every sound's clicks, made now so a change doesn't make them on the
+    // audio thread. Loud enough to cut through a mix with drums (the level
+    // setting moves them all); the count-in a little louder still.
+    this.sets = CLICK_SOUNDS.map((sound) => ({
+      accent: makeClick(sampleRate, sound, true, -6),
+      beat: makeClick(sampleRate, sound, false, -6),
+      countAccent: makeClick(sampleRate, sound, true, -3),
+      countBeat: makeClick(sampleRate, sound, false, -3),
+    }));
+    this.sounds = this.sets[0];
   }
 
   // A message from the page (metronome.ts).
@@ -155,6 +191,12 @@ class MetronomeKernel {
       case "loop":
         this.loop = m.loop;
         break;
+      case "sound": {
+        // Clicks already sounding finish as they were.
+        const i = CLICK_SOUNDS.indexOf(m.sound);
+        if (i >= 0) this.sounds = this.sets[i];
+        break;
+      }
     }
   }
 

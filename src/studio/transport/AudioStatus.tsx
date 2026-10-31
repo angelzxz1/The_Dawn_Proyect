@@ -80,6 +80,7 @@ export function AudioStatus() {
     audioEngine.setReducedLatencyMonitoring(prefs.reducedLatencyMonitoring);
     audioEngine.setRecordingCorrection(prefs.measuredRoundTrip, prefs.recordingOffsetMs);
     audioEngine.setMetronomeLevel(prefs.metronomeDb);
+    audioEngine.setMetronomeSound(prefs.metronomeSound);
   }, [prefs]);
 
   useEffect(() => {

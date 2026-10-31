@@ -263,7 +263,6 @@ export function Daw() {
    * recordings currently use (null = the browser's default). Refreshed on
    * mount and whenever the OS reports a device was plugged/unplugged. */
   const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([]);
-  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState<string | null>(null);
   /** Audio tracks whose input is heard live (through their effects) - each
    * track's headphones button. Session-only: not part of the undo-tracked
    * document, and never reopened on load (that would prompt for the mic). */
@@ -403,7 +402,7 @@ export function Daw() {
     }
     if (!armedAudio) return;
     audioEngine
-      .openInput()
+      .openInput(armedAudio)
       .then(() => setMicError(null))
       .catch((error) => {
         noteIssue("input.open", error, { report: false });
@@ -877,10 +876,20 @@ export function Daw() {
     };
   }, [refreshInputDevices]);
 
-  const handleInputDeviceChange = useCallback((deviceId: string | null) => {
-    setSelectedInputDeviceId(deviceId);
-    audioEngine.setMicDevice(deviceId);
-  }, []);
+  // Each audio track records from its own input device.
+  const inputDeviceKey = channels
+    .filter((c) => c.type === "audio")
+    .map((c) => `${c.id}=${c.inputDevice ?? ""}`)
+    .join("|");
+  useEffect(() => {
+    const devices = new Map<string, string | null>();
+    projectStore
+      .get()
+      .channels.filter((c) => c.type === "audio")
+      .forEach((c) => devices.set(c.id, c.inputDevice ?? null));
+    audioEngine.setInputDevices(devices);
+  }, [inputDeviceKey]);
+  const handleInputDeviceChange = trackActions.setInputDevice;
 
   /** Primes mic permission (e.g. from a track's Input select gaining
    * focus) and refreshes the device list right after, so the full set of
@@ -2502,7 +2511,6 @@ export function Daw() {
                   canMoveDown={canMoveTrack(channels, channel.id, 1)}
                   showAutomation={automationChannelId === channel.id}
                   inputDevices={inputDevices}
-                  selectedInputDeviceId={selectedInputDeviceId}
                   monitoring={monitoredChannelIds.has(channel.id)}
                   takeCount={(takesByChannel[channel.id] ?? NO_TAKES).length}
                   actions={headerActions}

@@ -1,6 +1,7 @@
-// The audio inputs: the audio interface (one shared stream, opened when
-// first needed) and other tracks ("Audio From"), and each audio track's
-// monitor - its input heard live through its effects.
+// The audio inputs: the audio interface's (each track picks its own device;
+// a stream per device in use, opened when first needed) and other tracks
+// ("Audio From"), and each audio track's monitor - its input heard live
+// through its effects.
 
 import * as Tone from "tone";
 import type { SidechainTap } from "../effects/sidechain/sidechainModel";
@@ -29,17 +30,31 @@ export async function microphoneAllowed(): Promise<boolean> {
   }
 }
 
+/** An open input device: its stream, its graph input, and the analyser
+ * its meter reads. */
+interface OpenDevice {
+  stream: MediaStream;
+  source: MediaStreamAudioSourceNode;
+  analyser: AnalyserNode;
+}
+
+/** The browser's default input, as a device key. */
+const DEFAULT_DEVICE = "";
+
 export class InputManager {
   constructor(private readonly host: InputHost) {}
 
-  /** Which input device recordings should capture from - null means the
-   * browser's default. Set via `setMicDevice`, e.g. after plugging in an
-   * audio interface and picking it from a track's own Input select. */
-  private micDeviceId: string | null = null;
+  /** Each audio track's input device (setTrackDevices); a track not in it
+   * takes the browser's default. */
+  private trackDevices = new Map<string, string>();
+  /** The open devices, by id (DEFAULT_DEVICE for the default), and those
+   * opening. */
+  private devices = new Map<string, OpenDevice>();
+  private opening = new Map<string, Promise<OpenDevice>>();
 
   /** Per-channel live input-monitor taps - open only while that channel is
    * both armed and monitoring is enabled (see `setInputMonitoring`). Each
-   * is fed by the shared mic source, so what you hear is the same clean
+   * is fed by its track's device, so what you hear is the same clean
    * capture (no echo cancellation, noise suppression or auto gain) that
    * gets recorded. */
   private monitorNodes = new Map<string, Tone.Gain>();
@@ -48,8 +63,10 @@ export class InputManager {
   private monitorFeeds = new Map<string, Tone.OutputNode>();
   /** Audio tracks taking another track's audio as their input. */
   private trackInputs = new Map<string, TrackInput>();
-  /** The open interface input, if any. */
-  private micStream: MediaStream | null = null;
+
+  private deviceOf(channelId: string): string {
+    return this.trackDevices.get(channelId) ?? DEFAULT_DEVICE;
+  }
 
   /** A track's input when it comes from another track: that track's tap,
    * or null while it's missing. Undefined: the audio interface. */
@@ -83,14 +100,16 @@ export class InputManager {
   replug(): void {
     this.monitorNodes.forEach((_, id) => {
       const node = this.trackInputNode(id);
+      const device = this.deviceOf(id);
+      const open = this.devices.get(device);
       if (node !== undefined) this.plugMonitor(id, node);
-      else if (this.micSource) this.plugMonitor(id, this.micSource);
+      else if (open) this.plugMonitor(id, open.source);
       else {
-        // Back on the interface input, which isn't open yet.
+        // On an interface input that isn't open yet.
         this.plugMonitor(id, null);
-        void this.ensureMicSource()
-          .then((mic) => {
-            if (this.monitorNodes.has(id) && !this.trackInputs.has(id)) this.plugMonitor(id, mic);
+        void this.ensureDevice(device)
+          .then((opened) => {
+            if (this.monitorNodes.has(id) && !this.trackInputs.has(id) && this.deviceOf(id) === device) this.plugMonitor(id, opened.source);
           })
           // No input (refused, unplugged): the track stays unmonitored.
           .catch((error) => noteIssue("input.monitor", error, { report: false }));
@@ -98,31 +117,61 @@ export class InputManager {
     });
   }
 
-  /** One long-lived graph input for the mic stream, shared by every
-   * capture (see InputRecorder.start). */
-  private micSource: MediaStreamAudioSourceNode | null = null;
-
-  async ensureMicSource(): Promise<MediaStreamAudioSourceNode> {
-    const stream = await this.ensureMicStream();
-    if (!this.micSource || this.micSource.mediaStream !== stream) {
-      this.micSource?.disconnect();
-      this.micSource = Tone.getContext().createMediaStreamSource(stream);
+  /** An input device, open: one stream and graph input per device, shared
+   * by every track on it, every capture (see InputRecorder.start) and its
+   * meter. */
+  private ensureDevice(device: string): Promise<OpenDevice> {
+    const open = this.devices.get(device);
+    if (open) return Promise.resolve(open);
+    const pending = this.opening.get(device);
+    if (pending) return pending;
+    const opening = (async () => {
+      // `channelCount: { ideal: 1 }` asks for a single (mono) capture
+      // rather than whatever multi-channel width the device natively
+      // exposes - without it, some audio interfaces hand back every input
+      // channel summed together regardless of which single `deviceId` was
+      // requested. Echo cancellation, noise suppression and auto gain are
+      // made for calls: they pump, gate and dull an instrument, so they're
+      // off. Recording and monitoring both use this one stream.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(device ? { deviceId: { exact: device } } : {}),
+          channelCount: { ideal: 1 },
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      const context = Tone.getContext();
+      const source = context.createMediaStreamSource(stream);
       // The input meter listens to the raw input, before any effect.
-      this.inputAnalyser ??= Tone.getContext().createAnalyser();
-      this.inputAnalyser.fftSize = 2048;
-      this.micSource.connect(this.inputAnalyser);
-    }
-    return this.micSource;
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      const opened = { stream, source, analyser };
+      this.devices.set(device, opened);
+      return opened;
+    })();
+    this.opening.set(device, opening);
+    opening.then(
+      () => this.opening.delete(device),
+      () => this.opening.delete(device)
+    );
+    return opening;
   }
 
-  private inputAnalyser: AnalyserNode | null = null;
+  /** A track's interface input (its device's), opened if it isn't. */
+  async inputSource(channelId: string): Promise<MediaStreamAudioSourceNode> {
+    return (await this.ensureDevice(this.deviceOf(channelId))).source;
+  }
+
   private inputSamples: Float32Array<ArrayBuffer> | null = null;
 
-  /** The input's peak level (0..1, 1 = full scale) over the last ~40 ms,
-   * or null while no input is open. For the armed track's input meter. */
-  getInputPeak(): number | null {
-    const analyser = this.inputAnalyser;
-    if (!analyser || !this.micSource) return null;
+  /** A track's input peak level (0..1, 1 = full scale) over the last ~40
+   * ms, or null while its device isn't open. For its input meter. */
+  getInputPeak(channelId: string): number | null {
+    const analyser = this.devices.get(this.deviceOf(channelId))?.analyser;
+    if (!analyser) return null;
     if (this.inputSamples?.length !== analyser.fftSize) this.inputSamples = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(this.inputSamples);
     let peak = 0;
@@ -130,32 +179,11 @@ export class InputManager {
     return peak;
   }
 
-  /** Opens the input (asking for permission the first time) so the armed
-   * track's meter shows the level before recording. */
-  async openInput(): Promise<void> {
+  /** Opens a track's input (asking for permission the first time) so its
+   * meter shows the level before recording. */
+  async openInput(channelId: string): Promise<void> {
     await this.host.ensureStarted();
-    await this.ensureMicSource();
-  }
-
-  private async ensureMicStream(): Promise<MediaStream> {
-    if (this.micStream) return this.micStream;
-    // `channelCount: { ideal: 1 }` asks for a single (mono) capture rather
-    // than whatever multi-channel width the selected device natively
-    // exposes - without it, some audio interfaces hand back every input
-    // channel summed together regardless of which single `deviceId` was
-    // requested. Echo cancellation, noise suppression and auto gain are
-    // made for calls: they pump, gate and dull an instrument, so they're
-    // off. Recording and monitoring both use this one stream.
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        ...(this.micDeviceId ? { deviceId: { exact: this.micDeviceId } } : {}),
-        channelCount: { ideal: 1 },
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-    });
-    return this.micStream;
+    await this.inputSource(channelId);
   }
 
   /** Requests mic permission (prompting the user the first time) without
@@ -164,25 +192,33 @@ export class InputManager {
    * time, since `enumerateDevices` only returns generic/blank entries
    * until permission has been granted at least once. */
   async requestMicAccess(): Promise<void> {
-    await this.ensureMicStream();
+    await this.ensureDevice(DEFAULT_DEVICE);
   }
 
-  /** Switches which input device future recordings and monitoring capture
-   * from. Drops any already-open mic stream so `ensureMicStream`
-   * re-requests `getUserMedia` against the new device instead of reusing
-   * the old one, and reopens any active monitor taps on the new device -
-   * a no-op while nothing's open yet. */
-  setMicDevice(deviceId: string | null): void {
-    if (this.micDeviceId === deviceId) return;
-    this.micDeviceId = deviceId;
-    if (this.micStream) {
-      this.micStream.getTracks().forEach((track) => track.stop());
-      this.micStream = null;
-    }
-    this.micSource?.disconnect();
-    this.micSource = null;
-    // Monitors on the interface input reopen on the new device.
-    [...this.monitorNodes.keys()].forEach((channelId) => this.monitorFeeds.delete(channelId));
+  /** Each audio track's input device (null: the browser's default). A
+   * track whose device changed reopens its monitor on the new one; a
+   * device no track uses any more is closed (the default stays open once
+   * it is). */
+  setTrackDevices(devices: Map<string, string | null>): void {
+    const next = new Map<string, string>();
+    devices.forEach((device, id) => {
+      if (device) next.set(id, device);
+    });
+    const ids = new Set([...this.trackDevices.keys(), ...next.keys()]);
+    const changed = [...ids].filter((id) => this.trackDevices.get(id) !== next.get(id));
+    this.trackDevices = next;
+    if (changed.length === 0) return;
+    const used = new Set([DEFAULT_DEVICE, ...next.values()]);
+    this.devices.forEach((open, device) => {
+      if (used.has(device)) return;
+      open.source.disconnect();
+      open.stream.getTracks().forEach((track) => track.stop());
+      this.devices.delete(device);
+    });
+    // Monitors on the interface input move to their track's device.
+    changed.forEach((id) => {
+      if (this.monitorNodes.has(id) && !this.trackInputs.has(id)) this.plugMonitor(id, null);
+    });
     this.replug();
   }
 
@@ -218,9 +254,10 @@ export class InputManager {
     if (this.monitorNodes.has(channelId)) return true;
     await this.host.ensureStarted();
     // Another track's audio needs no permission; the interface does.
+    let device: OpenDevice | undefined;
     if (this.trackInputNode(channelId) === undefined) {
       try {
-        await this.ensureMicSource();
+        device = await this.ensureDevice(this.deviceOf(channelId));
       } catch (error) {
         noteIssue("input.open", error, { report: false });
         return false;
@@ -233,7 +270,7 @@ export class InputManager {
     }
     this.monitorNodes.set(channelId, new Tone.Gain(1));
     const node = this.trackInputNode(channelId);
-    this.plugMonitor(channelId, node !== undefined ? node : this.micSource);
+    this.plugMonitor(channelId, node !== undefined ? node : (device?.source ?? null));
     this.host.rewireTrack(channelId);
     return true;
   }
@@ -260,8 +297,14 @@ export class InputManager {
     return this.monitorNodes.get(channelId);
   }
 
-  /** The open interface stream's settings (latency, sample rate), if open. */
-  get inputSettings(): (MediaTrackSettings & { latency?: number }) | null {
-    return (this.micStream?.getAudioTracks()[0]?.getSettings() as MediaTrackSettings & { latency?: number }) ?? null;
+  /** An open interface stream's settings (latency, sample rate): a
+   * track's device's when it's given and open, else the default's, else
+   * any open one's. */
+  inputSettings(channelId?: string): (MediaTrackSettings & { latency?: number }) | null {
+    const open =
+      (channelId !== undefined ? this.devices.get(this.deviceOf(channelId)) : undefined) ??
+      this.devices.get(DEFAULT_DEVICE) ??
+      this.devices.values().next().value;
+    return (open?.stream.getAudioTracks()[0]?.getSettings() as MediaTrackSettings & { latency?: number }) ?? null;
   }
 }

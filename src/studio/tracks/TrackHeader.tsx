@@ -99,7 +99,7 @@ export interface TrackHeaderActions {
   recolor(id: string, pick: TrackColorPick): void;
   move(id: string, direction: -1 | 1): void;
   toggleAutomation(id: string): void;
-  setInputDevice(deviceId: string | null): void;
+  setInputDevice(id: string, deviceId: string | null): void;
   /** Primes mic permission and refreshes the input devices - fired when the
    * input select gains focus, since the browser only returns the full,
    * labeled device list once permission has been granted at least once. */
@@ -143,7 +143,6 @@ interface TrackHeaderProps {
    * track so a device can be picked right on the track, without needing
    * it armed first. Unused for a MIDI track. */
   inputDevices?: { deviceId: string; label: string }[];
-  selectedInputDeviceId?: string | null;
   /** The row's height: short when the track is folded; the header shows as
    * many of its rows as fit. */
   rowHeight?: number;
@@ -242,7 +241,6 @@ export const TrackHeader = memo(function TrackHeader({
   showAutomation,
   takeCount = 0,
   inputDevices,
-  selectedInputDeviceId,
   rowHeight = TRACK_ROW_HEIGHT,
   groupColor,
   memberCount = 0,
@@ -273,7 +271,10 @@ export const TrackHeader = memo(function TrackHeader({
   const onMoveUp = () => actions.move(id, -1);
   const onMoveDown = () => actions.move(id, 1);
   const onToggleAutomation = () => actions.toggleAutomation(id);
-  const onInputDeviceChange = actions.setInputDevice;
+  const onInputDeviceChange = (deviceId: string | null) => actions.setInputDevice(id, deviceId);
+  // Its own device, or the default; one that isn't plugged in still shows.
+  const inputDevice = channel.inputDevice ?? "";
+  const deviceMissing = !!inputDevice && !(inputDevices ?? []).some((d) => d.deviceId === inputDevice);
   const onRequestInputDevices = actions.requestInputDevices;
   const onToggleFold = (all: boolean) => actions.toggleFold(id, all);
   const onPick = () => actions.pick(id);
@@ -285,7 +286,7 @@ export const TrackHeader = memo(function TrackHeader({
   const isMidi = channel.type === "midi";
   const isGroup = channel.type === "group";
   // Monitoring the audio interface with nothing coming in.
-  const noSignal = useNoInputSignal(monitoring && !isMidi && !isGroup && !inputName);
+  const noSignal = useNoInputSignal(monitoring && !isMidi && !isGroup && !inputName, id);
   const shownSilence = silent ?? (noSignal ? { label: "No input", detail: "Monitoring, but no signal is coming in: check the track's Input, the cable and the interface's level." } : null);
   // As many of its rows as fit: the name (with mute and solo, alone),
   // the input, mute, solo and FX row, pan and volume, then the files row.
@@ -531,12 +532,14 @@ export const TrackHeader = memo(function TrackHeader({
           ) : (
             <select
               title="Which microphone or audio-interface input this track records from"
-              value={selectedInputDeviceId ?? ""}
+              aria-label="Input"
+              value={inputDevice}
               onChange={(e) => onInputDeviceChange(e.target.value || null)}
               onFocus={() => onRequestInputDevices()}
               className="h-5 max-w-[76px] rounded border border-border bg-surface px-1 text-[10px] text-muted"
             >
               <option value="">Default</option>
+              {deviceMissing && <option value={inputDevice}>Not connected</option>}
               {(inputDevices ?? []).map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>
                   {d.label}
@@ -648,7 +651,7 @@ export const TrackHeader = memo(function TrackHeader({
               <Layers size={12} />
             </IconButton>
           )}
-          {!isMidi && !isGroup && !inputName && channel.armed ? <InputMeter /> : <div className="flex-1" />}
+          {!isMidi && !isGroup && !inputName && channel.armed ? <InputMeter channelId={id} /> : <div className="flex-1" />}
           {canRemove && (
             <IconButton title={isGroup ? "Remove the group (its tracks stay)" : "Remove channel"} onClick={() => onRemove()} danger>
               <X size={12} />

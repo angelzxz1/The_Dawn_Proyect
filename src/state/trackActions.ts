@@ -178,6 +178,13 @@ export const trackActions = {
     updateTrack(id, (c) => (input ? { ...c, input } : without(c, "input")));
   },
 
+  /** Which input device an audio track records from (null: the default). */
+  setInputDevice(id: string, deviceId: string | null): void {
+    if ((channels().find((c) => c.id === id)?.inputDevice ?? null) === deviceId) return;
+    projectStore.push();
+    updateTrack(id, (c) => (deviceId ? { ...c, inputDevice: deviceId } : without(c, "inputDevice")));
+  },
+
   /** Where a track's audio goes ("Audio To"): a track's id, "master", or
    * null for the default (its group, else the master). */
   setOutput(id: string, output: string | null): void {

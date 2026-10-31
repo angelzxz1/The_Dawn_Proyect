@@ -299,6 +299,7 @@ function normalizeChannel(
     ...(typeof r.groupId === "string" && r.groupId ? { groupId: r.groupId } : {}),
     ...(typeof r.output === "string" && r.output ? { output: r.output } : {}),
     ...(type === "audio" && normalizeTrackInput(r.input) ? { input: normalizeTrackInput(r.input)! } : {}),
+    ...(type === "audio" && typeof r.inputDevice === "string" && r.inputDevice && r.inputDevice.length <= 512 ? { inputDevice: r.inputDevice } : {}),
     ...(r.folded === true ? { folded: true } : {}),
     ...(typeof r.height === "number" && Number.isFinite(r.height) ? { height: clampTrackHeight(r.height) } : {}),
     ...(r.showTakes === true && type !== "group" ? { showTakes: true } : {}),

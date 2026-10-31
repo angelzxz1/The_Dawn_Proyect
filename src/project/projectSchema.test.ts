@@ -463,3 +463,16 @@ describe("section markers", () => {
     ]);
   });
 });
+
+describe("an audio track's input device", () => {
+  it("is kept per track, and only on audio tracks", () => {
+    const p = normalizeProject({
+      channels: [
+        { id: "a", name: "Gtr", type: "audio", inputDevice: "usb-1" },
+        { id: "b", name: "Vox", type: "audio" },
+        { id: "m", name: "Keys", type: "midi", inputDevice: "usb-1" },
+      ],
+    });
+    expect(p?.channels.map((c) => c.inputDevice)).toEqual(["usb-1", undefined, undefined]);
+  });
+});

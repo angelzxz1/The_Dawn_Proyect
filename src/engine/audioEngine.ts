@@ -445,7 +445,7 @@ class AudioEngine {
     const ctx = nativeAudioContext();
     const base = ctx?.baseLatency ?? 0;
     const output = base + (ctx?.outputLatency ?? 0);
-    const settings = this.inputs.inputSettings ?? {};
+    const settings = this.inputs.inputSettings() ?? {};
     return {
       sampleRate: Tone.getContext().sampleRate,
       output,
@@ -468,7 +468,7 @@ class AudioEngine {
     } catch {
       // No way to ask.
     }
-    const input = this.inputs.inputSettings?.sampleRate ?? null;
+    const input = this.inputs.inputSettings()?.sampleRate ?? null;
     return { output, input };
   }
 
@@ -1594,17 +1594,20 @@ class AudioEngine {
     rewireTrack: (id) => this.rewireChannel(id),
   });
 
-  getInputPeak(): number | null {
-    return this.inputs.getInputPeak();
+  /** A track's interface input's peak level (0..1) right now, or null
+   * while its device isn't open (inputs.ts). */
+  getInputPeak(channelId: string): number | null {
+    return this.inputs.getInputPeak(channelId);
   }
-  openInput(): Promise<void> {
-    return this.inputs.openInput();
+  openInput(channelId: string): Promise<void> {
+    return this.inputs.openInput(channelId);
   }
   requestMicAccess(): Promise<void> {
     return this.inputs.requestMicAccess();
   }
-  setMicDevice(deviceId: string | null): void {
-    this.inputs.setMicDevice(deviceId);
+  /** Each audio track's input device (null: the browser's default). */
+  setInputDevices(devices: Map<string, string | null>): void {
+    this.inputs.setTrackDevices(devices);
   }
   listInputDevices(): Promise<{ deviceId: string; label: string }[]> {
     return this.inputs.listInputDevices();
@@ -1668,7 +1671,7 @@ class AudioEngine {
     // (one input, see inputs.ts).
     const recorder = trackNode
       ? await InputRecorder.start(Tone.getContext(), trackNode, 2)
-      : await InputRecorder.start(Tone.getContext(), await this.inputs.ensureMicSource());
+      : await InputRecorder.start(Tone.getContext(), await this.inputs.inputSource(channelId));
     if (!this.channels.has(channelId)) {
       recorder.cancel();
       return;
@@ -1700,12 +1703,13 @@ class AudioEngine {
 
   /** Measures the real round trip: plays a few clicks straight to the
    * output and listens for them on the input (speakers into the mic, or a
-   * cable from the interface's output to its input). Resolves with seconds,
-   * or null if they weren't heard clearly. */
-  async measureRoundTrip(): Promise<number | null> {
+   * cable from the interface's output to its input) - on `channelId`'s
+   * input device, or the default. Resolves with seconds, or null if they
+   * weren't heard clearly. */
+  async measureRoundTrip(channelId = ""): Promise<number | null> {
     await this.ensureStarted();
     const ctx = Tone.getContext();
-    const recorder = await InputRecorder.start(ctx, await this.inputs.ensureMicSource());
+    const recorder = await InputRecorder.start(ctx, await this.inputs.inputSource(channelId));
     const sr = ctx.sampleRate;
     const click = ctx.createBuffer(1, Math.round(0.004 * sr), sr);
     const data = click.getChannelData(0);

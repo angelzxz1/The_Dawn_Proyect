@@ -106,3 +106,21 @@ test("the audio status panel shows the sample rate and latency", async ({ page }
   await expect(panel).toContainText(/Round trip \((measured|estimated)\)\s*\d/);
   await page.keyboard.press("Escape");
 });
+
+test("each audio track keeps its own input device", async ({ studio }) => {
+  await studio.addTrack("Audio");
+  await studio.addTrack("Audio");
+  const first = studio.header("Audio 1").getByRole("combobox", { name: "Input" });
+  const second = studio.header("Audio 2").getByRole("combobox", { name: "Input" });
+  // Going to the list asks for the (fake) devices; pick the last one.
+  await first.focus();
+  await expect.poll(() => first.locator("option").count()).toBeGreaterThan(1);
+  const options = await first.locator("option").evaluateAll((all) => all.map((o) => (o as HTMLOptionElement).value));
+  const device = options[options.length - 1];
+  await first.selectOption(device);
+  await expect(first).toHaveValue(device);
+  // The other track is still on the default.
+  await expect(second).toHaveValue("");
+  await second.selectOption(options[1]);
+  await expect(first).toHaveValue(device);
+});

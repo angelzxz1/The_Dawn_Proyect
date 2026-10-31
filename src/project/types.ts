@@ -56,6 +56,11 @@ export interface ChannelConfig extends InstrumentSettings {
    * fader. Unset: the audio interface's input. What comes in is heard
    * (when monitoring) and recorded like a microphone. See routing.ts. */
   input?: TrackInput;
+  /** Audio tracks: which of the computer's input devices the interface
+   * input is (the browser's device id); unset: the default. Each track
+   * keeps its own. A device that isn't there (another computer) is the
+   * default. */
+  inputDevice?: string;
   /** Folded: a short row in the arrangement (for a group: its members are
    * hidden too). */
   folded?: boolean;

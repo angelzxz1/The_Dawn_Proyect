@@ -8,6 +8,7 @@ import { useAudioPrefs } from "./useAudioPrefs";
 import { useShortcuts } from "@/ui/shortcuts";
 import { noteIssue } from "@/services/issues";
 import { isDesktopApp } from "@/services/desktop";
+import { projectStore } from "@/state/projectStore";
 import { NativeEngineSection, useNativeEngine } from "./NativeEngineSection";
 
 const ms = (seconds: number) => `${(seconds * 1000).toFixed(1)} ms`;
@@ -129,7 +130,9 @@ export function AudioStatus() {
   const runMeasure = async () => {
     setMeasure({ state: "running" });
     try {
-      const rt = await audioEngine.measureRoundTrip();
+      // On the armed audio track's input, where takes come from.
+      const armed = projectStore.get().channels.find((c) => c.armed && c.type === "audio" && !c.input);
+      const rt = await audioEngine.measureRoundTrip(armed?.id);
       if (rt === null) {
         setMeasure({
           state: "failed",

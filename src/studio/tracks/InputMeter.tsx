@@ -10,7 +10,7 @@ const toFraction = (peak: number) => (peak <= 0 ? 0 : Math.max(0, Math.min(1, 1 
 /** The input level on an armed audio track: a horizontal meter from -60 to
  * 0 dBFS with a mark at -12 dBFS (a good peak for recording) and a clip
  * light that stays on until clicked. */
-export function InputMeter() {
+export function InputMeter({ channelId }: { channelId: string }) {
   const fill = useRef<HTMLDivElement>(null);
   const hold = useRef<HTMLDivElement>(null);
   const [clipped, setClipped] = useState(false);
@@ -23,7 +23,7 @@ export function InputMeter() {
     const tick = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
-      const peak = audioEngine.getInputPeak();
+      const peak = audioEngine.getInputPeak(channelId);
       setOpen(peak !== null);
       const level = toFraction(peak ?? 0);
       held = Math.max(level, held - 0.5 * dt);
@@ -34,7 +34,7 @@ export function InputMeter() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [channelId]);
 
   return (
     <div

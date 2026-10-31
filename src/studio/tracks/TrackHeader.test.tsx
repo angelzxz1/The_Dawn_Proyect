@@ -192,7 +192,7 @@ describe("other kinds of track", () => {
     (input.element() as HTMLSelectElement).focus();
     expect(actions.requestInputDevices).toHaveBeenCalled();
     await input.selectOptions("USB Interface");
-    expect(actions.setInputDevice).toHaveBeenCalledWith("usb");
+    expect(actions.setInputDevice).toHaveBeenCalledWith("gtr", "usb");
 
     // Armed, it shows the input's level once the input is open; MIDI's
     // import/export are gone.
@@ -254,6 +254,29 @@ describe("other kinds of track", () => {
     await expect
       .poll(() => screen.getByTitle("Left", { exact: true }).element().firstElementChild!.getAttribute("style"))
       .toContain("inset(0% 0px 0px)");
+  });
+});
+
+describe("an audio track's input device", () => {
+  test("is its own: it shows the track's device, or Default", async () => {
+    const devices = [{ deviceId: "usb", label: "USB Interface" }, { deviceId: "cam", label: "Webcam" }];
+    const audio = (inputDevice?: string) => channel({ id: "gtr", name: "Guitar", type: "audio", instrument: null, ...(inputDevice ? { inputDevice } : {}) });
+    // Two tracks: one on the interface, one on the default.
+    renderHeader({ channel: audio("usb"), inputDevices: devices });
+    const { screen } = renderHeader({ channel: audio(), inputDevices: devices });
+    const inputs = screen.getByRole("combobox", { name: "Input" });
+    await expect.element(inputs.nth(0)).toHaveValue("usb");
+    await expect.element(inputs.nth(1)).toHaveValue("");
+  });
+
+  test("one that isn't plugged in says so, and stays picked", async () => {
+    const { screen } = renderHeader({
+      channel: channel({ id: "gtr", name: "Guitar", type: "audio", instrument: null, inputDevice: "gone" }),
+      inputDevices: [{ deviceId: "usb", label: "USB Interface" }],
+    });
+    const input = screen.getByRole("combobox", { name: "Input" });
+    await expect.element(input).toHaveValue("gone");
+    await expect.element(input.getByRole("option", { name: "Not connected" })).toBeInTheDocument();
   });
 });
 
